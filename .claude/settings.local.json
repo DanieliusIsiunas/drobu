@@ -24,7 +24,18 @@
       "Bash(xxd:*)",
       "Bash(chmod:*)",
       "Bash(./build.sh:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(killall:*)",
+      "Bash(codesign:*)",
+      "Bash(tccutil reset:*)",
+      "Bash(bash:*)",
+      "Bash(security import:*)",
+      "Bash(security find-identity:*)",
+      "Bash(sqlite3:*)",
+      "Bash(log show:*)",
+      "Bash(pbcopy:*)",
+      "Bash(pgrep:*)",
+      "Bash(pkill:*)"
     ]
   }
 }

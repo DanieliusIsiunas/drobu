@@ -22,3 +22,6 @@ Package.resolved
 
 # Build output
 build/
+
+# Claude Code local settings
+.claude/settings.local.json

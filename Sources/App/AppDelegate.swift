@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import HotKey
 
 @MainActor
@@ -32,8 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.togglePanel()
         }
 
-        // Check pasteboard privacy (macOS 15.4+)
-        checkPasteboardPrivacy()
+        // Check Accessibility permission on launch
+        checkAccessibilityOnLaunch()
 
         // Run cleanup on launch + schedule hourly
         runCleanup()
@@ -67,6 +68,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task.detached { [database] in
             try? await database!.pool.write { db in
                 try ClipboardRecord.cleanup(in: db)
+            }
+        }
+    }
+
+    // MARK: - Accessibility Onboarding
+
+    private func checkAccessibilityOnLaunch() {
+        guard !AXIsProcessTrusted() else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permission Required"
+        alert.informativeText = """
+            ClipboardHistory needs Accessibility permission to auto-paste items. \
+            Without it, items will be copied to clipboard but you'll need to paste manually with Cmd+V.
+
+            Click 'Open System Settings' and toggle on ClipboardHistory.
+            """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Skip (Copy Only)")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
             }
         }
     }

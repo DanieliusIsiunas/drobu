@@ -99,6 +99,7 @@ final class FloatingPanel: NSPanel {
     // MARK: - Auto-Paste via CGEvent
 
     func pasteItem(_ record: ClipboardRecord) {
+        // 1. Always write to pasteboard (works without any permission)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
@@ -115,12 +116,14 @@ final class FloatingPanel: NSPanel {
             break
         }
 
-        // Close panel immediately
+        // 2. Close panel immediately
         close()
 
-        // Fire paste after target app regains focus
-        if checkAccessibility() {
+        // 3. Auto-paste if we have Accessibility, otherwise show "Copied" notification
+        if AXIsProcessTrusted() {
             observeActivationThenPaste()
+        } else {
+            showCopiedNotification()
         }
     }
 
@@ -168,10 +171,61 @@ final class FloatingPanel: NSPanel {
         keyUp.post(tap: .cgAnnotatedSessionEventTap)
     }
 
-    private nonisolated func checkAccessibility() -> Bool {
-        let promptKey = "AXTrustedCheckOptionPrompt"
-        let options = [promptKey: true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
+    private func showCopiedNotification() {
+        let hudWidth: CGFloat = 220
+        let hudHeight: CGFloat = 36
+
+        let hud = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: hudWidth, height: hudHeight),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hud.isOpaque = false
+        hud.backgroundColor = .clear
+        hud.level = .floating
+        hud.ignoresMouseEvents = true
+        hud.hasShadow = true
+
+        let visual = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: hudWidth, height: hudHeight))
+        visual.material = .hudWindow
+        visual.state = .active
+        visual.wantsLayer = true
+        visual.layer?.cornerRadius = 10
+
+        let label = NSTextField(labelWithString: "Copied! Paste with \u{2318}V")
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .labelColor
+        label.alignment = .center
+        label.frame = visual.bounds
+        label.autoresizingMask = [.width, .height]
+        visual.addSubview(label)
+
+        hud.contentView = visual
+
+        // Position near screen center
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - hudWidth / 2
+            let y = screenFrame.midY - hudHeight / 2
+            hud.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        hud.orderFront(nil)
+
+        // Auto-dismiss after 1.5 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            MainActor.assumeIsolated {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    hud.animator().alphaValue = 0
+                }, completionHandler: {
+                    MainActor.assumeIsolated {
+                        hud.close()
+                    }
+                })
+            }
+        }
     }
 }
 
