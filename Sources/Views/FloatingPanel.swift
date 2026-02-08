@@ -126,21 +126,19 @@ final class FloatingPanel: NSPanel {
             break
         }
 
-        // 2. Close panel and paste
-        close()
+        // 2. Hide panel instantly and paste
+        // Use orderOut for instant visual removal — close() triggers SwiftUI teardown
+        // which would delay the paste. We clean up properly after.
+        orderOut(nil)
 
         if AXIsProcessTrusted() {
-            // Panel is non-activating, so the previous app is already frontmost.
-            // Fire paste on the next run loop tick to let the window server
-            // process the panel close.
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.firePaste()
-                }
-            }
+            firePaste()
         } else {
             showCopiedNotification()
         }
+
+        // 3. Now do the full close (triggers onDisappear, cancels observations)
+        close()
     }
 
     private func removeActivationObserver() {
@@ -152,16 +150,19 @@ final class FloatingPanel: NSPanel {
 
     private func firePaste() {
         let vKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_V)
+        let source = CGEventSource(stateID: .combinedSessionState)
+        source?.setLocalEventsFilterDuringSuppressionState([.permitLocalMouseEvents, .permitSystemDefinedEvents],
+                                                           state: .eventSuppressionStateSuppressionInterval)
 
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: vKeyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: vKeyCode, keyDown: false)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
         else { return }
 
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
 
-        keyDown.post(tap: .cgAnnotatedSessionEventTap)
-        keyUp.post(tap: .cgAnnotatedSessionEventTap)
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
     }
 
     private func showCopiedNotification() {
