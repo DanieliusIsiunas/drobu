@@ -1,0 +1,115 @@
+import GRDB
+import Foundation
+
+struct ClipboardRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRecord {
+    var id: Int64?
+    var kind: String
+    var plainText: String?
+    var imageData: Data?
+    var sourceApp: String?
+    var contentHash: String
+    var createdAt: Date
+
+    static let databaseTableName = "clipboardItem"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+// MARK: - Kinds
+
+extension ClipboardRecord {
+    static let kindText = "text"
+    static let kindImage = "image"
+}
+
+// MARK: - Query Methods
+
+extension ClipboardRecord {
+
+    /// Fetch recent items ordered by creation date descending.
+    static func fetchRecent(in db: Database, limit: Int = 200) throws -> [ClipboardRecord] {
+        try ClipboardRecord
+            .order(Column("createdAt").desc)
+            .limit(limit)
+            .fetchAll(db)
+    }
+
+    /// FTS5 search with prefix matching on the last token.
+    /// Returns items ranked by relevance, or recent items if query is empty.
+    static func search(query: String, in db: Database, limit: Int = 200) throws -> [ClipboardRecord] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return try fetchRecent(in: db, limit: limit)
+        }
+
+        // Build FTS5 query with prefix matching on last token
+        let tokens = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        var ftsTokens: [String] = []
+        for (index, token) in tokens.enumerated() {
+            let escaped = token.replacingOccurrences(of: "\"", with: "\"\"")
+            if index == tokens.count - 1 {
+                ftsTokens.append("\"" + escaped + "\"*")
+            } else {
+                ftsTokens.append("\"" + escaped + "\"")
+            }
+        }
+        let ftsQueryString = ftsTokens.joined(separator: " ")
+
+        let request: SQLRequest<ClipboardRecord> = """
+            SELECT clipboardItem.*
+            FROM clipboardItem
+            JOIN clipboardItemFts ON clipboardItemFts.rowid = clipboardItem.id
+            WHERE clipboardItemFts MATCH \(ftsQueryString)
+            ORDER BY rank
+            LIMIT \(limit)
+            """
+        return try request.fetchAll(db)
+    }
+
+    /// Insert a new record, handling duplicates by deleting the old row first.
+    @discardableResult
+    static func upsert(_ record: ClipboardRecord, in db: Database) throws -> ClipboardRecord {
+        // Delete existing duplicate (moves it to top with fresh createdAt)
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE contentHash = ?",
+            arguments: [record.contentHash]
+        )
+        var newRecord = record
+        try newRecord.insert(db)
+        return newRecord
+    }
+
+    /// Delete a record by ID.
+    static func deleteById(_ id: Int64, in db: Database) throws {
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE id = ?",
+            arguments: [id]
+        )
+    }
+
+    /// Cleanup: remove items older than retentionDays and enforce maxCount.
+    static func cleanup(retentionDays: Int = 30, maxCount: Int = 5000, in db: Database) throws {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: Date())!
+
+        // Delete by age
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE createdAt < ?",
+            arguments: [cutoff]
+        )
+
+        // Delete overflow (keep most recent maxCount)
+        try db.execute(
+            sql: """
+                DELETE FROM clipboardItem
+                WHERE id NOT IN (
+                    SELECT id FROM clipboardItem
+                    ORDER BY createdAt DESC
+                    LIMIT ?
+                )
+                """,
+            arguments: [maxCount]
+        )
+    }
+}
