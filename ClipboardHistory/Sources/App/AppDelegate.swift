@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start clipboard monitoring
         monitor = ClipboardMonitor(database: database)
+        monitor?.onAccessDenied = { [weak self] in
+            self?.checkPasteboardPrivacy()
+        }
         monitor?.start()
 
         // Register global hotkey: Cmd+Shift+V
@@ -28,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey?.keyDownHandler = { [weak self] in
             self?.togglePanel()
         }
+
+        // Check pasteboard privacy (macOS 15.4+)
+        checkPasteboardPrivacy()
 
         // Run cleanup on launch + schedule hourly
         runCleanup()
@@ -61,6 +67,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task.detached { [database] in
             try? await database!.pool.write { db in
                 try ClipboardRecord.cleanup(in: db)
+            }
+        }
+    }
+
+    // MARK: - Pasteboard Privacy (macOS 15.4+)
+
+    func checkPasteboardPrivacy() {
+        // macOS 15.4+ introduces pasteboard privacy. Use runtime check since SDK may lack declarations.
+        let pb = NSPasteboard.general
+        guard pb.responds(to: NSSelectorFromString("accessBehavior")) else { return }
+        // accessBehavior == 0 means unrestricted; anything else means restricted/denied
+        guard let rawValue = pb.value(forKey: "accessBehavior") as? Int, rawValue != 0 else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Clipboard Access Required"
+        alert.informativeText = "Clipboard History needs permission to read the clipboard. Please grant access in System Settings > Privacy & Security > Pasteboard."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Later")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard") {
+                NSWorkspace.shared.open(url)
+            } else {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!)
             }
         }
     }

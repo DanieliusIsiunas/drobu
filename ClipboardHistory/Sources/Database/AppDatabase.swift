@@ -6,8 +6,21 @@ final class AppDatabase: Sendable {
 
     init(path: String? = nil) throws {
         let dbPath = path ?? AppDatabase.defaultPath()
-        pool = try DatabasePool(path: dbPath)
+        pool = try AppDatabase.openPool(at: dbPath)
         try migrator.migrate(pool)
+    }
+
+    private static func openPool(at path: String) throws -> DatabasePool {
+        do {
+            return try DatabasePool(path: path)
+        } catch {
+            // Database corruption: delete and recreate
+            NSLog("Database error, recreating: \(error)")
+            try? FileManager.default.removeItem(atPath: path)
+            try? FileManager.default.removeItem(atPath: path + "-wal")
+            try? FileManager.default.removeItem(atPath: path + "-shm")
+            return try DatabasePool(path: path)
+        }
     }
 
     private static func defaultPath() -> String {

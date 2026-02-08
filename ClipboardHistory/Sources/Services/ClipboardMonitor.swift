@@ -10,6 +10,8 @@ final class ClipboardMonitor {
     private let pasteboard = NSPasteboard.general
     private let database: AppDatabase
 
+    var onAccessDenied: (() -> Void)?
+
     private static let ignoredTypes: Set<String> = [
         "org.nspasteboard.TransientType",
         "org.nspasteboard.ConcealedType",
@@ -40,7 +42,15 @@ final class ClipboardMonitor {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
-        guard let items = pasteboard.pasteboardItems else { return }
+        guard let items = pasteboard.pasteboardItems else {
+            // Poll failure may indicate pasteboard privacy denial (macOS 15.4+)
+            if pasteboard.responds(to: NSSelectorFromString("accessBehavior")),
+               let rawValue = pasteboard.value(forKey: "accessBehavior") as? Int,
+               rawValue != 0 {
+                onAccessDenied?()
+            }
+            return
+        }
         for item in items {
             let typeStrings = item.types.map(\.rawValue)
 

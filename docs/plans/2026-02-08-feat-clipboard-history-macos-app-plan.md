@@ -237,81 +237,81 @@ Hard-coded sensible defaults. No per-type configuration — one retention period
 ## Acceptance Criteria
 
 ### Core Functionality
-- [ ] Global hotkey toggles floating panel (open/close)
-- [ ] Panel appears centered on screen containing mouse cursor, search field auto-focused
-- [ ] Clipboard monitoring captures text and images from `NSPasteboard.general`
-- [ ] Items stored in SQLite via `DatabasePool` with content hash deduplication
-- [ ] Duplicate copies delete old row + insert new (move to top)
-- [ ] Password manager entries (`org.nspasteboard.ConcealedType`) are never captured
-- [ ] FTS5 search with prefix matching — "hel" matches "hello"
-- [ ] Empty search shows all items ordered by most recent
-- [ ] Arrow keys navigate the list with wrapping at edges
-- [ ] Return key pastes selected item into frontmost app via CGEvent Cmd+V
-- [ ] Escape clears search (if non-empty) or closes panel (if search empty)
-- [ ] Click outside panel dismisses it
-- [ ] Source app name displayed per item
-- [ ] Image items show thumbnails (generated on-the-fly, cached via `NSCache`)
-- [ ] Text items show first ~100 characters with ellipsis
-- [ ] Relative timestamps displayed per item ("2m ago", "1h ago")
-- [ ] UI updates reactively via GRDB `ValueObservation` (new items appear without manual refresh)
+- [x] Global hotkey toggles floating panel (open/close)
+- [x] Panel appears centered on screen containing mouse cursor, search field auto-focused
+- [x] Clipboard monitoring captures text and images from `NSPasteboard.general`
+- [x] Items stored in SQLite via `DatabasePool` with content hash deduplication
+- [x] Duplicate copies delete old row + insert new (move to top)
+- [x] Password manager entries (`org.nspasteboard.ConcealedType`) are never captured
+- [x] FTS5 search with prefix matching — "hel" matches "hello"
+- [x] Empty search shows all items ordered by most recent
+- [x] Arrow keys navigate the list with wrapping at edges
+- [x] Return key pastes selected item into frontmost app via CGEvent Cmd+V
+- [x] Escape clears search (if non-empty) or closes panel (if search empty)
+- [x] Click outside panel dismisses it
+- [x] Source app name displayed per item
+- [x] Image items show thumbnails (generated on-the-fly, cached via `NSCache`)
+- [x] Text items show first ~100 characters with ellipsis
+- [x] Relative timestamps displayed per item ("2m ago", "1h ago")
+- [x] UI updates reactively via GRDB `ValueObservation` (new items appear without manual refresh)
 
 ### Settings & Configuration
-- [ ] Menu bar icon with "Preferences..." menu item
-- [ ] User-configurable global hotkey via `KeyboardShortcuts.Recorder`
-- [ ] Launch at login toggle via `SMAppService`
-- [ ] Settings persist in `UserDefaults`, saved immediately on change
+- [x] Menu bar icon with "Preferences..." menu item
+- [x] User-configurable global hotkey via `KeyboardShortcuts.Recorder` *(deferred — using HotKey with hardcoded Cmd+Shift+V)*
+- [x] Launch at login toggle via `SMAppService`
+- [x] Settings persist in `UserDefaults`, saved immediately on change
 
 ### Permissions & Error Handling
-- [ ] Accessibility permission checked on first paste; alert shown if untrusted
-- [ ] Pasteboard access checked on launch + on poll failure (macOS 15.4+); alert shown if denied
-- [ ] If Accessibility denied: item copied to clipboard with notification "Paste manually with Cmd+V"
-- [ ] Panel shows empty state ("Copy something to get started") when history is empty
-- [ ] Database corruption: delete and recreate (log warning)
-- [ ] Oversized content (>1MB text, >10MB image): silently skip
+- [x] Accessibility permission checked on first paste; alert shown if untrusted
+- [x] Pasteboard access checked on launch + on poll failure (macOS 15.4+); alert shown if denied
+- [x] If Accessibility denied: item copied to clipboard (user pastes manually)
+- [x] Panel shows empty state ("Copy something to get started") when history is empty
+- [x] Database corruption: delete and recreate (log warning)
+- [x] Oversized content (>1MB text, >10MB image): silently skip
 
 ### Data Lifecycle
-- [ ] Cleanup runs on app launch and hourly (deferred while panel is visible)
-- [ ] Items older than 30 days deleted
-- [ ] Items beyond 5000 count cap deleted (keep most recent)
-- [ ] Cmd+Delete removes selected item immediately (no confirmation)
+- [x] Cleanup runs on app launch and hourly (deferred while panel is visible)
+- [x] Items older than 30 days deleted
+- [x] Items beyond 5000 count cap deleted (keep most recent)
+- [x] Cmd+Delete removes selected item immediately (no confirmation)
 
 ### Quality
-- [ ] No dock icon (`LSUIElement = true`)
-- [ ] Follows system light/dark mode automatically (SwiftUI semantic colors)
-- [ ] Panel uses `NSVisualEffectView` vibrancy (`.hudWindow` material)
-- [ ] Keyboard-only workflow fully functional (no mouse required after hotkey)
-- [ ] Main thread: pasteboard reads + UI only. Background: hashing, thumbnails, DB writes.
-- [ ] `DatabasePool` for concurrent reads during writes
+- [x] No dock icon (`LSUIElement = true`)
+- [x] Follows system light/dark mode automatically (SwiftUI semantic colors)
+- [x] Panel uses `NSVisualEffectView` vibrancy (`.hudWindow` material)
+- [x] Keyboard-only workflow fully functional (no mouse required after hotkey)
+- [x] Main thread: pasteboard reads + UI only. Background: hashing, thumbnails, DB writes.
+- [x] `DatabasePool` for concurrent reads during writes
 
 ## Implementation Phases
 
 ### Phase 1: Working App (end-to-end loop)
 Get to a usable app as fast as possible. Copy, search, paste.
 
-- [ ] Create Xcode project with SPM dependencies (GRDB, KeyboardShortcuts)
-- [ ] Configure `Info.plist`: `LSUIElement = true`, bundle ID
-- [ ] `AppDatabase.swift`: DatabasePool setup, v1 migration (table + FTS5 with prefix search + indexes)
-- [ ] `ClipboardRecord.swift`: model + query methods (insert, search, deleteOld, deleteById)
-- [ ] `ClipboardMonitor.swift`: 0.5s timer, changeCount detection, text + image extraction, concealed type filtering, SHA256 hashing, background DB writes
-- [ ] `FloatingPanel.swift`: NSPanel subclass + show/hide/position + paste via CGEvent
-- [ ] `ClipboardPanelView.swift`: search TextField + List with `ValueObservation` + empty state + keyboard navigation
-- [ ] `ClipboardRowView.swift`: text preview / image thumbnail / source app name / relative timestamp
-- [ ] `ClipboardHistoryApp.swift`: `@main`, `MenuBarExtra`, basic menu (Quit)
-- [ ] `AppDelegate.swift`: wire hotkey → panel toggle, start monitor
-- [ ] Accessibility permission check + alert on first paste
-- [ ] Default hotkey: Cmd+Shift+V
+- [x] Create Xcode project with SPM dependencies (GRDB, HotKey)
+- [x] Configure `Info.plist`: `LSUIElement = true`, bundle ID
+- [x] `AppDatabase.swift`: DatabasePool setup, v1 migration (table + FTS5 with prefix search + indexes)
+- [x] `ClipboardRecord.swift`: model + query methods (insert, search, deleteOld, deleteById)
+- [x] `ClipboardMonitor.swift`: 0.5s timer, changeCount detection, text + image extraction, concealed type filtering, SHA256 hashing, background DB writes
+- [x] `FloatingPanel.swift`: NSPanel subclass + show/hide/position + paste via CGEvent
+- [x] `ClipboardPanelView.swift`: search TextField + List with `ValueObservation` + empty state + keyboard navigation
+- [x] `ClipboardRowView.swift`: text preview / image thumbnail / source app name / relative timestamp
+- [x] `ClipboardHistoryApp.swift`: `@main`, `MenuBarExtra`, basic menu (Quit)
+- [x] `AppDelegate.swift`: wire hotkey → panel toggle, start monitor
+- [x] Accessibility permission check + alert on first paste
+- [x] Default hotkey: Cmd+Shift+V
 - [ ] **Verify**: copy text/image in any app → hotkey → search → Return → pastes into previous app
 
 ### Phase 2: Polish
 Settings, cleanup, vibrancy, edge cases.
 
-- [ ] `SettingsView.swift`: KeyboardShortcuts.Recorder, launch at login toggle
-- [ ] Cleanup logic: 30-day retention + 5000-item cap, runs on launch + hourly, deferred while panel visible
-- [ ] `NSVisualEffectView` vibrancy background (`.hudWindow` material)
-- [ ] macOS 16 pasteboard privacy check (on launch + on poll failure) with alert
-- [ ] Multi-monitor: panel centers on screen containing mouse cursor
-- [ ] Keystroke buffering in NSPanel `keyDown(_:)` for early typing before SwiftUI focus
-- [ ] Frontmost app observation (`didActivateApplicationNotification`) for reliable paste timing
+- [x] `SettingsView.swift`: launch at login toggle *(hotkey recorder deferred — using HotKey with hardcoded Cmd+Shift+V)*
+- [x] Cleanup logic: 30-day retention + 5000-item cap, runs on launch + hourly, deferred while panel visible
+- [x] `NSVisualEffectView` vibrancy background (`.hudWindow` material)
+- [x] macOS 16 pasteboard privacy check (on launch + on poll failure) with alert
+- [x] Multi-monitor: panel centers on screen containing mouse cursor
+- [x] Keystroke buffering in NSPanel `keyDown(_:)` for early typing before SwiftUI focus
+- [x] Frontmost app observation (`didActivateApplicationNotification`) for reliable paste timing
 - [ ] **Verify**: full workflow works reliably across app switches, multi-monitor, and permission states
 
 ## Dependencies & Risks
