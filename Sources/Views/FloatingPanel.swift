@@ -109,7 +109,11 @@ final class FloatingPanel: NSPanel {
             appDelegate.monitor?.suppressNextChange()
         }
 
-        // 1. Always write to pasteboard (works without any permission)
+        // 1. Close panel first (animationBehavior = .none makes this instant)
+        // Matches Maccy's sequence: close → copy → paste
+        close()
+
+        // 2. Write to pasteboard (works without any permission)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
@@ -126,19 +130,12 @@ final class FloatingPanel: NSPanel {
             break
         }
 
-        // 2. Hide panel instantly and paste
-        // Use orderOut for instant visual removal — close() triggers SwiftUI teardown
-        // which would delay the paste. We clean up properly after.
-        orderOut(nil)
-
+        // 3. Auto-paste if we have Accessibility, otherwise show "Copied" notification
         if AXIsProcessTrusted() {
             firePaste()
         } else {
             showCopiedNotification()
         }
-
-        // 3. Now do the full close (triggers onDisappear, cancels observations)
-        close()
     }
 
     private func removeActivationObserver() {
