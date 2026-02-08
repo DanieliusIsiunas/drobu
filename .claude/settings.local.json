@@ -20,7 +20,11 @@
       "Bash(git -C /Users/danielius.isiunas/Desktop/clipboard-history add:*)",
       "Bash(git -C /Users/danielius.isiunas/Desktop/clipboard-history diff --cached --stat)",
       "Bash(git -C /Users/danielius.isiunas/Desktop/clipboard-history log --oneline -5)",
-      "Bash(git -C /Users/danielius.isiunas/Desktop/clipboard-history commit -m \"$\\(cat <<''EOF''\nfix: wire AppDelegate with database, hotkey, and cleanup on launch\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C /Users/danielius.isiunas/Desktop/clipboard-history commit -m \"$\\(cat <<''EOF''\nfix: wire AppDelegate with database, hotkey, and cleanup on launch\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(xxd:*)",
+      "Bash(chmod:*)",
+      "Bash(./build.sh:*)",
+      "Bash(open:*)"
     ]
   }
 }
