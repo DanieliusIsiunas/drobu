@@ -9,7 +9,9 @@ struct ClipboardPanelView: View {
     @State private var selectedIndex = 0
     @State private var observation: AnyDatabaseCancellable?
     @FocusState private var isSearchFocused: Bool
-    @Environment(\.floatingPanel) private var panel
+    @Environment(\.floatingPanel) private var panelWrapper
+
+    private var panel: FloatingPanel? { panelWrapper.panel }
 
     var body: some View {
         VStack(spacing: 0) {

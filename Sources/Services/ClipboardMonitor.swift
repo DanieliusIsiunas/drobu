@@ -9,6 +9,7 @@ final class ClipboardMonitor {
     private var lastChangeCount: Int
     private let pasteboard = NSPasteboard.general
     private let database: AppDatabase
+    private var isSuppressed = false
 
     var onAccessDenied: (() -> Void)?
 
@@ -38,9 +39,18 @@ final class ClipboardMonitor {
         timer = nil
     }
 
+    func suppressNextChange() {
+        isSuppressed = true
+    }
+
     private func checkForChanges() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
+
+        if isSuppressed {
+            isSuppressed = false
+            return
+        }
 
         guard let items = pasteboard.pasteboardItems else {
             // Poll failure may indicate pasteboard privacy denial (macOS 15.4+)

@@ -5,7 +5,7 @@ import HotKey
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var database: AppDatabase!
-    private var monitor: ClipboardMonitor?
+    private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
     private var hotKey: HotKey?
     private var cleanupTimer: Timer?
@@ -56,10 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showPanel() {
-        if panel == nil {
-            panel = FloatingPanel {
-                ClipboardPanelView(database: self.database)
-            }
+        panel?.close()
+        panel = FloatingPanel {
+            ClipboardPanelView(database: self.database)
         }
         panel?.showCentered()
     }

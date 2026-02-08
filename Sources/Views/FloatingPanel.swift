@@ -41,12 +41,17 @@ final class FloatingPanel: NSPanel {
         contentView = NSHostingView(rootView:
             content()
                 .ignoresSafeArea()
-                .environment(\.floatingPanel, self)
+                .environment(\.floatingPanel, WeakFloatingPanel(panel: self))
         )
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func close() {
+        removeActivationObserver()
+        super.close()
+    }
 
     override func resignKey() {
         super.resignKey()
@@ -99,6 +104,11 @@ final class FloatingPanel: NSPanel {
     // MARK: - Auto-Paste via CGEvent
 
     func pasteItem(_ record: ClipboardRecord) {
+        // Suppress monitor's next change detection to prevent self-capture
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+            appDelegate.monitor?.suppressNextChange()
+        }
+
         // 1. Always write to pasteboard (works without any permission)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -231,12 +241,16 @@ final class FloatingPanel: NSPanel {
 
 // MARK: - Environment Key
 
+struct WeakFloatingPanel {
+    weak var panel: FloatingPanel?
+}
+
 private struct FloatingPanelKey: EnvironmentKey {
-    static let defaultValue: FloatingPanel? = nil
+    static let defaultValue: WeakFloatingPanel = WeakFloatingPanel(panel: nil)
 }
 
 extension EnvironmentValues {
-    var floatingPanel: FloatingPanel? {
+    var floatingPanel: WeakFloatingPanel {
         get { self[FloatingPanelKey.self] }
         set { self[FloatingPanelKey.self] = newValue }
     }
