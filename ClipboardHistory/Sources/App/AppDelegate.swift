@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
     private var hotKey: HotKey?
+    private var cleanupTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -28,10 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.togglePanel()
         }
 
-        // Run cleanup on launch
-        Task.detached { [database] in
-            try? await database!.pool.write { db in
-                try ClipboardRecord.cleanup(in: db)
+        // Run cleanup on launch + schedule hourly
+        runCleanup()
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // Defer cleanup while panel is visible
+                guard self?.panel?.isVisible != true else { return }
+                self?.runCleanup()
             }
         }
     }
@@ -51,5 +55,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         panel?.showCentered()
+    }
+
+    private func runCleanup() {
+        Task.detached { [database] in
+            try? await database!.pool.write { db in
+                try ClipboardRecord.cleanup(in: db)
+            }
+        }
     }
 }
