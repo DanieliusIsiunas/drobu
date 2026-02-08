@@ -34,7 +34,7 @@ final class FloatingPanel: NSPanel {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
 
-        animationBehavior = .utilityWindow
+        animationBehavior = .none
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
 
@@ -126,37 +126,20 @@ final class FloatingPanel: NSPanel {
             break
         }
 
-        // 2. Close panel immediately
+        // 2. Close panel and paste
         close()
 
-        // 3. Auto-paste if we have Accessibility, otherwise show "Copied" notification
         if AXIsProcessTrusted() {
-            observeActivationThenPaste()
+            // Panel is non-activating, so the previous app is already frontmost.
+            // Fire paste on the next run loop tick to let the window server
+            // process the panel close.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.firePaste()
+                }
+            }
         } else {
             showCopiedNotification()
-        }
-    }
-
-    private func observeActivationThenPaste() {
-        // Observe frontmost app activation, then fire Cmd+V
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                self?.removeActivationObserver()
-                self?.firePaste()
-            }
-        }
-
-        // Fallback: if no activation within 200ms, fire paste anyway
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.activationObserver != nil else { return }
-                self?.removeActivationObserver()
-                self?.firePaste()
-            }
         }
     }
 
