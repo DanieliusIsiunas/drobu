@@ -1,3 +1,4 @@
+import CryptoKit
 import GRDB
 import Foundation
 
@@ -88,6 +89,31 @@ extension ClipboardRecord {
             sql: "DELETE FROM clipboardItem WHERE id = ?",
             arguments: [id]
         )
+    }
+
+    /// Update text content, recalculate hash, and move to top of list.
+    static func updatePlainText(id: Int64, newText: String, in db: Database) throws {
+        let newHash = sha256(newText.data(using: .utf8)!)
+
+        // Delete any other item with the same hash (dedup)
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE contentHash = ? AND id != ?",
+            arguments: [newHash, id]
+        )
+
+        // Update the record in place
+        try db.execute(
+            sql: """
+                UPDATE clipboardItem
+                SET plainText = ?, contentHash = ?, createdAt = ?
+                WHERE id = ?
+                """,
+            arguments: [newText, newHash, Date(), id]
+        )
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Cleanup: remove items older than retentionDays and enforce maxCount.

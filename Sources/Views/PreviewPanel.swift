@@ -3,6 +3,10 @@ import SwiftUI
 struct PreviewPanel: View {
     let item: ClipboardRecord?
     var selectionCount: Int = 1
+    @Binding var isEditing: Bool
+    @Binding var editingText: String
+    var onSave: (() -> Void)?
+    var onDiscard: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,13 +36,26 @@ struct PreviewPanel: View {
         }
     }
 
+    @ViewBuilder
     private func textPreview(for item: ClipboardRecord) -> some View {
-        ScrollView {
-            Text(item.plainText ?? "")
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+        if isEditing {
+            EditableTextView(
+                text: $editingText,
+                onSave: onSave,
+                onDiscard: onDiscard
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.accentColor, lineWidth: 1)
+            )
+        } else {
+            ScrollView {
+                Text(item.plainText ?? "")
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .textSelection(.enabled)
+            }
         }
     }
 
@@ -68,9 +85,11 @@ struct PreviewPanel: View {
 
     private func metadataBar(for item: ClipboardRecord) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
-            if item.kind == ClipboardRecord.kindText, let text = item.plainText {
-                let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
-                Text("\(words) words; \(text.count) chars")
+            if item.kind == ClipboardRecord.kindText {
+                // Use editingText for live counts during editing, otherwise item text
+                let displayText = isEditing ? editingText : (item.plainText ?? "")
+                let words = displayText.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+                Text("\(words) words; \(displayText.count) chars")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if item.kind == ClipboardRecord.kindImage, let data = item.imageData, let nsImage = NSImage(data: data) {

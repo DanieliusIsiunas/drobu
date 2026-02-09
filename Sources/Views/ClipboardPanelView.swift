@@ -9,6 +9,10 @@ struct ClipboardPanelView: View {
     @State private var anchor = 0      // where Shift-select started
     @State private var cursor = 0      // current keyboard position
     @State private var observation: AnyDatabaseCancellable?
+    @State private var isEditing = false
+    @State private var editingText = ""
+    @State private var originalText = ""
+    @State private var editingItemId: Int64?   // track edited item across list refreshes
     @FocusState private var isSearchFocused: Bool
     @Environment(\.floatingPanel) private var panelWrapper
 
@@ -67,9 +71,16 @@ struct ClipboardPanelView: View {
 
                     Divider()
 
-                    // Right panel: preview
-                    PreviewPanel(item: previewItem, selectionCount: selectedItems.count)
-                        .frame(maxWidth: .infinity)
+                    // Right panel: preview / edit
+                    PreviewPanel(
+                        item: previewItem,
+                        selectionCount: selectedItems.count,
+                        isEditing: $isEditing,
+                        editingText: $editingText,
+                        onSave: { saveEdit() },
+                        onDiscard: { discardEdit() }
+                    )
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -85,19 +96,36 @@ struct ClipboardPanelView: View {
             }
         }
         .onDisappear {
+            if isEditing { saveEdit() }
             observation?.cancel()
             observation = nil
             searchText = ""
+            isEditing = false
+            editingItemId = nil
+            editingText = ""
+            originalText = ""
             anchor = 0
             cursor = 0
         }
         .onChange(of: searchText) { _, _ in
+            if isEditing { discardEdit() }
             anchor = 0
             cursor = 0
             startObservation()
         }
         .onKeyPress(phases: [.down, .repeat]) { press in
+            // When editing, let NSTextView handle all keys
+            if isEditing { return .ignored }
+
             switch press.key {
+            case .rightArrow:
+                guard !items.isEmpty,
+                      !hasMultiSelection,
+                      items[cursor].kind == ClipboardRecord.kindText,
+                      items[cursor].plainText != nil else { return .ignored }
+                enterEditMode()
+                return .handled
+
             case .downArrow:
                 guard !items.isEmpty else { return .handled }
                 if press.modifiers.contains(.shift) {
@@ -148,7 +176,8 @@ struct ClipboardPanelView: View {
         }
         // Cmd+1 through Cmd+9 shortcuts
         .onKeyPress(characters: CharacterSet(charactersIn: "123456789"), phases: .down) { press in
-            guard press.modifiers == .command,
+            guard !isEditing,
+                  press.modifiers == .command,
                   let char = press.characters.first,
                   let digit = Int(String(char)),
                   digit >= 1, digit <= 9 else {
@@ -224,10 +253,64 @@ struct ClipboardPanelView: View {
         }
         .start(in: pool, onError: { _ in }, onChange: { [self] newItems in
             items = newItems
-            let maxIdx = max(0, newItems.count - 1)
-            if anchor > maxIdx { anchor = maxIdx }
-            if cursor > maxIdx { cursor = maxIdx }
+
+            // While editing, follow the edited item to its new index
+            if isEditing, let targetId = editingItemId,
+               let newIndex = newItems.firstIndex(where: { $0.id == targetId }) {
+                anchor = newIndex
+                cursor = newIndex
+            } else {
+                let maxIdx = max(0, newItems.count - 1)
+                if anchor > maxIdx { anchor = maxIdx }
+                if cursor > maxIdx { cursor = maxIdx }
+            }
+
         })
+    }
+
+    // MARK: - Edit Mode
+
+    private func enterEditMode() {
+        let item = items[cursor]
+        editingText = item.plainText ?? ""
+        originalText = editingText
+        editingItemId = item.id
+        isEditing = true
+    }
+
+    private func saveEdit() {
+        guard isEditing else { return }
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Skip save if unchanged
+        guard trimmed != originalText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+
+        // Reject empty text
+        guard !trimmed.isEmpty else { return }
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            try? await database.pool.write { db in
+                try ClipboardRecord.updatePlainText(id: itemId, newText: trimmed, in: db)
+            }
+        }
+
+        // Item moves to top when ValueObservation fires
+        anchor = 0
+        cursor = 0
+    }
+
+    private func discardEdit() {
+        isEditing = false
+        editingItemId = nil
+        editingText = originalText
+        isSearchFocused = true
     }
 
     // MARK: - Actions
