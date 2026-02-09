@@ -176,7 +176,7 @@ struct ClipboardPanelView: View {
                             isCursor: index == cursor,
                             shortcutIndex: index < 9 ? index : nil
                         )
-                        .id(index)
+                        .id(item.id)
                         .onTapGesture {
                             anchor = index
                             cursor = index
@@ -188,8 +188,9 @@ struct ClipboardPanelView: View {
                 .padding(.vertical, 4)
             }
             .onChange(of: cursor) { _, newValue in
+                guard newValue < items.count else { return }
                 withAnimation(.easeOut(duration: 0.1)) {
-                    proxy.scrollTo(newValue, anchor: .center)
+                    proxy.scrollTo(items[newValue].id, anchor: .center)
                 }
             }
         }
