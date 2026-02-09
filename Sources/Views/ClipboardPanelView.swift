@@ -84,7 +84,7 @@ struct ClipboardPanelView: View {
                 }
             }
         }
-        .frame(width: 780, height: 460)
+        .frame(width: 780, height: 440)
         .background(VisualEffectBackground())
         .onAppear {
             startObservation()
