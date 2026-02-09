@@ -6,6 +6,10 @@ struct ClipboardRowView: View {
     let isCursor: Bool      // true for the keyboard-focus row
     let shortcutIndex: Int? // 0-8 for Cmd+1 through Cmd+9, nil if beyond range
 
+    /// Fixed row height: 24px icon + 4px padding each side = 32px.
+    /// Used by ClipboardPanelView to compute the list area height.
+    static let rowHeight: CGFloat = 32
+
     private static let appIconCache = NSCache<NSString, NSImage>()
 
     var body: some View {
@@ -25,6 +29,7 @@ struct ClipboardRowView: View {
         .padding(.horizontal, 8)
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .cornerRadius(6)
+        .frame(height: Self.rowHeight)
     }
 
     // MARK: - App Icon

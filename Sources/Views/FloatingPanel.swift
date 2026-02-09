@@ -11,7 +11,7 @@ final class FloatingPanel: NSPanel {
     private var activationObserver: Any?
     private var bufferedKeystrokes: String = ""
 
-    init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 440),
+    init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 500),
                         @ViewBuilder content: @escaping () -> Content) {
         super.init(
             contentRect: contentRect,
@@ -78,6 +78,16 @@ final class FloatingPanel: NSPanel {
     func showCentered() {
         // Capture the frontmost app before we appear
         previousApp = NSWorkspace.shared.frontmostApplication
+
+        // Size window to fit SwiftUI content exactly (search bar + divider + list area).
+        // This avoids hardcoding the panel height — it's computed from row constants.
+        if let cv = contentView {
+            cv.layoutSubtreeIfNeeded()
+            let fitting = cv.fittingSize
+            if fitting.width > 0 && fitting.height > 0 {
+                setContentSize(fitting)
+            }
+        }
 
         // Center on screen containing the mouse cursor
         let mouseLocation = NSEvent.mouseLocation

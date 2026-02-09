@@ -4,6 +4,24 @@ import GRDB
 struct ClipboardPanelView: View {
     let database: AppDatabase
 
+    // MARK: - Layout Constants (single source of truth)
+
+    /// Change this to show more or fewer rows in the panel.
+    static let visibleItemCount = 11
+
+    static let panelWidth: CGFloat = 780
+    static let listWidth: CGFloat = 340
+    private static let rowSpacing: CGFloat = 2   // LazyVStack spacing
+    private static let listPadding: CGFloat = 4  // .padding(.vertical, 4) on list container
+
+    /// Exact height for the item list area, computed from row constants.
+    static let listAreaHeight: CGFloat = {
+        let rows = CGFloat(visibleItemCount) * ClipboardRowView.rowHeight
+        let spacing = CGFloat(visibleItemCount - 1) * rowSpacing
+        let padding = 2 * listPadding
+        return rows + spacing + padding
+    }()
+
     @State private var searchText = ""
     @State private var items: [ClipboardRecord] = []
     @State private var anchor = 0      // where Shift-select started
@@ -63,11 +81,12 @@ struct ClipboardPanelView: View {
             // Split layout: list | preview
             if items.isEmpty {
                 emptyState
+                    .frame(height: Self.listAreaHeight)
             } else {
                 HStack(spacing: 0) {
                     // Left panel: item list
                     itemList
-                        .frame(width: 340)
+                        .frame(width: Self.listWidth)
 
                     Divider()
 
@@ -82,9 +101,11 @@ struct ClipboardPanelView: View {
                     )
                     .frame(maxWidth: .infinity)
                 }
+                .frame(height: Self.listAreaHeight)
             }
         }
-        .frame(width: 780, height: 440)
+        .frame(width: Self.panelWidth)
+        .fixedSize(horizontal: false, vertical: true)
         .background(VisualEffectBackground())
         .onAppear {
             startObservation()
