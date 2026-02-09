@@ -1,13 +1,26 @@
+@preconcurrency import ObjectiveC
 import SwiftUI
+
+extension Notification.Name {
+    static let openSettingsFromMenu = Notification.Name("openSettingsFromMenu")
+}
 
 @main
 struct ClipboardHistoryApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        Window("Settings Opener", id: "settings-opener") {
+            SettingsOpenerView()
+                .frame(width: 0, height: 0)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .windowStyle(.hiddenTitleBar)
+
         MenuBarExtra("Clipboard History", systemImage: "clipboard") {
             Button("Preferences...") {
-                openSettings()
+                NotificationCenter.default.post(name: .openSettingsFromMenu, object: nil)
             }
             .keyboardShortcut(",", modifiers: .command)
 
@@ -23,21 +36,55 @@ struct ClipboardHistoryApp: App {
             SettingsView()
         }
     }
+}
 
-    private func openSettings() {
-        // LSUIElement workaround: temporarily show dock icon so settings window comes to front
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+private struct SettingsOpenerView: View {
+    @Environment(\.openSettings) private var openSettings
 
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+    var body: some View {
+        Color.clear
+            .onReceive(NotificationCenter.default.publisher(for: .openSettingsFromMenu)) { _ in
+                NSApp.setActivationPolicy(.regular)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
+                    observeSettingsClose()
+                }
+            }
+    }
+
+    private func observeSettingsClose() {
+        guard let settingsWindow = findSettingsWindow() else {
+            // Settings window might not exist yet — retry once
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let settingsWindow = findSettingsWindow() {
+                    addCloseObserver(for: settingsWindow)
+                }
+            }
+            return
         }
+        addCloseObserver(for: settingsWindow)
+    }
 
-        // Hide dock icon again after brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.setActivationPolicy(.accessory)
+    private func findSettingsWindow() -> NSWindow? {
+        NSApp.windows.first(where: {
+            $0.identifier?.rawValue.contains("settings") == true
+                || $0.title.contains("Settings")
+                || $0.title.contains("Preferences")
+        })
+    }
+
+    private func addCloseObserver(for window: NSWindow) {
+        // Scoped to `object: window` — fires only when this specific window closes.
+        // The observer lives as long as the window; no manual removal needed.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            _ = MainActor.assumeIsolated {
+                NSApp.setActivationPolicy(.accessory)
+            }
         }
     }
 }
