@@ -44,10 +44,7 @@ struct PreviewPanel: View {
                 onSave: onSave,
                 onDiscard: onDiscard
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.accentColor, lineWidth: 1)
-            )
+            .chromaSweepBorder(isActive: isEditing)
         } else {
             ScrollView {
                 Text(item.plainText ?? "")
