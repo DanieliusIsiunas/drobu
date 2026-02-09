@@ -211,9 +211,14 @@ final class FloatingPanel: NSPanel {
 
         firePaste()
 
-        // Schedule next operation after delay
+        // Schedule next operation after delay.
+        // Image pastes need a longer delay — apps like Claude Code CLI
+        // require time to process each image before accepting the next paste.
         if index + 1 < ops.count {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            let nextIsImage: Bool
+            if case .image = ops[index + 1] { nextIsImage = true } else { nextIsImage = false }
+            let delay: TimeInterval = nextIsImage ? 0.5 : 0.1
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.executePasteSequence(ops, index: index + 1)
             }
         }
