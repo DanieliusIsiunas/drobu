@@ -138,6 +138,87 @@ final class FloatingPanel: NSPanel {
         }
     }
 
+    // MARK: - Multi-Item Paste
+
+    private enum PasteOperation {
+        case text(String)
+        case image(Data)
+    }
+
+    func pasteItems(_ records: [ClipboardRecord]) {
+        guard !records.isEmpty else { return }
+
+        // Single item — use existing fast path
+        if records.count == 1 {
+            pasteItem(records[0])
+            return
+        }
+
+        // Calculate how many pasteboard writes we'll make for suppression
+        let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage }.count
+        let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
+        let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount
+
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+            appDelegate.monitor?.suppressChanges(count: suppressCount)
+        }
+
+        // Close panel first (instant)
+        close()
+
+        guard AXIsProcessTrusted() else {
+            // Without accessibility, concatenate text and put on pasteboard (best effort)
+            if !textItems.isEmpty {
+                let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(combined, forType: .string)
+            }
+            showCopiedNotification()
+            return
+        }
+
+        // Build paste operations: text concatenated first, then images individually
+        var operations: [PasteOperation] = []
+
+        if !textItems.isEmpty {
+            let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
+            operations.append(.text(combined))
+        }
+        let imageItems = records.filter { $0.kind == ClipboardRecord.kindImage }
+        for img in imageItems {
+            if let data = img.imageData {
+                operations.append(.image(data))
+            }
+        }
+
+        // Execute sequentially with delay
+        executePasteSequence(operations, index: 0)
+    }
+
+    private func executePasteSequence(_ ops: [PasteOperation], index: Int) {
+        guard index < ops.count else { return }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        switch ops[index] {
+        case .text(let str):
+            pb.setString(str, forType: .string)
+        case .image(let data):
+            pb.setData(data, forType: .tiff)
+        }
+
+        firePaste()
+
+        // Schedule next operation after delay
+        if index + 1 < ops.count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.executePasteSequence(ops, index: index + 1)
+            }
+        }
+    }
+
     private func removeActivationObserver() {
         if let observer = activationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)

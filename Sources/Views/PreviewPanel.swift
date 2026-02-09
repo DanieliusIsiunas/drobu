@@ -2,10 +2,13 @@ import SwiftUI
 
 struct PreviewPanel: View {
     let item: ClipboardRecord?
+    var selectionCount: Int = 1
 
     var body: some View {
         VStack(spacing: 0) {
-            if let item = item {
+            if selectionCount > 1 {
+                multiSelectSummary
+            } else if let item = item {
                 previewContent(for: item)
                 Spacer(minLength: 0)
                 Divider()
@@ -86,6 +89,25 @@ struct PreviewPanel: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Multi-Select Summary
+
+    private var multiSelectSummary: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 32))
+                .foregroundStyle(.quaternary)
+            Text("\(selectionCount) items selected")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Press Return to paste all")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Empty State

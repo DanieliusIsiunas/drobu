@@ -3,6 +3,7 @@ import SwiftUI
 struct ClipboardRowView: View {
     let item: ClipboardRecord
     let isSelected: Bool
+    let isCursor: Bool      // true for the keyboard-focus row
     let shortcutIndex: Int? // 0-8 for Cmd+1 through Cmd+9, nil if beyond range
 
     private static let appIconCache = NSCache<NSString, NSImage>()
@@ -73,10 +74,13 @@ struct ClipboardRowView: View {
 
     @ViewBuilder
     private var shortcutLabel: some View {
-        if isSelected {
+        if isCursor {
             Image(systemName: "return")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
+        } else if isSelected {
+            // Multi-selected but not cursor — no label, just highlight
+            EmptyView()
         } else if let idx = shortcutIndex {
             Text("\u{2318}\(idx + 1)")
                 .font(.system(size: 13, weight: .medium, design: .rounded))

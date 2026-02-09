@@ -9,7 +9,7 @@ final class ClipboardMonitor {
     private var lastChangeCount: Int
     private let pasteboard = NSPasteboard.general
     private let database: AppDatabase
-    private var isSuppressed = false
+    private var suppressCount = 0
 
     var onAccessDenied: (() -> Void)?
 
@@ -40,15 +40,19 @@ final class ClipboardMonitor {
     }
 
     func suppressNextChange() {
-        isSuppressed = true
+        suppressCount = 1
+    }
+
+    func suppressChanges(count: Int) {
+        suppressCount = count
     }
 
     private func checkForChanges() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
-        if isSuppressed {
-            isSuppressed = false
+        if suppressCount > 0 {
+            suppressCount -= 1
             return
         }
 
