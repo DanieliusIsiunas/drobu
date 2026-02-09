@@ -72,6 +72,12 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v2-addSourceBundleId") { db in
+            try db.alter(table: "clipboardItem") { t in
+                t.add(column: "sourceBundleId", .text)
+            }
+        }
+
         return migrator
     }
 }

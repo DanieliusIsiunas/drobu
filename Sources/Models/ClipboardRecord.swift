@@ -7,6 +7,7 @@ struct ClipboardRecord: Identifiable, Codable, FetchableRecord, MutablePersistab
     var plainText: String?
     var imageData: Data?
     var sourceApp: String?
+    var sourceBundleId: String?
     var contentHash: String
     var createdAt: Date
 

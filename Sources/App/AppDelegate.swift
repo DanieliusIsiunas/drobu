@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: FloatingPanel?
     private var hotKey: HotKey?
     private var cleanupTimer: Timer?
+    private var hotkeyObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -27,10 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         monitor?.start()
 
-        // Register global hotkey: Cmd+Shift+V
-        hotKey = HotKey(key: .v, modifiers: [.command, .shift])
-        hotKey?.keyDownHandler = { [weak self] in
-            self?.togglePanel()
+        // Register global hotkey from saved preference (or default Cmd+Shift+V)
+        registerHotkey(HotkeyDefaults.load())
+
+        // Re-register when user changes hotkey in preferences
+        hotkeyObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.registerHotkey(HotkeyDefaults.load())
+            }
         }
 
         // Check Accessibility permission on launch
@@ -92,6 +101,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
             }
+        }
+    }
+
+    // MARK: - Hotkey Management
+
+    private func registerHotkey(_ combo: KeyCombo) {
+        hotKey = nil // unregister old
+        hotKey = HotKey(keyCombo: combo)
+        hotKey?.keyDownHandler = { [weak self] in
+            self?.togglePanel()
         }
     }
 

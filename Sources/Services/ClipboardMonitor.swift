@@ -84,7 +84,9 @@ final class ClipboardMonitor {
 
     private func extractRecord(from item: NSPasteboardItem) -> ClipboardRecord? {
         let types = item.types
-        let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let sourceApp = frontmost?.localizedName
+        let sourceBundleId = frontmost?.bundleIdentifier
 
         // Priority: text > image (per plan — text preferred when both present)
         if types.contains(.string), let text = item.string(forType: .string) {
@@ -98,6 +100,7 @@ final class ClipboardMonitor {
                 plainText: trimmed,
                 imageData: nil,
                 sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId,
                 contentHash: hash,
                 createdAt: Date()
             )
@@ -112,6 +115,7 @@ final class ClipboardMonitor {
                 plainText: sourceApp, // Store source app in plainText for FTS searchability
                 imageData: imageData,
                 sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId,
                 contentHash: hash,
                 createdAt: Date()
             )

@@ -12,10 +12,14 @@ struct ClipboardPanelView: View {
     @Environment(\.floatingPanel) private var panelWrapper
 
     private var panel: FloatingPanel? { panelWrapper.panel }
+    private var selectedItem: ClipboardRecord? {
+        guard selectedIndex < items.count else { return nil }
+        return items[selectedIndex]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search field
+            // Search field (full width)
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -36,41 +40,29 @@ struct ClipboardPanelView: View {
 
             Divider()
 
-            // List or empty state
+            // Split layout: list | preview
             if items.isEmpty {
                 emptyState
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                ClipboardRowView(item: item, isSelected: index == selectedIndex)
-                                    .id(index)
-                                    .onTapGesture {
-                                        selectedIndex = index
-                                        pasteSelected()
-                                    }
-                            }
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                    }
-                    .onChange(of: selectedIndex) { _, newValue in
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(newValue, anchor: .center)
-                        }
-                    }
+                HStack(spacing: 0) {
+                    // Left panel: item list
+                    itemList
+                        .frame(width: 340)
+
+                    Divider()
+
+                    // Right panel: preview
+                    PreviewPanel(item: selectedItem)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
-        .frame(width: 620, height: 460)
+        .frame(width: 780, height: 460)
         .background(VisualEffectBackground())
         .onAppear {
             startObservation()
-            // Focus search field after a short delay (NSHostingView needs time to wire responder chain)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 isSearchFocused = true
-                // Consume any buffered keystrokes
                 if let buffered = panel?.consumeBufferedKeystrokes(), !buffered.isEmpty {
                     searchText = buffered
                 }
@@ -113,6 +105,50 @@ struct ClipboardPanelView: View {
         .onKeyPress(.deleteForward) {
             deleteSelected()
             return .handled
+        }
+        // Cmd+1 through Cmd+9 shortcuts
+        .onKeyPress(characters: CharacterSet(charactersIn: "123456789"), phases: .down) { press in
+            guard press.modifiers == .command,
+                  let char = press.characters.first,
+                  let digit = Int(String(char)),
+                  digit >= 1, digit <= 9 else {
+                return .ignored
+            }
+            let index = digit - 1
+            guard index < items.count else { return .ignored }
+            selectedIndex = index
+            pasteSelected()
+            return .handled
+        }
+    }
+
+    // MARK: - Item List
+
+    private var itemList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        ClipboardRowView(
+                            item: item,
+                            isSelected: index == selectedIndex,
+                            shortcutIndex: index < 9 ? index : nil
+                        )
+                        .id(index)
+                        .onTapGesture {
+                            selectedIndex = index
+                            pasteSelected()
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .onChange(of: selectedIndex) { _, newValue in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
         }
     }
 

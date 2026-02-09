@@ -11,7 +11,7 @@ final class FloatingPanel: NSPanel {
     private var activationObserver: Any?
     private var bufferedKeystrokes: String = ""
 
-    init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 620, height: 460),
+    init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 460),
                         @ViewBuilder content: @escaping () -> Content) {
         super.init(
             contentRect: contentRect,

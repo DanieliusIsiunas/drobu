@@ -1,14 +1,20 @@
 import SwiftUI
+import HotKey
 import ServiceManagement
 
 struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
 
     var body: some View {
         Form {
             Section("General") {
-                Text("Global Hotkey: Cmd+Shift+V")
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Global Hotkey")
+                    Spacer()
+                    HotkeyRecorderView(keyCombo: $hotkeyCombo)
+                        .frame(width: 160, height: 24)
+                }
 
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
@@ -30,7 +36,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 350, height: 200)
+        .frame(width: 420, height: 280)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
