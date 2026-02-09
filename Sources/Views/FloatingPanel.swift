@@ -2,6 +2,22 @@ import AppKit
 import SwiftUI
 import ApplicationServices
 import Carbon.HIToolbox
+import os.log
+
+private let pasteLog = Logger(subsystem: "com.clipboard-history", category: "paste")
+
+private func debugLog(_ msg: String) {
+    pasteLog.warning("\(msg)")
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("clipboard-paste-debug.log")
+    let line = "\(Date()): \(msg)\n"
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8)!)
+        handle.closeFile()
+    } else {
+        try? line.data(using: .utf8)?.write(to: url)
+    }
+}
 
 /// A non-activating floating panel that hosts SwiftUI content.
 /// Behaves like Alfred/Spotlight: appears without stealing focus, receives keyboard input,
@@ -169,6 +185,8 @@ final class FloatingPanel: NSPanel {
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
         let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount
 
+        debugLog("[ClipboardHistory] pasteItems: \(records.count) records (\(imageCount) images, \(textItems.count) text), suppressCount=\(suppressCount)")
+
         if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
             appDelegate.monitor?.suppressChanges(count: suppressCount)
         }
@@ -199,15 +217,22 @@ final class FloatingPanel: NSPanel {
         for img in imageItems {
             if let data = img.imageData {
                 operations.append(.image(data))
+            } else {
+                debugLog("[ClipboardHistory] WARNING: image record id=\(img.id?.description ?? "nil") has nil imageData!")
             }
         }
+
+        debugLog("[ClipboardHistory] Built \(operations.count) paste operations")
 
         // Execute sequentially with delay
         executePasteSequence(operations, index: 0)
     }
 
     private func executePasteSequence(_ ops: [PasteOperation], index: Int) {
-        guard index < ops.count else { return }
+        guard index < ops.count else {
+            debugLog("[ClipboardHistory] Paste sequence complete")
+            return
+        }
 
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -215,8 +240,15 @@ final class FloatingPanel: NSPanel {
         switch ops[index] {
         case .text(let str):
             pb.setString(str, forType: .string)
+            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): text (\(str.count) chars)")
         case .image(let data):
+            // Write both TIFF and PNG representations for maximum app compatibility
+            if let bitmapRep = NSBitmapImageRep(data: data),
+               let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+                pb.setData(pngData, forType: .png)
+            }
             pb.setData(data, forType: .tiff)
+            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): image (\(data.count) bytes)")
         }
 
         firePaste()
@@ -227,9 +259,14 @@ final class FloatingPanel: NSPanel {
         if index + 1 < ops.count {
             let nextIsImage: Bool
             if case .image = ops[index + 1] { nextIsImage = true } else { nextIsImage = false }
-            let delay: TimeInterval = nextIsImage ? 0.5 : 0.1
+            let delay: TimeInterval = nextIsImage ? 0.6 : 0.1
+            debugLog("[ClipboardHistory] Scheduling next paste op in \(delay)s (nextIsImage=\(nextIsImage))")
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.executePasteSequence(ops, index: index + 1)
+                guard let self else {
+                    debugLog("[ClipboardHistory] WARNING: self was deallocated before paste op \(index + 1)!")
+                    return
+                }
+                self.executePasteSequence(ops, index: index + 1)
             }
         }
     }
