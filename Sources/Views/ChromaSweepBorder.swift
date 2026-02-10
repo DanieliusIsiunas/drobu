@@ -147,7 +147,7 @@ extension View {
         isActive: Bool,
         borderWidth: CGFloat = 2,
         cornerRadius: CGFloat = 4,
-        duration: Double = 0.6,
+        duration: Double = 0.65,
         restingColor: Color = .accentColor
     ) -> some View {
         modifier(ChromaSweepBorder(
