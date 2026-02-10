@@ -37,13 +37,20 @@ struct ChromaSweepBorder: ViewModifier {
             }
     }
 
-    // MARK: - Resting Border (solid color after sweep)
+    // MARK: - Resting Border (solid color after sweep, with matching glow)
+
+    private static let restingGlow: CGFloat = 1.5
 
     @ViewBuilder
     private var restingBorderView: some View {
         if showRestingBorder {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(restingColor, lineWidth: 1)
+            Rectangle()
+                .fill(restingColor)
+                .mask {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(lineWidth: borderWidth + Self.restingGlow * 2)
+                }
+                .blur(radius: Self.restingGlow)
                 .allowsHitTesting(false)
         }
     }
@@ -73,7 +80,9 @@ struct ChromaSweepBorder: ViewModifier {
                 animationStart = nil
                 if isActive { showRestingBorder = true }
             }
-            return nil
+            // Return 1.0 (not nil) so the animated border still draws this frame,
+            // overlapping seamlessly with the resting border on the next frame.
+            return 1.0
         }
 
         // Ease-in-out curve: 3t² - 2t³
@@ -81,10 +90,7 @@ struct ChromaSweepBorder: ViewModifier {
     }
 
     private func gradientBorderView(progress: Double) -> some View {
-        // Glow fades out in the second half
-        let glowAmount = progress < 0.5
-            ? 1.5
-            : 1.5 * (1.0 - (progress - 0.5) / 0.5)
+        let glowAmount = Self.restingGlow
 
         return sweepGradient(progress: progress)
             .mask {
@@ -141,7 +147,7 @@ extension View {
         isActive: Bool,
         borderWidth: CGFloat = 2,
         cornerRadius: CGFloat = 4,
-        duration: Double = 0.9,
+        duration: Double = 0.6,
         restingColor: Color = .accentColor
     ) -> some View {
         modifier(ChromaSweepBorder(
