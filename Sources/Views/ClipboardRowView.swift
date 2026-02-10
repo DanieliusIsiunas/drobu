@@ -60,12 +60,12 @@ struct ClipboardRowView: View {
                 let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
                 Text("Image: \(w)×\(h) (\(sizeStr))")
                     .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
             } else {
                 Text("Image")
                     .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
             }
         default:
             Text(item.plainText?.prefix(100) ?? "")
