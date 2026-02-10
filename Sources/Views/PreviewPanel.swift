@@ -13,10 +13,12 @@ struct PreviewPanel: View {
             if selectionCount > 1 {
                 multiSelectSummary
             } else if let item = item {
-                previewContent(for: item)
-                Spacer(minLength: 0)
-                Divider()
-                metadataBar(for: item)
+                VStack(spacing: 0) {
+                    previewContent(for: item)
+                    Spacer(minLength: 0)
+                    metadataBar(for: item)
+                }
+                .chromaSweepBorder(isActive: isEditing)
             } else {
                 emptyState
             }
@@ -44,7 +46,6 @@ struct PreviewPanel: View {
                 onSave: onSave,
                 onDiscard: onDiscard
             )
-            .chromaSweepBorder(isActive: isEditing)
         } else {
             ScrollView {
                 Text(item.plainText ?? "")

@@ -39,7 +39,9 @@
       "Bash(gh api:*)",
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(log stream:*)"
+      "Bash(log stream:*)",
+      "Bash(swift --version:*)",
+      "Bash(gh search code:*)"
     ]
   }
 }
