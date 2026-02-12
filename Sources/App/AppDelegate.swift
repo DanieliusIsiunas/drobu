@@ -73,9 +73,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runCleanup() {
+        let retentionDays = RetentionDefaults.loadRetentionDays()
+        let maxCount = RetentionDefaults.loadMaxItemCount()
+
         Task.detached { [database] in
             try? await database!.pool.write { db in
-                try ClipboardRecord.cleanup(in: db)
+                try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
             }
         }
     }
