@@ -42,7 +42,8 @@
       "Bash(log stream:*)",
       "Bash(swift --version:*)",
       "Bash(gh search code:*)",
-      "Bash(defaults read:*)"
+      "Bash(defaults read:*)",
+      "Bash(/Users/danielius.isiunas/Desktop/clipboard-history/build.sh:*)"
     ]
   }
 }
