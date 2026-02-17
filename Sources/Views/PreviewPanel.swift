@@ -7,6 +7,7 @@ struct PreviewPanel: View {
     @Binding var editingText: String
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onGifSave: ((Data) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,23 +82,32 @@ struct PreviewPanel: View {
         }
     }
 
+    @ViewBuilder
     private func gifPreview(for item: ClipboardRecord) -> some View {
-        Group {
-            if let data = item.imageData {
-                AnimatedGIFView(data: data)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(12)
-            } else {
-                VStack {
-                    Image(systemName: "play.rectangle")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.quaternary)
-                    Text("Unable to load GIF")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        if isEditing, let data = item.imageData {
+            GIFTrimView(
+                data: data,
+                onSave: { trimmedData in
+                    onGifSave?(trimmedData)
+                },
+                onDiscard: {
+                    onDiscard?()
                 }
+            )
+        } else if let data = item.imageData {
+            AnimatedGIFView(data: data)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(12)
+        } else {
+            VStack {
+                Image(systemName: "play.rectangle")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.quaternary)
+                Text("Unable to load GIF")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

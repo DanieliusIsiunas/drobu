@@ -114,6 +114,27 @@ extension ClipboardRecord {
         )
     }
 
+    /// Update GIF data, recalculate hash, and move to top of list.
+    static func updateGifData(id: Int64, newData: Data, in db: Database) throws {
+        let newHash = sha256(newData)
+
+        // Delete any other item with the same hash (dedup)
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE contentHash = ? AND id != ?",
+            arguments: [newHash, id]
+        )
+
+        // Update the record in place
+        try db.execute(
+            sql: """
+                UPDATE clipboardItem
+                SET imageData = ?, contentHash = ?, createdAt = ?
+                WHERE id = ?
+                """,
+            arguments: [newData, newHash, Date(), id]
+        )
+    }
+
     private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }

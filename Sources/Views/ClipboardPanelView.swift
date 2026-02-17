@@ -97,7 +97,8 @@ struct ClipboardPanelView: View {
                         isEditing: $isEditing,
                         editingText: $editingText,
                         onSave: { saveEdit() },
-                        onDiscard: { discardEdit() }
+                        onDiscard: { discardEdit() },
+                        onGifSave: { trimmedData in saveGifTrim(data: trimmedData) }
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -140,12 +141,17 @@ struct ClipboardPanelView: View {
 
             switch press.key {
             case .rightArrow:
-                guard !items.isEmpty,
-                      !hasMultiSelection,
-                      items[cursor].kind == ClipboardRecord.kindText,
-                      items[cursor].plainText != nil else { return .ignored }
-                enterEditMode()
-                return .handled
+                guard !items.isEmpty, !hasMultiSelection else { return .ignored }
+                let item = items[cursor]
+                if item.kind == ClipboardRecord.kindText, item.plainText != nil {
+                    enterEditMode()
+                    return .handled
+                }
+                if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
+                    enterEditMode()
+                    return .handled
+                }
+                return .ignored
 
             case .downArrow:
                 guard !items.isEmpty else { return .handled }
@@ -301,6 +307,16 @@ struct ClipboardPanelView: View {
 
     private func saveEdit() {
         guard isEditing else { return }
+
+        // For GIF items, save is handled by saveGifTrim (called from onGifSave)
+        if let item = items.first(where: { $0.id == editingItemId }),
+           item.kind == ClipboardRecord.kindGif {
+            // GIF save is triggered by Cmd+Return in GIFTrimView → onGifSave callback
+            // If we get here (e.g. panel close), just discard
+            discardEdit()
+            return
+        }
+
         isEditing = false
         let savedItemId = editingItemId
         editingItemId = nil
@@ -319,6 +335,26 @@ struct ClipboardPanelView: View {
         Task.detached {
             try? await database.pool.write { db in
                 try ClipboardRecord.updatePlainText(id: itemId, newText: trimmed, in: db)
+            }
+        }
+
+        // Item moves to top when ValueObservation fires
+        anchor = 0
+        cursor = 0
+    }
+
+    private func saveGifTrim(data: Data) {
+        guard isEditing else { return }
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            try? await database.pool.write { db in
+                try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
             }
         }
 
