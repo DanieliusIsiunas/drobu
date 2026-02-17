@@ -15,7 +15,6 @@ enum RetentionDefaults {
     static func save(retentionDays: Int, maxItemCount: Int) {
         UserDefaults.standard.set(retentionDays, forKey: retentionDaysKey)
         UserDefaults.standard.set(maxItemCount, forKey: maxItemCountKey)
-        NotificationCenter.default.post(name: .retentionSettingsDidChange, object: nil)
     }
 
     /// Load retention days (returns default if not set)
@@ -29,10 +28,4 @@ enum RetentionDefaults {
         let value = UserDefaults.standard.integer(forKey: maxItemCountKey)
         return value > 0 ? value : defaultMaxItemCount
     }
-}
-
-// MARK: - Notification
-
-extension Notification.Name {
-    static let retentionSettingsDidChange = Notification.Name("retentionSettingsDidChange")
 }

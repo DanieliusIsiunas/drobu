@@ -2,29 +2,10 @@ import AppKit
 import SwiftUI
 import ApplicationServices
 import Carbon.HIToolbox
-import os.log
-
-private let pasteLog = Logger(subsystem: "com.clipboard-history", category: "paste")
-
-private func debugLog(_ msg: String) {
-    pasteLog.warning("\(msg)")
-    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("clipboard-paste-debug.log")
-    let line = "\(Date()): \(msg)\n"
-    if let handle = try? FileHandle(forWritingTo: url) {
-        handle.seekToEndOfFile()
-        handle.write(line.data(using: .utf8)!)
-        handle.closeFile()
-    } else {
-        try? line.data(using: .utf8)?.write(to: url)
-    }
-}
-
 /// A non-activating floating panel that hosts SwiftUI content.
 /// Behaves like Alfred/Spotlight: appears without stealing focus, receives keyboard input,
 /// dismisses on click outside or app switch.
 final class FloatingPanel: NSPanel {
-    private var previousApp: NSRunningApplication?
-    private var activationObserver: Any?
     private var bufferedKeystrokes: String = ""
 
     init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 500),
@@ -65,7 +46,6 @@ final class FloatingPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     override func close() {
-        removeActivationObserver()
         super.close()
     }
 
@@ -92,9 +72,6 @@ final class FloatingPanel: NSPanel {
     // MARK: - Show / Hide / Toggle
 
     func showCentered() {
-        // Capture the frontmost app before we appear
-        previousApp = NSWorkspace.shared.frontmostApplication
-
         // Size window to fit SwiftUI content exactly (search bar + divider + list area).
         // This avoids hardcoding the panel height — it's computed from row constants.
         if let cv = contentView {
@@ -150,8 +127,7 @@ final class FloatingPanel: NSPanel {
             }
         case ClipboardRecord.kindGif:
             if let data = record.imageData {
-                let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
-                pasteboard.setData(data, forType: gifType)
+                pasteboard.setData(data, forType: .gif)
                 // PNG fallback for apps that don't support GIF
                 if let nsImage = NSImage(data: data),
                    let tiffData = nsImage.tiffRepresentation,
@@ -198,8 +174,6 @@ final class FloatingPanel: NSPanel {
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
         let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount
 
-        debugLog("[ClipboardHistory] pasteItems: \(records.count) records (\(imageCount) images, \(textItems.count) text), suppressCount=\(suppressCount)")
-
         if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
             appDelegate.monitor?.suppressChanges(count: suppressCount)
         }
@@ -234,22 +208,15 @@ final class FloatingPanel: NSPanel {
                 } else {
                     operations.append(.image(data))
                 }
-            } else {
-                debugLog("[ClipboardHistory] WARNING: media record id=\(item.id?.description ?? "nil") has nil imageData!")
             }
         }
-
-        debugLog("[ClipboardHistory] Built \(operations.count) paste operations")
 
         // Execute sequentially with delay
         executePasteSequence(operations, index: 0)
     }
 
     private func executePasteSequence(_ ops: [PasteOperation], index: Int) {
-        guard index < ops.count else {
-            debugLog("[ClipboardHistory] Paste sequence complete")
-            return
-        }
+        guard index < ops.count else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -257,7 +224,6 @@ final class FloatingPanel: NSPanel {
         switch ops[index] {
         case .text(let str):
             pb.setString(str, forType: .string)
-            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): text (\(str.count) chars)")
         case .image(let data):
             // Write both TIFF and PNG representations for maximum app compatibility
             if let bitmapRep = NSBitmapImageRep(data: data),
@@ -265,10 +231,8 @@ final class FloatingPanel: NSPanel {
                 pb.setData(pngData, forType: .png)
             }
             pb.setData(data, forType: .tiff)
-            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): image (\(data.count) bytes)")
         case .gif(let data):
-            let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
-            pb.setData(data, forType: gifType)
+            pb.setData(data, forType: .gif)
             // PNG fallback for apps that don't support GIF
             if let nsImage = NSImage(data: data),
                let tiffData = nsImage.tiffRepresentation,
@@ -276,7 +240,6 @@ final class FloatingPanel: NSPanel {
                let pngData = bitmap.representation(using: .png, properties: [:]) {
                 pb.setData(pngData, forType: .png)
             }
-            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): gif (\(data.count) bytes)")
         }
 
         firePaste()
@@ -291,21 +254,9 @@ final class FloatingPanel: NSPanel {
             default: nextIsImage = false
             }
             let delay: TimeInterval = nextIsImage ? 0.6 : 0.1
-            debugLog("[ClipboardHistory] Scheduling next paste op in \(delay)s (nextIsImage=\(nextIsImage))")
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else {
-                    debugLog("[ClipboardHistory] WARNING: self was deallocated before paste op \(index + 1)!")
-                    return
-                }
-                self.executePasteSequence(ops, index: index + 1)
+                self?.executePasteSequence(ops, index: index + 1)
             }
-        }
-    }
-
-    private func removeActivationObserver() {
-        if let observer = activationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            activationObserver = nil
         }
     }
 

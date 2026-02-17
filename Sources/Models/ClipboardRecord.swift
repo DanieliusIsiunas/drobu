@@ -95,7 +95,7 @@ extension ClipboardRecord {
 
     /// Update text content, recalculate hash, and move to top of list.
     static func updatePlainText(id: Int64, newText: String, in db: Database) throws {
-        let newHash = sha256(newText.data(using: .utf8)!)
+        let newHash = newText.data(using: .utf8)!.sha256String
 
         // Delete any other item with the same hash (dedup)
         try db.execute(
@@ -116,7 +116,7 @@ extension ClipboardRecord {
 
     /// Update GIF data, recalculate hash, and move to top of list.
     static func updateGifData(id: Int64, newData: Data, in db: Database) throws {
-        let newHash = sha256(newData)
+        let newHash = newData.sha256String
 
         // Delete any other item with the same hash (dedup)
         try db.execute(
@@ -133,10 +133,6 @@ extension ClipboardRecord {
                 """,
             arguments: [newData, newHash, Date(), id]
         )
-    }
-
-    private static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Extract frame count and total duration from GIF data using CGImageSource.
@@ -181,3 +177,19 @@ extension ClipboardRecord {
         )
     }
 }
+
+// MARK: - Shared Utilities
+
+extension Data {
+    var sha256String: String {
+        SHA256.hash(data: self).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+#if canImport(AppKit)
+import AppKit
+
+extension NSPasteboard.PasteboardType {
+    static let gif = NSPasteboard.PasteboardType("com.compuserve.gif")
+}
+#endif

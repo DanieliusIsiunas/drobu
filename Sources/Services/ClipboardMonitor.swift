@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import GRDB
 import Foundation
 
@@ -93,11 +92,10 @@ final class ClipboardMonitor {
         let sourceBundleId = frontmost?.bundleIdentifier
 
         // 1. Check for GIF — both raw data and file URLs (e.g. copying .gif from Finder)
-        let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
-        if let gifData = item.data(forType: gifType) {
+        if let gifData = item.data(forType: .gif) {
             guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
 
-            let hash = sha256(gifData)
+            let hash = gifData.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindGif,
                 plainText: sourceApp,
@@ -112,11 +110,12 @@ final class ClipboardMonitor {
         // Check for file URL pointing to a .gif file (Finder copies files as URLs, not raw data)
         if let fileURLString = item.string(forType: .fileURL),
            let fileURL = URL(string: fileURLString),
+           fileURL.scheme == "file",
            fileURL.pathExtension.lowercased() == "gif" {
             if let gifData = try? Data(contentsOf: fileURL) {
                 guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
 
-                let hash = sha256(gifData)
+                let hash = gifData.sha256String
                 return ClipboardRecord(
                     kind: ClipboardRecord.kindGif,
                     plainText: sourceApp,
@@ -135,7 +134,7 @@ final class ClipboardMonitor {
             guard !trimmed.isEmpty else { return nil }
             guard trimmed.utf8.count <= 1_000_000 else { return nil } // 1MB cap
 
-            let hash = sha256(trimmed.data(using: .utf8)!)
+            let hash = trimmed.data(using: .utf8)!.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindText,
                 plainText: trimmed,
@@ -150,7 +149,7 @@ final class ClipboardMonitor {
         if let imageData = item.data(forType: .png) ?? item.data(forType: .tiff) {
             guard imageData.count <= 10_000_000 else { return nil } // 10MB cap
 
-            let hash = sha256(imageData)
+            let hash = imageData.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindImage,
                 plainText: sourceApp, // Store source app in plainText for FTS searchability
@@ -165,7 +164,4 @@ final class ClipboardMonitor {
         return nil
     }
 
-    private func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 }

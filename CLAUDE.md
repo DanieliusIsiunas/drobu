@@ -56,7 +56,6 @@ This pattern is essential because:
 
 **RetentionDefaults.swift:**
 - UserDefaults wrapper for retention settings (days, max items)
-- Posts `.retentionSettingsDidChange` notification on save
 
 ### Monitoring (`Sources/Services/`)
 
@@ -132,9 +131,8 @@ Runs on launch + hourly:
 ### Settings Persistence
 Uses UserDefaults with immediate save:
 - `HotkeyDefaults.save()` → posts `.hotkeyDidChange`
-- `RetentionDefaults.save()` → posts `.retentionSettingsDidChange`
 
-AppDelegate observes notifications and re-applies settings.
+AppDelegate observes hotkey notification and re-applies settings.
 
 ### Permissions
 - **Accessibility:** Required for simulating Cmd+V. Checked on first paste. Without it, items are only copied (manual paste required).
