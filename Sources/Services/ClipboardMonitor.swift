@@ -92,7 +92,44 @@ final class ClipboardMonitor {
         let sourceApp = frontmost?.localizedName
         let sourceBundleId = frontmost?.bundleIdentifier
 
-        // Priority: text > image (per plan — text preferred when both present)
+        // 1. Check for GIF — both raw data and file URLs (e.g. copying .gif from Finder)
+        let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
+        if let gifData = item.data(forType: gifType) {
+            guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
+
+            let hash = sha256(gifData)
+            return ClipboardRecord(
+                kind: ClipboardRecord.kindGif,
+                plainText: sourceApp,
+                imageData: gifData,
+                sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId,
+                contentHash: hash,
+                createdAt: Date()
+            )
+        }
+
+        // Check for file URL pointing to a .gif file (Finder copies files as URLs, not raw data)
+        if let fileURLString = item.string(forType: .fileURL),
+           let fileURL = URL(string: fileURLString),
+           fileURL.pathExtension.lowercased() == "gif" {
+            if let gifData = try? Data(contentsOf: fileURL) {
+                guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
+
+                let hash = sha256(gifData)
+                return ClipboardRecord(
+                    kind: ClipboardRecord.kindGif,
+                    plainText: sourceApp,
+                    imageData: gifData,
+                    sourceApp: sourceApp,
+                    sourceBundleId: sourceBundleId,
+                    contentHash: hash,
+                    createdAt: Date()
+                )
+            }
+        }
+
+        // 2. Text
         if types.contains(.string), let text = item.string(forType: .string) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }

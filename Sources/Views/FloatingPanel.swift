@@ -148,6 +148,18 @@ final class FloatingPanel: NSPanel {
             if let text = record.plainText {
                 pasteboard.setString(text, forType: .string)
             }
+        case ClipboardRecord.kindGif:
+            if let data = record.imageData {
+                let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
+                pasteboard.setData(data, forType: gifType)
+                // PNG fallback for apps that don't support GIF
+                if let nsImage = NSImage(data: data),
+                   let tiffData = nsImage.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    pasteboard.setData(pngData, forType: .png)
+                }
+            }
         case ClipboardRecord.kindImage:
             if let data = record.imageData {
                 pasteboard.setData(data, forType: .tiff)
@@ -169,6 +181,7 @@ final class FloatingPanel: NSPanel {
     private enum PasteOperation {
         case text(String)
         case image(Data)
+        case gif(Data)
     }
 
     func pasteItems(_ records: [ClipboardRecord]) {
@@ -181,7 +194,7 @@ final class FloatingPanel: NSPanel {
         }
 
         // Calculate how many pasteboard writes we'll make for suppression
-        let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage }.count
+        let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }.count
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
         let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount
 
@@ -213,12 +226,16 @@ final class FloatingPanel: NSPanel {
             let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
             operations.append(.text(combined))
         }
-        let imageItems = records.filter { $0.kind == ClipboardRecord.kindImage }
-        for img in imageItems {
-            if let data = img.imageData {
-                operations.append(.image(data))
+        let mediaItems = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }
+        for item in mediaItems {
+            if let data = item.imageData {
+                if item.kind == ClipboardRecord.kindGif {
+                    operations.append(.gif(data))
+                } else {
+                    operations.append(.image(data))
+                }
             } else {
-                debugLog("[ClipboardHistory] WARNING: image record id=\(img.id?.description ?? "nil") has nil imageData!")
+                debugLog("[ClipboardHistory] WARNING: media record id=\(item.id?.description ?? "nil") has nil imageData!")
             }
         }
 
@@ -249,6 +266,17 @@ final class FloatingPanel: NSPanel {
             }
             pb.setData(data, forType: .tiff)
             debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): image (\(data.count) bytes)")
+        case .gif(let data):
+            let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
+            pb.setData(data, forType: gifType)
+            // PNG fallback for apps that don't support GIF
+            if let nsImage = NSImage(data: data),
+               let tiffData = nsImage.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                pb.setData(pngData, forType: .png)
+            }
+            debugLog("[ClipboardHistory] Paste op \(index)/\(ops.count): gif (\(data.count) bytes)")
         }
 
         firePaste()
@@ -258,7 +286,10 @@ final class FloatingPanel: NSPanel {
         // require time to process each image before accepting the next paste.
         if index + 1 < ops.count {
             let nextIsImage: Bool
-            if case .image = ops[index + 1] { nextIsImage = true } else { nextIsImage = false }
+            switch ops[index + 1] {
+            case .image, .gif: nextIsImage = true
+            default: nextIsImage = false
+            }
             let delay: TimeInterval = nextIsImage ? 0.6 : 0.1
             debugLog("[ClipboardHistory] Scheduling next paste op in \(delay)s (nextIsImage=\(nextIsImage))")
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in

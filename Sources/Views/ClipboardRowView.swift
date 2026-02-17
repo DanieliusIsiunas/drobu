@@ -41,7 +41,12 @@ struct ClipboardRowView: View {
                 .resizable()
                 .interpolation(.high)
         } else {
-            Image(systemName: item.kind == ClipboardRecord.kindImage ? "photo" : "doc.on.clipboard")
+            let iconName = switch item.kind {
+            case ClipboardRecord.kindGif: "play.rectangle"
+            case ClipboardRecord.kindImage: "photo"
+            default: "doc.on.clipboard"
+            }
+            Image(systemName: iconName)
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
@@ -53,6 +58,22 @@ struct ClipboardRowView: View {
     @ViewBuilder
     private var contentView: some View {
         switch item.kind {
+        case ClipboardRecord.kindGif:
+            if let data = item.imageData, let nsImage = NSImage(data: data) {
+                let w = Int(nsImage.size.width)
+                let h = Int(nsImage.size.height)
+                let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+                let durationStr = ClipboardRecord.gifMetadata(from: data).map { String(format: "%.1fs", $0.duration) }
+                let detail = durationStr.map { "\(sizeStr), \($0)" } ?? sizeStr
+                Text("GIF: \(w)×\(h) (\(detail))")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            } else {
+                Text("GIF")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+            }
         case ClipboardRecord.kindImage:
             if let data = item.imageData, let nsImage = NSImage(data: data) {
                 let w = Int(nsImage.size.width)

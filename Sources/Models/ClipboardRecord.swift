@@ -1,6 +1,7 @@
 import CryptoKit
 import GRDB
 import Foundation
+import ImageIO
 
 struct ClipboardRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRecord {
     var id: Int64?
@@ -24,6 +25,7 @@ struct ClipboardRecord: Identifiable, Codable, FetchableRecord, MutablePersistab
 extension ClipboardRecord {
     static let kindText = "text"
     static let kindImage = "image"
+    static let kindGif = "gif"
 }
 
 // MARK: - Query Methods
@@ -114,6 +116,24 @@ extension ClipboardRecord {
 
     private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Extract frame count and total duration from GIF data using CGImageSource.
+    static func gifMetadata(from data: Data) -> (frameCount: Int, duration: Double)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard count > 0 else { return nil }
+        var duration: Double = 0
+        for i in 0..<count {
+            if let props = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [String: Any],
+               let gifProps = props[kCGImagePropertyGIFDictionary as String] as? [String: Any] {
+                let delay = gifProps[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double
+                         ?? gifProps[kCGImagePropertyGIFDelayTime as String] as? Double
+                         ?? 0.1
+                duration += delay
+            }
+        }
+        return (count, duration)
     }
 
     /// Cleanup: remove items older than retentionDays and enforce maxCount.

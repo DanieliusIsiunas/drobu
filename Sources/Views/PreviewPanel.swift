@@ -31,6 +31,8 @@ struct PreviewPanel: View {
     @ViewBuilder
     private func previewContent(for item: ClipboardRecord) -> some View {
         switch item.kind {
+        case ClipboardRecord.kindGif:
+            gifPreview(for: item)
         case ClipboardRecord.kindImage:
             imagePreview(for: item)
         default:
@@ -79,6 +81,26 @@ struct PreviewPanel: View {
         }
     }
 
+    private func gifPreview(for item: ClipboardRecord) -> some View {
+        Group {
+            if let data = item.imageData {
+                AnimatedGIFView(data: data)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(12)
+            } else {
+                VStack {
+                    Image(systemName: "play.rectangle")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.quaternary)
+                    Text("Unable to load GIF")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
     // MARK: - Metadata Bar
 
     private func metadataBar(for item: ClipboardRecord) -> some View {
@@ -88,6 +110,18 @@ struct PreviewPanel: View {
                 let displayText = isEditing ? editingText : (item.plainText ?? "")
                 let words = displayText.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
                 Text("\(words) words; \(displayText.count) chars")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if item.kind == ClipboardRecord.kindGif, let data = item.imageData, let nsImage = NSImage(data: data) {
+                let w = Int(nsImage.size.width)
+                let h = Int(nsImage.size.height)
+                let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+                let meta = ClipboardRecord.gifMetadata(from: data)
+                let durationStr = meta.map { String(format: "%.1fs", $0.duration) } ?? ""
+                let framesStr = meta.map { "\($0.frameCount) frames" } ?? ""
+                let detailStr = ["\(w)x\(h)", sizeStr, durationStr, framesStr]
+                    .filter { !$0.isEmpty }.joined(separator: " | ")
+                Text(detailStr)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if item.kind == ClipboardRecord.kindImage, let data = item.imageData, let nsImage = NSImage(data: data) {
