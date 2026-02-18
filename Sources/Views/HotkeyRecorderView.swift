@@ -40,6 +40,7 @@ final class HotkeyRecorderNSView: NSView {
         didSet { needsDisplay = true }
     }
     var onChange: ((KeyCombo?) -> Void)?
+    var saveAction: (KeyCombo?) -> Void = { HotkeyDefaults.save($0) }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -113,13 +114,12 @@ final class HotkeyRecorderNSView: NSView {
             return
         }
 
-        // Delete clears — reset to default
+        // Delete clears — reset to nil (caller decides default)
         if keyCode == UInt32(kVK_Delete) || keyCode == UInt32(kVK_ForwardDelete) {
-            let defaultCombo = HotkeyDefaults.load()
-            keyCombo = defaultCombo
+            keyCombo = nil
             isRecording = false
-            HotkeyDefaults.save(defaultCombo)
-            onChange?(defaultCombo)
+            saveAction(nil)
+            onChange?(nil)
             return
         }
 
@@ -134,7 +134,7 @@ final class HotkeyRecorderNSView: NSView {
         let combo = KeyCombo(carbonKeyCode: keyCode, carbonModifiers: modifiers.carbonFlags)
         keyCombo = combo
         isRecording = false
-        HotkeyDefaults.save(combo)
+        saveAction(combo)
         onChange?(combo)
     }
 
@@ -154,10 +154,12 @@ final class HotkeyRecorderNSView: NSView {
 
 struct HotkeyRecorderView: NSViewRepresentable {
     @Binding var keyCombo: KeyCombo?
+    var saveAction: @MainActor (KeyCombo?) -> Void = { HotkeyDefaults.save($0) }
 
     func makeNSView(context: Context) -> HotkeyRecorderNSView {
         let view = HotkeyRecorderNSView()
         view.keyCombo = keyCombo
+        view.saveAction = saveAction
         view.onChange = { newCombo in
             keyCombo = newCombo
         }
@@ -166,5 +168,6 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
     func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
         nsView.keyCombo = keyCombo
+        nsView.saveAction = saveAction
     }
 }

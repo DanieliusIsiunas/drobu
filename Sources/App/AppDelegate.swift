@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: HotKey?
     private var cleanupTimer: Timer?
     private var hotkeyObserver: Any?
+    private var captureHotKey: HotKey?
+    private var captureHotkeyObserver: Any?
+    private var captureService: ScreenCaptureService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -42,6 +45,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Screen capture service + hotkey
+        let service = ScreenCaptureService()
+        service.onCaptureComplete = { [weak self] gifData in
+            self?.handleCaptureComplete(gifData)
+        }
+        service.onCaptureError = { message in
+            let alert = NSAlert()
+            alert.messageText = "Screen Capture"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        captureService = service
+        registerCaptureHotkey(CaptureHotkeyDefaults.load())
+
+        captureHotkeyObserver = NotificationCenter.default.addObserver(
+            forName: .captureHotkeyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.registerCaptureHotkey(CaptureHotkeyDefaults.load())
+            }
+        }
+
         // Check Accessibility permission on launch
         checkAccessibilityOnLaunch()
 
@@ -57,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func togglePanel() {
+        // Ignore panel toggle while capture is active
+        if captureService?.state != .idle { return }
+
         if let panel = panel, panel.isVisible {
             panel.close()
         } else {
@@ -115,6 +147,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey?.keyDownHandler = { [weak self] in
             self?.togglePanel()
         }
+    }
+
+    private func registerCaptureHotkey(_ combo: KeyCombo) {
+        captureHotKey = nil
+        captureHotKey = HotKey(keyCombo: combo)
+        captureHotKey?.keyDownHandler = { [weak self] in
+            self?.handleCaptureHotkey()
+        }
+    }
+
+    // MARK: - Screen Capture
+
+    private func handleCaptureHotkey() {
+        guard let service = captureService else { return }
+        switch service.state {
+        case .idle:
+            if panel?.isVisible == true { togglePanel() }
+            service.startRegionSelection()
+        case .selecting:
+            service.cancelSelection()
+        case .recording:
+            service.stopRecording()
+        case .encoding:
+            break
+        }
+    }
+
+    private func handleCaptureComplete(_ gifData: Data) {
+        let hash = gifData.sha256String
+        let record = ClipboardRecord(
+            kind: ClipboardRecord.kindGif,
+            plainText: "Screen Capture",
+            imageData: gifData,
+            sourceApp: "Screen Capture",
+            sourceBundleId: Bundle.main.bundleIdentifier,
+            contentHash: hash,
+            createdAt: Date()
+        )
+
+        // Save to database
+        let db = database!
+        Task.detached {
+            try? await db.pool.write { dbConn in
+                try ClipboardRecord.upsert(record, in: dbConn)
+            }
+        }
+
+        // Write to pasteboard (GIF primary, PNG fallback)
+        monitor?.suppressNextChange()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        FloatingPanel.writeGIFToPasteboard(gifData, pasteboard: pasteboard)
     }
 
     // MARK: - Pasteboard Privacy (macOS 15.4+)

@@ -65,4 +65,40 @@ enum GIFFrameEngine {
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
     }
+
+    /// Encode GIF from compressed frame data (JPEG).
+    /// Decompresses one frame at a time to minimize peak memory during screen capture encoding.
+    static func encodeFromCompressedFrames(_ compressedFrames: [Data], delay: Double) -> Data? {
+        guard !compressedFrames.isEmpty else { return nil }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data as CFMutableData,
+            UTType.gif.identifier as CFString,
+            compressedFrames.count,
+            nil
+        ) else { return nil }
+
+        let fileProperties: [String: Any] = [
+            kCGImagePropertyGIFDictionary as String: [
+                kCGImagePropertyGIFLoopCount as String: 0
+            ]
+        ]
+        CGImageDestinationSetProperties(destination, fileProperties as CFDictionary)
+
+        let frameProperties: [String: Any] = [
+            kCGImagePropertyGIFDictionary as String: [
+                kCGImagePropertyGIFDelayTime as String: delay
+            ]
+        ]
+        for jpegData in compressedFrames {
+            guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            else { continue }
+            CGImageDestinationAddImage(destination, cgImage, frameProperties as CFDictionary)
+        }
+
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
 }

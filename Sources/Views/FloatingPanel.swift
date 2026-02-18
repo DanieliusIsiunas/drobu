@@ -127,14 +127,7 @@ final class FloatingPanel: NSPanel {
             }
         case ClipboardRecord.kindGif:
             if let data = record.imageData {
-                pasteboard.setData(data, forType: .gif)
-                // PNG fallback for apps that don't support GIF
-                if let nsImage = NSImage(data: data),
-                   let tiffData = nsImage.tiffRepresentation,
-                   let bitmap = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmap.representation(using: .png, properties: [:]) {
-                    pasteboard.setData(pngData, forType: .png)
-                }
+                Self.writeGIFToPasteboard(data, pasteboard: pasteboard)
             }
         case ClipboardRecord.kindImage:
             if let data = record.imageData {
@@ -232,14 +225,7 @@ final class FloatingPanel: NSPanel {
             }
             pb.setData(data, forType: .tiff)
         case .gif(let data):
-            pb.setData(data, forType: .gif)
-            // PNG fallback for apps that don't support GIF
-            if let nsImage = NSImage(data: data),
-               let tiffData = nsImage.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiffData),
-               let pngData = bitmap.representation(using: .png, properties: [:]) {
-                pb.setData(pngData, forType: .png)
-            }
+            Self.writeGIFToPasteboard(data, pasteboard: pb)
         }
 
         firePaste()
@@ -275,6 +261,24 @@ final class FloatingPanel: NSPanel {
 
         keyDown.post(tap: .cgSessionEventTap)
         keyUp.post(tap: .cgSessionEventTap)
+    }
+
+    /// Write GIF data to pasteboard as a temp file URL.
+    /// Apps like Mattermost/Google Docs ignore raw `com.compuserve.gif` data
+    /// and only treat images as GIF when provided as a file URL (like Finder does).
+    static func writeGIFToPasteboard(_ gifData: Data, pasteboard: NSPasteboard) {
+        // Write to a temp file so receiving apps detect the .gif format
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClipboardHistory-\(UUID().uuidString).gif")
+        do {
+            try gifData.write(to: tempURL)
+        } catch {
+            // Fallback: write raw data types if temp file fails
+            pasteboard.setData(gifData, forType: .gif)
+            return
+        }
+        // File URL is the primary type (matches Finder behavior)
+        pasteboard.writeObjects([tempURL as NSURL])
     }
 
     private func showCopiedNotification() {

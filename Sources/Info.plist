@@ -14,5 +14,7 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2026. All rights reserved.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>ClipboardHistory needs screen recording access to capture GIF screen recordings.</string>
 </dict>
 </plist>

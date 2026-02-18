@@ -5,6 +5,7 @@ import ServiceManagement
 struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
+    @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
     @State private var retentionDays = RetentionDefaults.loadRetentionDays()
     @State private var maxItemCount = RetentionDefaults.loadMaxItemCount()
 
@@ -15,6 +16,13 @@ struct SettingsView: View {
                     Text("Global Hotkey")
                     Spacer()
                     HotkeyRecorderView(keyCombo: $hotkeyCombo)
+                        .frame(width: 160, height: 24)
+                }
+
+                HStack {
+                    Text("Capture Hotkey")
+                    Spacer()
+                    HotkeyRecorderView(keyCombo: $captureHotkeyCombo, saveAction: CaptureHotkeyDefaults.save)
                         .frame(width: 160, height: 24)
                 }
 
