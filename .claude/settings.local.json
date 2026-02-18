@@ -43,7 +43,9 @@
       "Bash(swift --version:*)",
       "Bash(gh search code:*)",
       "Bash(defaults read:*)",
-      "Bash(/Users/danielius.isiunas/Desktop/clipboard-history/build.sh:*)"
+      "Bash(/Users/danielius.isiunas/Desktop/clipboard-history/build.sh:*)",
+      "mcp__plugin_compound-engineering_context7__resolve-library-id",
+      "mcp__plugin_compound-engineering_context7__query-docs"
     ]
   }
 }
