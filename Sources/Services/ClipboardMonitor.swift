@@ -85,6 +85,17 @@ final class ClipboardMonitor {
         }
     }
 
+    /// Strip ANSI escape sequences (CSI, OSC) from text.
+    private static func stripANSI(_ text: String) -> String {
+        // CSI: \x1B[ followed by parameter bytes and a letter
+        // OSC: \x1B] followed by content terminated by BEL (\x07) or ST (\x1B\\)
+        text.replacingOccurrences(
+            of: "\u{1B}(?:\\[[0-9;]*[A-Za-z]|\\][^\u{07}]*(?:\u{07}|\u{1B}\\\\))",
+            with: "",
+            options: .regularExpression
+        )
+    }
+
     private func extractRecord(from item: NSPasteboardItem) -> ClipboardRecord? {
         let types = item.types
         let frontmost = NSWorkspace.shared.frontmostApplication
@@ -132,12 +143,16 @@ final class ClipboardMonitor {
         if types.contains(.string), let text = item.string(forType: .string) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            guard trimmed.utf8.count <= 1_000_000 else { return nil } // 1MB cap
 
-            let hash = trimmed.data(using: .utf8)!.sha256String
+            // Strip ANSI escape sequences (terminal color codes, cursor control, OSC)
+            let cleaned = Self.stripANSI(trimmed)
+            guard !cleaned.isEmpty else { return nil }
+            guard cleaned.utf8.count <= 1_000_000 else { return nil } // 1MB cap
+
+            let hash = cleaned.data(using: .utf8)!.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindText,
-                plainText: trimmed,
+                plainText: cleaned,
                 imageData: nil,
                 sourceApp: sourceApp,
                 sourceBundleId: sourceBundleId,

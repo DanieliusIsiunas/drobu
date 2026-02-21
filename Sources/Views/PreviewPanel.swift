@@ -8,6 +8,7 @@ struct PreviewPanel: View {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onGifSave: ((Data) -> Void)?
+    var onCleanup: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,7 +48,8 @@ struct PreviewPanel: View {
             EditableTextView(
                 text: $editingText,
                 onSave: onSave,
-                onDiscard: onDiscard
+                onDiscard: onDiscard,
+                onCleanup: onCleanup
             )
         } else {
             ScrollView {

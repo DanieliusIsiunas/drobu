@@ -98,7 +98,8 @@ struct ClipboardPanelView: View {
                         editingText: $editingText,
                         onSave: { saveEdit() },
                         onDiscard: { discardEdit() },
-                        onGifSave: { trimmedData in saveGifTrim(data: trimmedData) }
+                        onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+                        onCleanup: { cleanupText() }
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -303,6 +304,12 @@ struct ClipboardPanelView: View {
         originalText = editingText
         editingItemId = item.id
         isEditing = true
+    }
+
+    private func cleanupText() {
+        let cleaned = TerminalTextCleaner.clean(editingText)
+        guard !cleaned.isEmpty, cleaned != editingText else { return }
+        editingText = cleaned
     }
 
     private func saveEdit() {

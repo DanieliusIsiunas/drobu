@@ -6,6 +6,7 @@ import SwiftUI
 fileprivate final class EditableNSTextView: NSTextView {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onCleanup: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -13,6 +14,17 @@ fileprivate final class EditableNSTextView: NSTextView {
         // Cmd+Return → save
         if event.keyCode == 36 && flags.contains(.command) {
             onSave?()
+            return
+        }
+
+        // Arrow up at position 0 with no selection → cleanup
+        // Note: arrow keys have .numericPad and .function flags by default on macOS
+        let userFlags = flags.subtracting([.numericPad, .function])
+        if event.keyCode == 126
+            && userFlags.isEmpty
+            && selectedRange().location == 0
+            && selectedRange().length == 0 {
+            onCleanup?()
             return
         }
 
@@ -26,6 +38,7 @@ struct EditableTextView: NSViewRepresentable {
     @Binding var text: String
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onCleanup: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -56,6 +69,7 @@ struct EditableTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onSave = onSave
         textView.onDiscard = onDiscard
+        textView.onCleanup = onCleanup
 
         // Set initial text without triggering textDidChange
         context.coordinator.suppressTextChange = true
@@ -76,9 +90,18 @@ struct EditableTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? EditableNSTextView else { return }
-        // Only keep callbacks current — text flows through the binding
+        // Keep callbacks current
         textView.onSave = onSave
         textView.onDiscard = onDiscard
+        textView.onCleanup = onCleanup
+
+        // Sync text when binding changes programmatically (e.g. cleanup)
+        if textView.string != text {
+            context.coordinator.suppressTextChange = true
+            textView.string = text
+            context.coordinator.suppressTextChange = false
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+        }
     }
 
     // MARK: - Coordinator

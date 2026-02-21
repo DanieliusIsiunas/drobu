@@ -1,5 +1,5 @@
 ---
-title: "feat: Terminal text cleanup for pasting into Jira/MatterMost"
+title: "feat: Terminal text cleanup for clean Markdown pasting"
 type: feat
 date: 2026-02-20
 brainstorm: docs/brainstorms/2026-02-20-terminal-text-cleanup-brainstorm.md
@@ -9,305 +9,265 @@ brainstorm: docs/brainstorms/2026-02-20-terminal-text-cleanup-brainstorm.md
 
 ## Overview
 
-Add a "Clean up" action in the preview panel that reformats terminal-sourced text clips for clean pasting into rich-text apps like Jira and MatterMost. Terminal text is detected via `sourceBundleId` matching known terminal emulators. Two output modes: Clean Markdown and Plain text.
+Add a keyboard-triggered text cleanup feature that reformats clipboard text into clean Markdown. When editing a text clip with the cursor at position 0, pressing arrow up transforms the text — reflowing hard-wrapped prose, fencing code blocks, and normalizing structure. Additionally, strip ANSI escape sequences at capture time so color codes never enter the database.
 
 ## Problem Statement
 
-Text copied from terminal apps contains hard line wraps at the terminal width (80/120 chars), mixed code and prose without clear boundaries, and raw Markdown artifacts. When pasted into Jira, MatterMost, or similar apps, the formatting breaks — sentences are split mid-line, code blocks aren't fenced, and structure is lost. Users must manually reformat every paste.
+Text copied from terminals contains hard line wraps at 80/120 character widths, mixed code and prose without boundaries, and ANSI color escape sequences. Pasting into Jira, Slack, MatterMost, or GitHub produces broken formatting — sentences split mid-line, code blocks not fenced, and invisible escape characters corrupting output.
 
 ## Proposed Solution
 
 ### User Flow
 
-1. User copies text from a terminal app
-2. Opens clipboard panel, selects the item
-3. Preview panel shows read-only text with a **"Clean up" button** (visible because `sourceBundleId` matches)
-4. A **segmented picker** next to the button lets user choose: `Markdown` (default) or `Plain text`
-5. User clicks "Clean up" (or presses **Cmd+L** keyboard shortcut)
-6. App transforms the text and enters **edit mode** with the cleaned result pre-populated
-7. User reviews, optionally tweaks, saves (**Cmd+Return**) or discards (**Escape**)
-8. Saved version overwrites the original via existing `updatePlainText()` path
+1. Select any text clip in the panel
+2. Press right arrow to enter edit mode (cursor starts at position 0)
+3. Press arrow up — cleanup transforms text into clean Markdown
+4. Review the result, optionally make manual tweaks
+5. Cmd+Return to save (replaces original) or Escape to discard
 
 ### Key Design Decisions
 
-- **Detection:** `sourceBundleId` heuristic only — no content analysis for v1
-- **Terminal list:** Hardcoded set of known terminal bundle IDs (not user-configurable in v1)
-- **Trigger:** Manual button + keyboard shortcut (Cmd+L) — not auto-applied
-- **Edit mode reuse:** Cleanup populates `editingText` with transformed text and sets `originalText` to the raw text, then enters standard edit mode. All existing save/discard/auto-save-on-close behavior applies
-- **Output mode toggle:** Segmented picker next to the "Clean up" button, visible only in read-only state. Mode persisted in UserDefaults. Toggling during edit mode is not supported — user must discard first, toggle, then re-clean
-- **No schema changes:** Transform on-the-fly into edit mode, save via existing `updatePlainText()`
-- **Transformation is a pure function:** `TerminalTextCleaner.clean(_:mode:) -> String` — no side effects, testable in isolation
-
-### Terminal Bundle IDs (Initial Set)
-
-| App | Bundle ID |
-|-----|-----------|
-| Terminal.app | `com.apple.Terminal` |
-| iTerm2 | `com.googlecode.iterm2` |
-| Warp | `dev.warp.Warp-Stable` |
-| Alacritty | `org.alacritty` |
-| kitty | `net.kovidgoyal.kitty` |
-| WezTerm | `com.github.wez.wezterm` |
-
-**Excluded:** VS Code (`com.microsoft.VSCode`) and Cursor — these are editors with integrated terminals, but there's no way to distinguish terminal pane copies from editor copies. Including them would show the button on every code clip, which is noisy. Users can manually enter edit mode for these.
+- **Available for ALL text clips** — no source app gating or bundle ID matching
+- **Keyboard-only trigger** — arrow up at cursor position 0 in edit mode, no button
+- **Markdown output only** — no mode picker, single transform function
+- **Replace on save** — existing edit-mode save/discard behavior, no schema changes
+- **ANSI stripping at capture** — applied in ClipboardMonitor for all text, not during cleanup
+- **Pure function** — `TerminalTextCleaner.clean(_:) -> String`, stateless and testable
 
 ## Technical Approach
 
-### New File: `Sources/Services/TerminalTextCleaner.swift`
+### Phase 1: ANSI Stripping at Capture
 
-Pure transformation logic — no UI, no database, no side effects.
+**File:** `Sources/Services/ClipboardMonitor.swift`
+
+Add ANSI escape sequence stripping in `extractRecord(from:)` between text trimming (line 133) and hash calculation (line 137). This ensures no ANSI codes ever reach the database.
+
+**Insertion point** — after line 133 (`let trimmed = ...`), before line 135 (`guard trimmed.utf8.count ...`):
 
 ```swift
-// Sources/Services/TerminalTextCleaner.swift
+// Strip ANSI escape sequences (terminal color codes, cursor control, etc.)
+let cleaned = trimmed.replacingOccurrences(
+    of: "\\x1B(?:\\[[0-9;]*[a-zA-Z]|\\][^\u{07}]*(?:\u{07}|\\x1B\\\\))",
+    with: "",
+    options: .regularExpression
+)
+```
 
-enum CleanupMode: String, CaseIterable {
-    case markdown = "Markdown"
-    case plainText = "Plain text"
-}
+Then use `cleaned` instead of `trimmed` for the rest of the method (empty check, size check, hash, record creation).
 
-struct TerminalTextCleaner {
+**ANSI patterns to strip:**
+- CSI sequences: `\x1B[...m` (colors, styles), `\x1B[...H` (cursor), `\x1B[...J` (erase)
+- OSC sequences: `\x1B]...BEL` or `\x1B]...\x1B\\` (title, hyperlinks)
 
-    /// Known terminal emulator bundle IDs
-    static let terminalBundleIds: Set<String> = [
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "dev.warp.Warp-Stable",
-        "org.alacritty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-    ]
+### Phase 2: TerminalTextCleaner Service
 
-    static func isTerminalSource(_ bundleId: String?) -> Bool {
-        guard let id = bundleId else { return false }
-        return terminalBundleIds.contains(id)
-    }
+**New file:** `Sources/Services/TerminalTextCleaner.swift`
 
-    static func clean(_ text: String, mode: CleanupMode) -> String {
-        var result = text
-        result = stripANSIEscapes(result)
-        result = normalizeWhitespace(result)
+Follow `GIFFrameEngine` pattern — `enum` with static methods, pure functions, no state.
 
-        // Parse into blocks (prose, code, list, blank)
-        let blocks = parseBlocks(result)
-
-        // Render based on mode
-        switch mode {
-        case .markdown:
-            return renderMarkdown(blocks)
-        case .plainText:
-            return renderPlainText(blocks)
-        }
-    }
-
-    // --- Internal methods ---
-
-    /// Strip ANSI escape sequences (\x1B[...m, etc.)
-    static func stripANSIEscapes(_ text: String) -> String { ... }
-
-    /// Normalize trailing whitespace, collapse 3+ blank lines to 2
-    static func normalizeWhitespace(_ text: String) -> String { ... }
-
-    /// Parse text into typed blocks: prose, code, list, heading, blank
-    static func parseBlocks(_ text: String) -> [TextBlock] { ... }
-
-    /// Join hard-wrapped prose lines within a block
-    static func reflowProse(_ lines: [String]) -> String { ... }
-
-    /// Render blocks as clean Markdown
-    static func renderMarkdown(_ blocks: [TextBlock]) -> String { ... }
-
-    /// Render blocks as plain reflowed text
-    static func renderPlainText(_ blocks: [TextBlock]) -> String { ... }
+```swift
+enum TerminalTextCleaner {
+    static func clean(_ text: String) -> String
 }
 ```
 
-### Block Parsing Heuristics
+**Block parsing pipeline:**
 
-Each line is classified, then consecutive lines of the same type form a block:
+1. Split text into lines
+2. Classify each line → `LineKind` (blank, heading, list, code, prose)
+3. Group consecutive same-kind lines into `TextBlock` arrays
+4. Process each block (reflow prose, preserve code/lists/headings)
+5. Render as clean Markdown
 
-| Line Pattern | Classification | Rules |
-|---|---|---|
-| Blank line | `.blank` | Separates blocks |
-| Starts with `#` + space | `.heading` | Preserve as-is |
-| Starts with `- `, `* `, `1. ` (with optional leading spaces) | `.list` | Preserve structure, don't reflow |
-| Indented 4+ spaces or starts with tab | `.code` | Preserve exactly |
-| Contains `{`, `}`, `=>`, `\|`, `&&`, `\|\|`, `()`, `[];` patterns | `.code` | Syntax markers |
-| Line length within 70-130 chars, doesn't end with `.?!:` | `.prose` (likely hard-wrapped) | Candidate for reflow |
-| All other lines | `.prose` | Keep as-is if short |
+**Line classification heuristics:**
+
+| Pattern | Classification |
+|---------|---------------|
+| Empty / whitespace-only | `.blank` |
+| Starts with `# ` (1-6 `#` chars) | `.heading` |
+| Starts with `- `, `* `, or `N. ` (with optional indent) | `.list` |
+| Indented 4+ spaces or starts with tab | `.code` |
+| Contains syntax markers: `{ } => \| && \|\| () [];` and not a prose sentence | `.code` |
+| Everything else | `.prose` |
 
 **Prose reflow logic:**
-- Detect "terminal width" from the text: find the most common line length among long lines (mode of lengths > 60)
-- Lines within 5 chars of this width that don't end with sentence-ending punctuation are candidates for joining
-- Join candidates into flowing paragraphs, preserving blank-line paragraph breaks
 
-**Markdown mode rendering:**
-- Prose blocks: reflowed paragraphs
+1. Detect "terminal width" — find the mode of line lengths among lines > 60 chars
+2. Lines within 5 chars of this width that don't end with `.?!:` are hard-wrap candidates
+3. Join candidates with a space to form flowing paragraphs
+4. Preserve blank-line paragraph breaks
+
+**Markdown rendering:**
+
+- Prose blocks: reflowed paragraphs separated by blank lines
 - Code blocks: wrapped in ` ``` ` fences
-- Lists: normalized markers (`-`), proper indentation
-- Headings: ensure blank lines before/after
-- Max 1 consecutive blank line between blocks
+- List blocks: preserved with normalized `-` markers
+- Headings: preserved with blank lines before/after
+- Maximum 1 consecutive blank line between blocks
 
-**Plain text mode rendering:**
-- Prose blocks: reflowed paragraphs
-- Code blocks: kept indented (no fences)
-- Lists: kept as-is
-- Headings: kept as-is (no Markdown `#` stripping — they're still useful as structure)
-- Markdown emphasis (`**bold**`, `*italic*`) stripped
+### Phase 3: Keyboard Trigger in EditableTextView
 
-### Modified File: `Sources/Views/PreviewPanel.swift`
+**File:** `Sources/Views/EditableTextView.swift`
 
-Add to the `PreviewPanel` struct:
-- New callback: `var onCleanup: ((CleanupMode) -> Void)?`
-- New property: `var showCleanupAction: Bool = false`
-- New binding: `@Binding var cleanupMode: CleanupMode`
-- A cleanup toolbar between the text preview and metadata bar, shown when `showCleanupAction && !isEditing`:
-  - Segmented `Picker` for `CleanupMode`
-  - "Clean up" `Button` (calls `onCleanup?(cleanupMode)`)
-  - Keyboard hint label: "Cmd+L"
+Add an `onCleanup` callback and intercept arrow up in `EditableNSTextView.keyDown(with:)`.
+
+**Why arrow up at position 0 is safe to intercept:** When the cursor is at position 0 (start of document) with no selection, pressing arrow up in NSTextView does nothing — you're already at the top. Intercepting it creates no conflict with standard text editing.
+
+**Changes to `EditableNSTextView` (line 6):**
 
 ```swift
-// In textPreview(for:), between the ScrollView and metadataBar:
-if showCleanupAction && !isEditing {
-    cleanupToolbar
-}
-```
+fileprivate final class EditableNSTextView: NSTextView {
+    var onSave: (() -> Void)?
+    var onDiscard: (() -> Void)?
+    var onCleanup: (() -> Void)?    // NEW
 
-### Modified File: `Sources/Views/ClipboardPanelView.swift`
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-Add:
-- `@State private var cleanupMode: CleanupMode = .markdown` (persisted via `@AppStorage`)
-- `@AppStorage("cleanupMode") private var storedCleanupMode: String = CleanupMode.markdown.rawValue`
-- New method `cleanupTerminalText()`:
+        // Cmd+Return → save
+        if event.keyCode == 36 && flags.contains(.command) {
+            onSave?()
+            return
+        }
 
-```swift
-private func cleanupTerminalText() {
-    guard let item = previewItem,
-          item.kind == ClipboardRecord.kindText,
-          let text = item.plainText else { return }
+        // Arrow up at position 0 with no selection → cleanup          // NEW
+        if event.keyCode == 126                                        // NEW
+            && flags.isEmpty                                           // NEW
+            && selectedRange().location == 0                           // NEW
+            && selectedRange().length == 0 {                           // NEW
+            onCleanup?()                                               // NEW
+            return                                                     // NEW
+        }                                                              // NEW
 
-    let cleaned = TerminalTextCleaner.clean(text, mode: cleanupMode)
-    editingText = cleaned
-    originalText = text  // Raw text for discard
-    editingItemId = item.id
-    isEditing = true
-}
-```
-
-- Wire `onCleanup` callback in `PreviewPanel` instantiation
-- Add Cmd+L keyboard shortcut in `onKeyPress`:
-
-```swift
-case .init("l") where press.modifiers == .command:
-    if showCleanupForCurrentItem && !isEditing {
-        cleanupTerminalText()
-        return .handled
+        super.keyDown(with: event)
     }
-```
-
-- Computed property `showCleanupForCurrentItem`:
-
-```swift
-private var showCleanupForCurrentItem: Bool {
-    guard let item = previewItem,
-          item.kind == ClipboardRecord.kindText else { return false }
-    return TerminalTextCleaner.isTerminalSource(item.sourceBundleId)
 }
 ```
 
-### No Database Changes
+**Changes to `EditableTextView` struct (line 25):**
 
-Reuses existing `ClipboardRecord.updatePlainText(id:newText:in:)` via the standard `saveEdit()` flow. Hash recalculation and deduplication handled automatically.
+Add `var onCleanup: (() -> Void)?` property alongside existing `onSave` and `onDiscard`.
+
+Thread it through in `makeNSView` (line 58) and `updateNSView` (line 81):
+
+```swift
+textView.onCleanup = onCleanup
+```
+
+### Phase 4: Wiring Through View Hierarchy
+
+**File:** `Sources/Views/PreviewPanel.swift`
+
+Add `var onCleanup: (() -> Void)?` property (line 9, alongside other callbacks).
+
+Pass to `EditableTextView` in `textPreview(for:)` (line 47):
+
+```swift
+EditableTextView(
+    text: $editingText,
+    onSave: onSave,
+    onDiscard: onDiscard,
+    onCleanup: onCleanup       // NEW
+)
+```
+
+**File:** `Sources/Views/ClipboardPanelView.swift`
+
+Add cleanup method and wire callback to PreviewPanel (line 94):
+
+```swift
+PreviewPanel(
+    item: previewItem,
+    selectionCount: selectedItems.count,
+    isEditing: $isEditing,
+    editingText: $editingText,
+    onSave: { saveEdit() },
+    onDiscard: { discardEdit() },
+    onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+    onCleanup: { cleanupText() }     // NEW
+)
+```
+
+New method near `enterEditMode()`:
+
+```swift
+private func cleanupText() {
+    let cleaned = TerminalTextCleaner.clean(editingText)
+    guard !cleaned.isEmpty, cleaned != editingText else { return }
+    editingText = cleaned
+}
+```
+
+**Behavior notes:**
+- Guard prevents replacing with empty string (data safety)
+- Guard prevents no-op replacement (idempotency)
+- `originalText` is NOT updated — Escape still discards to the pre-cleanup original
+- Cursor stays at position 0 (SwiftUI binding update recreates text view)
 
 ## Acceptance Criteria
 
 ### Core Functionality
-- [ ] "Clean up" button appears in preview panel for text items with terminal `sourceBundleId`
-- [ ] Button is hidden for non-terminal sources, images, GIFs, and multi-selections
-- [ ] Clicking "Clean up" transforms text and enters edit mode with cleaned result
-- [ ] Cmd+L keyboard shortcut triggers cleanup (when not already editing)
-- [ ] Segmented picker toggles between Markdown and Plain text modes
-- [ ] Mode selection persisted in UserDefaults across sessions
-- [ ] Cmd+Return saves cleaned text (existing edit flow)
-- [ ] Escape discards and restores original raw text (existing discard flow)
+- [x] Arrow up at cursor position 0 in edit mode triggers text cleanup
+- [x] Arrow up at any other cursor position behaves normally (moves cursor up)
+- [x] Arrow up with text selection does NOT trigger cleanup (standard selection behavior)
+- [x] Cleanup produces clean Markdown output
+- [x] Escape after cleanup restores original pre-cleanup text
+- [x] Cmd+Return after cleanup saves the cleaned version (replaces original)
+- [x] Cleanup available for ALL text clips regardless of source app
 
-### Transformation — Markdown Mode
-- [ ] Hard-wrapped prose lines joined into flowing paragraphs
-- [ ] Paragraph breaks (blank lines) preserved
-- [ ] Indented/code-like sections wrapped in fenced code blocks
-- [ ] Headings have blank lines before and after
-- [ ] Bullet/numbered lists preserved with normalized markers
-- [ ] ANSI escape sequences stripped
-- [ ] Excessive blank lines collapsed (max 1 between blocks)
+### ANSI Stripping (Capture Time)
+- [x] ANSI CSI sequences stripped from text on capture (`\x1B[...m`, etc.)
+- [x] ANSI OSC sequences stripped on capture (`\x1B]...\x07`)
+- [x] Stripping applied before hash calculation (no ANSI in contentHash)
+- [x] Non-ANSI text unaffected by stripping
 
-### Transformation — Plain Text Mode
-- [ ] Hard-wrapped prose lines joined into flowing paragraphs
-- [ ] Code blocks preserved with indentation (no fences)
-- [ ] Markdown emphasis markers stripped (`**`, `*`, `` ` ``)
-- [ ] ANSI escape sequences stripped
+### Transformation Quality — Prose
+- [x] Hard-wrapped prose lines joined into flowing paragraphs
+- [x] Paragraph breaks (blank lines) preserved
+- [x] Lines not near terminal width left unchanged
+- [x] Lines ending with sentence punctuation (`.?!:`) not joined to next line
+
+### Transformation Quality — Code
+- [x] Indented blocks (4+ spaces/tab) wrapped in ``` fences
+- [x] Lines with code syntax markers detected as code
+- [x] Code content preserved exactly (no reflow, no modification)
+
+### Transformation Quality — Structure
+- [x] Headings (`#`) have blank lines before/after
+- [x] Bullet lists preserved with normalized markers
+- [x] Excessive blank lines collapsed (max 1 between blocks)
+- [x] Already-clean Markdown remains stable (idempotent)
 
 ### Edge Cases
-- [ ] Single-line text: no-op transformation (still enters edit mode with same text)
-- [ ] Empty/whitespace-only text: no-op
-- [ ] Already-clean text: idempotent (running cleanup twice produces same result)
-- [ ] Items with `sourceBundleId = nil`: button not shown (expected for legacy items)
+- [x] Single-line text: cleanup is no-op (guard catches `cleaned == editingText`)
+- [x] Empty/whitespace-only text: cleanup is no-op (guard catches empty)
+- [x] Very long text (near 1MB): completes without UI freeze
+- [x] Text with only code: entire content fenced as code block
+- [x] Text with only prose: reflowed without any fences
 
-## Implementation Phases
+## Files Changed
 
-### Phase 1: Transformation Engine
-**Files:** New `Sources/Services/TerminalTextCleaner.swift`
-
-Build and test the pure transformation function in isolation:
-1. `isTerminalSource()` — bundle ID matching
-2. `stripANSIEscapes()` — regex-based ANSI removal
-3. `normalizeWhitespace()` — trailing whitespace, blank line collapsing
-4. `parseBlocks()` — line classification and block grouping
-5. `reflowProse()` — terminal-width detection and line joining
-6. `renderMarkdown()` / `renderPlainText()` — mode-specific output
-
-Test with representative samples:
-- `man` page output (80-col prose)
-- `git log --oneline` output (short lines, not hard-wrapped)
-- `git diff` output (code with `+`/`-` prefixes)
-- Compiler error messages (mixed paths and prose)
-- Claude Code CLI output (Markdown with code blocks, prose paragraphs)
-- Shell session transcript (`$` prompts + output)
-
-### Phase 2: UI Integration
-**Files:** `Sources/Views/PreviewPanel.swift`, `Sources/Views/ClipboardPanelView.swift`
-
-1. Add `showCleanupAction` property and `onCleanup` callback to `PreviewPanel`
-2. Build the cleanup toolbar (segmented picker + button)
-3. Add `cleanupTerminalText()` method to `ClipboardPanelView`
-4. Wire up the `onCleanup` callback
-5. Add `@AppStorage` for mode persistence
-6. Add Cmd+L keyboard shortcut
-
-### Phase 3: Polish
-1. Tune prose reflow heuristics based on real terminal output testing
-2. Verify bundle IDs by copying from each target terminal app
-3. Ensure idempotency (cleanup of already-cleaned text is stable)
+| File | Change |
+|------|--------|
+| `Sources/Services/TerminalTextCleaner.swift` | **NEW** — Pure cleanup function |
+| `Sources/Services/ClipboardMonitor.swift` | Add ANSI stripping at line 133 |
+| `Sources/Views/EditableTextView.swift` | Add `onCleanup` callback, arrow up intercept |
+| `Sources/Views/PreviewPanel.swift` | Thread `onCleanup` to EditableTextView |
+| `Sources/Views/ClipboardPanelView.swift` | Add `cleanupText()`, wire `onCleanup` |
 
 ## Known Limitations (v1)
 
-- **VS Code / Cursor excluded** — can't distinguish terminal pane from editor copies
-- **Terminal list not user-configurable** — hardcoded set, extensible in future
-- **No undo after save** — original text permanently replaced (same as existing edit mode)
-- **No content-based fallback** — items without `sourceBundleId` won't show the button
+- **No undo beyond Escape** — cleanup replaces `editingText` but `originalText` preserved for discard. No Cmd+Z undo of cleanup specifically (NSTextView undo manager not used for programmatic replacement)
 - **CJK/wide characters** — line-width heuristic uses character count, not display width
-- **Mode toggle during edit** — must discard, toggle, re-clean (no inline mode switch)
-
-## Future Evolution
-
-- **NL framework:** `NLTokenizer` for sentence boundary detection (smarter reflow)
-- **Content analysis fallback:** Detect terminal-like text from any source app
-- **Transform pipeline:** "Clean up" as first action; future: summarize, translate, restyle
-- **Configurable terminal list** in Settings
-- **Before/after diff view** during cleanup preview
+- **No plain text mode** — Markdown only
+- **Not discoverable** — pure keyboard gesture, no visual hint
+- **Code language detection** — fenced blocks use bare ``` without language annotation
 
 ## References
 
 - Brainstorm: `docs/brainstorms/2026-02-20-terminal-text-cleanup-brainstorm.md`
-- Edit mode pattern: `Sources/Views/ClipboardPanelView.swift:300-371`
-- Preview panel: `Sources/Views/PreviewPanel.swift:32-153`
-- Source app capture: `Sources/Services/ClipboardMonitor.swift:88-92`
-- DB update method: `Sources/Models/ClipboardRecord.swift:97-115`
+- Edit mode: `Sources/Views/ClipboardPanelView.swift:300-306`
+- EditableTextView: `Sources/Views/EditableTextView.swift:6-21`
+- PreviewPanel text: `Sources/Views/PreviewPanel.swift:45-61`
+- ClipboardMonitor text capture: `Sources/Services/ClipboardMonitor.swift:131-147`
+- Service pattern reference: `Sources/Services/GIFFrameEngine.swift` (enum with static methods)
