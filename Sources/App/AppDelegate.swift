@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureHotKey: HotKey?
     private var captureHotkeyObserver: Any?
     private var captureService: ScreenCaptureService?
+    private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -71,6 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Set up menu bar status item with custom icon
+        setupStatusItem()
+
         // Check Accessibility permission on launch
         checkAccessibilityOnLaunch()
 
@@ -113,6 +117,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
             }
         }
+    }
+
+    // MARK: - Menu Bar Status Item
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = statusItem?.button {
+            if let iconURL = Bundle.main.url(forResource: "MenuBarIconTemplate", withExtension: "png"),
+               let image = NSImage(contentsOf: iconURL) {
+                image.size = NSSize(width: 22, height: 22)
+                image.isTemplate = true
+                button.image = image
+            } else {
+                // Fallback to SF Symbol if custom icon not found
+                button.image = NSImage(systemSymbolName: "clipboard", accessibilityDescription: "Clipboard History")
+            }
+        }
+
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        statusItem?.menu = menu
+    }
+
+    @objc private func openPreferences() {
+        NotificationCenter.default.post(name: .openSettingsFromMenu, object: nil)
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 
     // MARK: - Accessibility Onboarding

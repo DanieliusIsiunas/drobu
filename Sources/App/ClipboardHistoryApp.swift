@@ -18,20 +18,6 @@ struct ClipboardHistoryApp: App {
         .defaultPosition(.center)
         .windowStyle(.hiddenTitleBar)
 
-        MenuBarExtra("Clipboard History", systemImage: "clipboard") {
-            Button("Preferences...") {
-                NotificationCenter.default.post(name: .openSettingsFromMenu, object: nil)
-            }
-            .keyboardShortcut(",", modifiers: .command)
-
-            Divider()
-
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q", modifiers: .command)
-        }
-
         Settings {
             SettingsView()
         }
