@@ -125,15 +125,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            if let iconURL = Bundle.main.url(forResource: "MenuBarIconTemplate", withExtension: "png"),
-               let image = NSImage(contentsOf: iconURL) {
+            if let image = NSImage(named: "MenuBarIconTemplate") {
                 image.size = NSSize(width: 22, height: 22)
                 image.isTemplate = true
                 button.image = image
             } else {
-                // Fallback to SF Symbol if custom icon not found
                 button.image = NSImage(systemSymbolName: "clipboard", accessibilityDescription: "Clipboard History")
             }
+            button.setAccessibilityLabel("Clipboard History")
         }
 
         let menu = NSMenu()
