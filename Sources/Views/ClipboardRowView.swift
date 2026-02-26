@@ -7,7 +7,7 @@ struct ClipboardRowView: View {
     let shortcutIndex: Int? // 0-8 for Cmd+1 through Cmd+9, nil if beyond range
 
     /// Fixed row height: 24px icon + 4px padding each side = 32px.
-    /// Used by ClipboardPanelView to compute the list area height.
+    /// Used by PanelView to compute the list area height.
     static let rowHeight: CGFloat = 32
 
     private static let appIconCache = NSCache<NSString, NSImage>()

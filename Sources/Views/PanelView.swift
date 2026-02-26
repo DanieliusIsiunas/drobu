@@ -1,0 +1,808 @@
+import SwiftUI
+import GRDB
+
+enum PanelMode: Equatable {
+    case clipboard
+    case commandList
+    case commandOptions(commandName: String)
+
+    static func == (lhs: PanelMode, rhs: PanelMode) -> Bool {
+        switch (lhs, rhs) {
+        case (.clipboard, .clipboard): return true
+        case (.commandList, .commandList): return true
+        case (.commandOptions(let a), .commandOptions(let b)): return a == b
+        default: return false
+        }
+    }
+}
+
+struct PanelView: View {
+    let database: AppDatabase
+    let commands: [any SlashCommand]
+    let caffeinateService: CaffeinateService
+
+    // MARK: - Layout Constants (single source of truth)
+
+    /// Change this to show more or fewer rows in the panel.
+    static let visibleItemCount = 11
+
+    static let panelWidth: CGFloat = 780
+    static let listWidth: CGFloat = 340
+    private static let rowSpacing: CGFloat = 2   // LazyVStack spacing
+    private static let listPadding: CGFloat = 4  // .padding(.vertical, 4) on list container
+
+    /// Exact height for the item list area, computed from row constants.
+    static let listAreaHeight: CGFloat = {
+        let rows = CGFloat(visibleItemCount) * ClipboardRowView.rowHeight
+        let spacing = CGFloat(visibleItemCount - 1) * rowSpacing
+        let padding = 2 * listPadding
+        return rows + spacing + padding
+    }()
+
+    @State private var searchText = ""
+    @State private var items: [ClipboardRecord] = []
+    @State private var anchor = 0      // where Shift-select started
+    @State private var cursor = 0      // current keyboard position
+    @State private var observation: AnyDatabaseCancellable?
+    @State private var isEditing = false
+    @State private var editingText = ""
+    @State private var originalText = ""
+    @State private var editingItemId: Int64?   // track edited item across list refreshes
+    @State private var panelMode: PanelMode = .clipboard
+    @FocusState private var isSearchFocused: Bool
+    @Environment(\.floatingPanel) private var panelWrapper
+
+    private var panel: FloatingPanel? { panelWrapper.panel }
+
+    private var selectionRange: ClosedRange<Int> {
+        min(anchor, cursor)...max(anchor, cursor)
+    }
+
+    private var hasMultiSelection: Bool {
+        anchor != cursor
+    }
+
+    private var selectedItems: [ClipboardRecord] {
+        guard !items.isEmpty else { return [] }
+        let clamped = selectionRange.clamped(to: 0...(items.count - 1))
+        return Array(items[clamped])
+    }
+
+    private var previewItem: ClipboardRecord? {
+        guard panelMode == .clipboard, cursor < items.count else { return nil }
+        return items[cursor]
+    }
+
+    // MARK: - Filtered Commands
+
+    private var filteredCommands: [any SlashCommand] {
+        let query = String(searchText.dropFirst()) // Remove leading "/"
+        if query.isEmpty { return commands }
+        return commands.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.displayName.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var selectedCommand: (any SlashCommand)? {
+        if case .commandOptions(let name) = panelMode {
+            return commands.first(where: { $0.name == name })
+        }
+        return nil
+    }
+
+    private var commandOptions: [CommandOption] {
+        selectedCommand?.options() ?? []
+    }
+
+    // MARK: - Item Count for Current Mode
+
+    private var currentListCount: Int {
+        switch panelMode {
+        case .clipboard: return items.count
+        case .commandList: return filteredCommands.count
+        case .commandOptions: return commandOptions.count
+        }
+    }
+
+    // MARK: - Search Bar
+
+    private var searchPlaceholder: String {
+        switch panelMode {
+        case .clipboard: return "Search clipboard..."
+        case .commandList, .commandOptions: return "Type a command..."
+        }
+    }
+
+    private var searchIcon: String {
+        switch panelMode {
+        case .clipboard: return "magnifyingglass"
+        case .commandList, .commandOptions: return "terminal"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Search field (full width)
+            HStack(spacing: 8) {
+                Image(systemName: searchIcon)
+                    .foregroundStyle(.secondary)
+                TextField(searchPlaceholder, text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16))
+                    .focused($isSearchFocused)
+                if !searchText.isEmpty {
+                    Button(action: { searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            // Split layout: list | preview
+            if panelMode == .clipboard && items.isEmpty {
+                emptyState
+                    .frame(height: Self.listAreaHeight)
+            } else if panelMode != .clipboard && currentListCount == 0 {
+                commandEmptyState
+                    .frame(height: Self.listAreaHeight)
+            } else {
+                HStack(spacing: 0) {
+                    // Left panel: list
+                    listContent
+                        .frame(width: Self.listWidth)
+
+                    Divider()
+
+                    // Right panel: preview / command info
+                    previewContent
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(height: Self.listAreaHeight)
+            }
+        }
+        .frame(width: Self.panelWidth)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(VisualEffectBackground())
+        .onAppear {
+            startObservation()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isSearchFocused = true
+                if let buffered = panel?.consumeBufferedKeystrokes(), !buffered.isEmpty {
+                    searchText = buffered
+                }
+            }
+        }
+        .onDisappear {
+            if isEditing { saveEdit() }
+            observation?.cancel()
+            observation = nil
+            searchText = ""
+            isEditing = false
+            editingItemId = nil
+            editingText = ""
+            originalText = ""
+            anchor = 0
+            cursor = 0
+            panelMode = .clipboard
+        }
+        .onChange(of: searchText) { _, newValue in
+            if isEditing { discardEdit() }
+
+            if newValue.hasPrefix("/") {
+                if case .commandOptions = panelMode {
+                    // Don't change mode while in options — search bar is frozen
+                } else {
+                    panelMode = .commandList
+                    observation?.cancel()
+                    observation = nil
+                    cursor = 0
+                    anchor = 0
+                }
+            } else {
+                if panelMode != .clipboard {
+                    panelMode = .clipboard
+                    cursor = 0
+                    anchor = 0
+                    startObservation()
+                } else {
+                    cursor = 0
+                    anchor = 0
+                    startObservation()
+                }
+            }
+        }
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            switch panelMode {
+            case .clipboard:
+                return handleClipboardKeyPress(press)
+            case .commandList:
+                return handleCommandListKeyPress(press)
+            case .commandOptions:
+                return handleCommandOptionsKeyPress(press)
+            }
+        }
+        // Cmd+1 through Cmd+9 shortcuts (clipboard mode only)
+        .onKeyPress(characters: CharacterSet(charactersIn: "123456789"), phases: .down) { press in
+            guard panelMode == .clipboard,
+                  !isEditing,
+                  press.modifiers == .command,
+                  let char = press.characters.first,
+                  let digit = Int(String(char)),
+                  digit >= 1, digit <= 9 else {
+                return .ignored
+            }
+            let index = digit - 1
+            guard index < items.count else { return .ignored }
+            anchor = index
+            cursor = index
+            panel?.pasteItem(items[index])
+            return .handled
+        }
+    }
+
+    // MARK: - List Content (mode-switched)
+
+    @ViewBuilder
+    private var listContent: some View {
+        switch panelMode {
+        case .clipboard:
+            clipboardList
+        case .commandList:
+            commandListView
+        case .commandOptions:
+            commandOptionsListView
+        }
+    }
+
+    // MARK: - Preview Content (mode-switched)
+
+    @ViewBuilder
+    private var previewContent: some View {
+        switch panelMode {
+        case .clipboard:
+            PreviewPanel(
+                item: previewItem,
+                selectionCount: selectedItems.count,
+                isEditing: $isEditing,
+                editingText: $editingText,
+                onSave: { saveEdit() },
+                onDiscard: { discardEdit() },
+                onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+                onCleanup: { cleanupText() }
+            )
+        case .commandList:
+            commandListPreview
+        case .commandOptions:
+            commandOptionsPreview
+        }
+    }
+
+    // MARK: - Clipboard List (existing)
+
+    private var clipboardList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        ClipboardRowView(
+                            item: item,
+                            isSelected: selectionRange.contains(index),
+                            isCursor: index == cursor,
+                            shortcutIndex: index < 9 ? index : nil
+                        )
+                        .id(item.id)
+                        .onTapGesture {
+                            anchor = index
+                            cursor = index
+                            panel?.pasteItem(items[index])
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .onChange(of: cursor) { _, newValue in
+                guard panelMode == .clipboard, newValue < items.count else { return }
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(items[newValue].id, anchor: .center)
+                }
+            }
+        }
+    }
+
+    // MARK: - Command List
+
+    private var commandListView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(filteredCommands.enumerated()), id: \.element.name) { index, command in
+                        CommandRowView(
+                            command: command,
+                            isCursor: index == cursor
+                        )
+                        .id(command.name)
+                        .onTapGesture {
+                            selectCommand(at: index)
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .onChange(of: cursor) { _, newValue in
+                guard panelMode == .commandList else { return }
+                let cmds = filteredCommands
+                guard newValue < cmds.count else { return }
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(cmds[newValue].name, anchor: .center)
+                }
+            }
+        }
+    }
+
+    // MARK: - Command Options List
+
+    private var commandOptionsListView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(commandOptions.enumerated()), id: \.element.id) { index, option in
+                        CommandOptionRowView(
+                            option: option,
+                            isCursor: index == cursor
+                        )
+                        .id(option.id)
+                        .onTapGesture {
+                            executeOption(at: index)
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .onChange(of: cursor) { _, newValue in
+                guard case .commandOptions = panelMode else { return }
+                let opts = commandOptions
+                guard newValue < opts.count else { return }
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(opts[newValue].id, anchor: .center)
+                }
+            }
+        }
+    }
+
+    // MARK: - Command Preview Panels
+
+    private var commandListPreview: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            let cmds = filteredCommands
+            if cursor < cmds.count {
+                let cmd = cmds[cursor]
+                Image(systemName: cmd.icon)
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text(cmd.displayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(cmd.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.quaternary)
+                Text("Select a command")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var commandOptionsPreview: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            if caffeinateService.isActive, let remaining = caffeinateService.remainingTime {
+                Image(systemName: "moon.zzz")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text("Sleep Prevention Active")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    let secs = caffeinateService.remainingTime ?? remaining
+                    Text(formatDuration(secs))
+                        .font(.system(size: 28, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.primary)
+                }
+            } else if let cmd = selectedCommand {
+                Image(systemName: cmd.icon)
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text(cmd.displayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(cmd.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    // MARK: - Empty States
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "clipboard")
+                .font(.system(size: 40))
+                .foregroundStyle(.quaternary)
+            Text(searchText.isEmpty ? "Copy something to get started" : "No matches found")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var commandEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "terminal")
+                .font(.system(size: 40))
+                .foregroundStyle(.quaternary)
+            Text("No matching commands")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Keyboard Handlers
+
+    private func handleClipboardKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // When editing, let NSTextView handle all keys
+        if isEditing { return .ignored }
+
+        switch press.key {
+        case .rightArrow:
+            guard !items.isEmpty, !hasMultiSelection else { return .ignored }
+            let item = items[cursor]
+            if item.kind == ClipboardRecord.kindText, item.plainText != nil {
+                enterEditMode()
+                return .handled
+            }
+            if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
+                enterEditMode()
+                return .handled
+            }
+            return .ignored
+
+        case .downArrow:
+            guard !items.isEmpty else { return .handled }
+            if press.modifiers.contains(.shift) {
+                if cursor < items.count - 1 { cursor += 1 }
+            } else {
+                let newIndex = hasMultiSelection
+                    ? min(max(anchor, cursor), items.count - 1)
+                    : (cursor + 1) % items.count
+                anchor = newIndex
+                cursor = newIndex
+            }
+            return .handled
+
+        case .upArrow:
+            guard !items.isEmpty else { return .handled }
+            if press.modifiers.contains(.shift) {
+                if cursor > 0 { cursor -= 1 }
+            } else {
+                let newIndex = hasMultiSelection
+                    ? min(anchor, cursor)
+                    : (cursor - 1 + items.count) % items.count
+                anchor = newIndex
+                cursor = newIndex
+            }
+            return .handled
+
+        case .return:
+            pasteSelected()
+            return .handled
+
+        case .escape:
+            if hasMultiSelection {
+                anchor = cursor
+            } else if !searchText.isEmpty {
+                searchText = ""
+            } else {
+                panel?.close()
+            }
+            return .handled
+
+        case .deleteForward:
+            deleteSelected()
+            return .handled
+
+        default:
+            return .ignored
+        }
+    }
+
+    private func handleCommandListKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        let count = filteredCommands.count
+
+        switch press.key {
+        case .downArrow:
+            guard count > 0 else { return .handled }
+            cursor = (cursor + 1) % count
+            anchor = cursor
+            return .handled
+
+        case .upArrow:
+            guard count > 0 else { return .handled }
+            cursor = (cursor - 1 + count) % count
+            anchor = cursor
+            return .handled
+
+        case .return:
+            selectCommand(at: cursor)
+            return .handled
+
+        case .escape:
+            searchText = ""
+            return .handled
+
+        // Disabled in command mode
+        case .rightArrow, .deleteForward:
+            return .handled
+
+        default:
+            // Block shift+arrow
+            if press.modifiers.contains(.shift) && (press.key == .upArrow || press.key == .downArrow) {
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    private func handleCommandOptionsKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        let count = commandOptions.count
+
+        switch press.key {
+        case .downArrow:
+            guard count > 0 else { return .handled }
+            cursor = (cursor + 1) % count
+            anchor = cursor
+            return .handled
+
+        case .upArrow:
+            guard count > 0 else { return .handled }
+            cursor = (cursor - 1 + count) % count
+            anchor = cursor
+            return .handled
+
+        case .return:
+            executeOption(at: cursor)
+            return .handled
+
+        case .escape:
+            // Back to command list
+            panelMode = .commandList
+            searchText = "/"
+            cursor = 0
+            anchor = 0
+            return .handled
+
+        // Disabled in command options
+        case .rightArrow, .deleteForward:
+            return .handled
+
+        default:
+            // Backspace acts as Escape in command options
+            if press.key == .delete {
+                panelMode = .commandList
+                searchText = "/"
+                cursor = 0
+                anchor = 0
+                return .handled
+            }
+            // Block shift+arrow
+            if press.modifiers.contains(.shift) && (press.key == .upArrow || press.key == .downArrow) {
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    // MARK: - Command Actions
+
+    private func selectCommand(at index: Int) {
+        let cmds = filteredCommands
+        guard index < cmds.count else { return }
+        let cmd = cmds[index]
+        panelMode = .commandOptions(commandName: cmd.name)
+        searchText = "/\(cmd.name)"
+        cursor = 0
+        anchor = 0
+    }
+
+    private func executeOption(at index: Int) {
+        guard let cmd = selectedCommand else { return }
+        let opts = cmd.options()
+        guard index < opts.count else { return }
+        cmd.execute(option: opts[index])
+        panel?.close()
+    }
+
+    // MARK: - Database Observation
+
+    private func startObservation() {
+        observation?.cancel()
+        let query = searchText
+        let pool = database.pool
+
+        observation = ValueObservation.tracking { db in
+            try ClipboardRecord.search(query: query, in: db)
+        }
+        .start(in: pool, onError: { _ in }, onChange: { [self] newItems in
+            items = newItems
+
+            // While editing, follow the edited item to its new index
+            if isEditing, let targetId = editingItemId,
+               let newIndex = newItems.firstIndex(where: { $0.id == targetId }) {
+                anchor = newIndex
+                cursor = newIndex
+            } else {
+                let maxIdx = max(0, newItems.count - 1)
+                if anchor > maxIdx { anchor = maxIdx }
+                if cursor > maxIdx { cursor = maxIdx }
+            }
+
+        })
+    }
+
+    // MARK: - Edit Mode
+
+    private func enterEditMode() {
+        let item = items[cursor]
+        editingText = item.plainText ?? ""
+        originalText = editingText
+        editingItemId = item.id
+        isEditing = true
+    }
+
+    private func cleanupText() {
+        let cleaned = TerminalTextCleaner.clean(editingText)
+        guard !cleaned.isEmpty, cleaned != editingText else { return }
+        editingText = cleaned
+    }
+
+    private func saveEdit() {
+        guard isEditing else { return }
+
+        // For GIF items, save is handled by saveGifTrim (called from onGifSave)
+        if let item = items.first(where: { $0.id == editingItemId }),
+           item.kind == ClipboardRecord.kindGif {
+            discardEdit()
+            return
+        }
+
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Skip save if unchanged
+        guard trimmed != originalText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+
+        // Reject empty text
+        guard !trimmed.isEmpty else { return }
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            try? await database.pool.write { db in
+                try ClipboardRecord.updatePlainText(id: itemId, newText: trimmed, in: db)
+            }
+        }
+
+        // Item moves to top when ValueObservation fires
+        anchor = 0
+        cursor = 0
+    }
+
+    private func saveGifTrim(data: Data) {
+        guard isEditing else { return }
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            try? await database.pool.write { db in
+                try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
+            }
+        }
+
+        // Item moves to top when ValueObservation fires
+        anchor = 0
+        cursor = 0
+    }
+
+    private func discardEdit() {
+        isEditing = false
+        editingItemId = nil
+        editingText = originalText
+        isSearchFocused = true
+    }
+
+    // MARK: - Actions
+
+    private func pasteSelected() {
+        let selected = selectedItems
+        guard !selected.isEmpty else { return }
+        if selected.count == 1 {
+            panel?.pasteItem(selected[0])
+        } else {
+            panel?.pasteItems(selected)
+        }
+    }
+
+    private func deleteSelected() {
+        let toDelete = selectedItems.compactMap(\.id)
+        guard !toDelete.isEmpty else { return }
+
+        let afterIndex = max(anchor, cursor) + 1
+        let newIndex = afterIndex < items.count
+            ? afterIndex - toDelete.count
+            : max(0, min(anchor, cursor) - 1)
+
+        Task.detached {
+            try? await database.pool.write { db in
+                for id in toDelete {
+                    try ClipboardRecord.deleteById(id, in: db)
+                }
+            }
+        }
+
+        let safeIndex = max(0, min(newIndex, items.count - toDelete.count - 1))
+        anchor = safeIndex
+        cursor = safeIndex
+    }
+}
+
+// MARK: - Visual Effect Background
+
+private struct VisualEffectBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
