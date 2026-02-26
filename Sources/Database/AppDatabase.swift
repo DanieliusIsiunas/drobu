@@ -80,4 +80,10 @@ final class AppDatabase: Sendable {
 
         return migrator
     }
+
+    func deleteAll() throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM clipboardItem")
+        }
+    }
 }

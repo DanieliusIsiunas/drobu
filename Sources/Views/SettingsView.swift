@@ -8,7 +8,6 @@ struct SettingsView: View {
     @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
     @State private var retentionDays = RetentionDefaults.loadRetentionDays()
     @State private var maxItemCount = RetentionDefaults.loadMaxItemCount()
-
     var body: some View {
         Form {
             Section("General") {
@@ -83,6 +82,16 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("Delete all data")
+                    Spacer()
+                    Text("Delete")
+                        .foregroundStyle(.red)
+                        .onTapGesture {
+                            confirmAndDeleteAll()
+                        }
+                }
             }
 
             Section("About") {
@@ -97,6 +106,27 @@ struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
+        }
+    }
+
+    private func confirmAndDeleteAll() {
+        guard let window = NSApp.keyWindow else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete All Clipboard History?"
+        alert.informativeText = "This will permanently delete all saved clipboard items. This action cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            do {
+                try AppDatabase().deleteAll()
+            } catch {
+                NSLog("Delete all data failed: \(error)")
+            }
         }
     }
 }

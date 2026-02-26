@@ -175,3 +175,10 @@ The app switches activation policy when opening settings:
 - Settings close: back to `.accessory`
 
 This is handled by `SettingsOpenerView` observing `NSWindow.willCloseNotification`.
+
+## Known macOS SwiftUI Settings Scene Gotchas
+
+- **Buttons don't receive clicks** inside grouped `Form` in `Settings` scene. Use `Text` + `.onTapGesture` instead of `Button`.
+- **`NSApp.delegate as? AppDelegate` returns nil** in Settings scene context. Access shared resources directly (e.g. `AppDatabase()`) instead of going through the delegate.
+- **`.alert` / `.confirmationDialog` actions silently never fire** in Settings scenes at any attachment level (HStack, Section, Form). Use `NSAlert.beginSheetModal(for: NSApp.keyWindow!)` for confirmation dialogs.
+- **`NSLog` may not appear in `log show`** for this app. Use file-based logging to `~/Desktop/` when debugging.
