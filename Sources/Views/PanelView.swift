@@ -383,15 +383,31 @@ struct PanelView: View {
             let cmds = filteredCommands
             if cursor < cmds.count {
                 let cmd = cmds[cursor]
-                Image(systemName: cmd.icon)
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                Text(cmd.displayName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(cmd.description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                // Show live countdown if this command's service is active
+                if cmd.name == "sleep", caffeinateService.isActive, let remaining = caffeinateService.remainingTime {
+                    Image(systemName: "moon.zzz")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.secondary)
+                    Text("Sleep Prevention Active")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        let secs = caffeinateService.remainingTime ?? remaining
+                        Text(formatDuration(secs))
+                            .font(.system(size: 28, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.primary)
+                    }
+                } else {
+                    Image(systemName: cmd.icon)
+                        .font(.system(size: 32))
+                        .foregroundStyle(.secondary)
+                    Text(cmd.displayName)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(cmd.description)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Image(systemName: "terminal")
                     .font(.system(size: 32))
