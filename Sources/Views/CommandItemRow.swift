@@ -1,25 +1,27 @@
 import SwiftUI
 
-struct CommandOptionRowView: View {
-    let option: CommandOption
+struct CommandItemRow: View {
+    let label: String
+    let icon: String?
     let isCursor: Bool
+    var isDestructive: Bool = false
 
     static let rowHeight: CGFloat = 32
 
     var body: some View {
         HStack(spacing: 8) {
-            if let iconName = option.icon {
+            if let iconName = icon {
                 Image(systemName: iconName)
                     .font(.system(size: 16))
-                    .foregroundStyle(option.isDestructive ? .red : .secondary)
+                    .foregroundStyle(isDestructive ? .red : .secondary)
                     .frame(width: 24, height: 24)
             } else {
                 Spacer().frame(width: 24)
             }
 
-            Text(option.label)
+            Text(label)
                 .font(.system(size: 15))
-                .foregroundStyle(option.isDestructive ? .red : .primary)
+                .foregroundStyle(isDestructive ? .red : .primary)
                 .lineLimit(1)
 
             Spacer()

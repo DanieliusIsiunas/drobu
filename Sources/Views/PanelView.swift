@@ -5,21 +5,11 @@ enum PanelMode: Equatable {
     case clipboard
     case commandList
     case commandOptions(commandName: String)
-
-    static func == (lhs: PanelMode, rhs: PanelMode) -> Bool {
-        switch (lhs, rhs) {
-        case (.clipboard, .clipboard): return true
-        case (.commandList, .commandList): return true
-        case (.commandOptions(let a), .commandOptions(let b)): return a == b
-        default: return false
-        }
-    }
 }
 
 struct PanelView: View {
     let database: AppDatabase
     let commands: [any SlashCommand]
-    let caffeinateService: CaffeinateService
 
     // MARK: - Layout Constants (single source of truth)
 
@@ -202,16 +192,10 @@ struct PanelView: View {
                     anchor = 0
                 }
             } else {
-                if panelMode != .clipboard {
-                    panelMode = .clipboard
-                    cursor = 0
-                    anchor = 0
-                    startObservation()
-                } else {
-                    cursor = 0
-                    anchor = 0
-                    startObservation()
-                }
+                if panelMode != .clipboard { panelMode = .clipboard }
+                cursor = 0
+                anchor = 0
+                startObservation()
             }
         }
         .onKeyPress(phases: [.down, .repeat]) { press in
@@ -320,8 +304,9 @@ struct PanelView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(filteredCommands.enumerated()), id: \.element.name) { index, command in
-                        CommandRowView(
-                            command: command,
+                        CommandItemRow(
+                            label: command.displayName,
+                            icon: command.icon,
                             isCursor: index == cursor
                         )
                         .id(command.name)
@@ -351,9 +336,11 @@ struct PanelView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(commandOptions.enumerated()), id: \.element.id) { index, option in
-                        CommandOptionRowView(
-                            option: option,
-                            isCursor: index == cursor
+                        CommandItemRow(
+                            label: option.label,
+                            icon: option.icon,
+                            isCursor: index == cursor,
+                            isDestructive: option.isDestructive
                         )
                         .id(option.id)
                         .onTapGesture {
@@ -382,32 +369,7 @@ struct PanelView: View {
             Spacer()
             let cmds = filteredCommands
             if cursor < cmds.count {
-                let cmd = cmds[cursor]
-                // Show live countdown if this command's service is active
-                if cmd.name == "sleep", caffeinateService.isActive, let remaining = caffeinateService.remainingTime {
-                    Image(systemName: "moon.zzz")
-                        .font(.system(size: 32))
-                        .foregroundStyle(.secondary)
-                    Text("Sleep Prevention Active")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        let secs = caffeinateService.remainingTime ?? remaining
-                        Text(formatDuration(secs))
-                            .font(.system(size: 28, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.primary)
-                    }
-                } else {
-                    Image(systemName: cmd.icon)
-                        .font(.system(size: 32))
-                        .foregroundStyle(.secondary)
-                    Text(cmd.displayName)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(cmd.description)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                commandPreviewContent(for: cmds[cursor])
             } else {
                 Image(systemName: "terminal")
                     .font(.system(size: 32))
@@ -424,43 +386,29 @@ struct PanelView: View {
     private var commandOptionsPreview: some View {
         VStack(spacing: 8) {
             Spacer()
-            if caffeinateService.isActive, let remaining = caffeinateService.remainingTime {
-                Image(systemName: "moon.zzz")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                Text("Sleep Prevention Active")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    let secs = caffeinateService.remainingTime ?? remaining
-                    Text(formatDuration(secs))
-                        .font(.system(size: 28, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.primary)
-                }
-            } else if let cmd = selectedCommand {
-                Image(systemName: cmd.icon)
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                Text(cmd.displayName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(cmd.description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            if let cmd = selectedCommand {
+                commandPreviewContent(for: cmd)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
 
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        let h = Int(seconds) / 3600
-        let m = (Int(seconds) % 3600) / 60
-        let s = Int(seconds) % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
+    @ViewBuilder
+    private func commandPreviewContent(for cmd: any SlashCommand) -> some View {
+        if cmd.isActive {
+            cmd.activeStatusView()
+        } else {
+            Image(systemName: cmd.icon)
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text(cmd.displayName)
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Text(cmd.description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        return String(format: "%d:%02d", m, s)
     }
 
     // MARK: - Empty States
@@ -562,9 +510,7 @@ struct PanelView: View {
         }
     }
 
-    private func handleCommandListKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        let count = filteredCommands.count
-
+    private func handleCommandKeyPress(_ press: KeyPress, count: Int, onReturn: () -> Void, onEscape: () -> Void) -> KeyPress.Result {
         switch press.key {
         case .downArrow:
             guard count > 0 else { return .handled }
@@ -579,73 +525,49 @@ struct PanelView: View {
             return .handled
 
         case .return:
-            selectCommand(at: cursor)
+            onReturn()
             return .handled
 
         case .escape:
-            searchText = ""
+            onEscape()
             return .handled
 
-        // Disabled in command mode
         case .rightArrow, .deleteForward:
             return .handled
 
         default:
-            // Block shift+arrow
-            if press.modifiers.contains(.shift) && (press.key == .upArrow || press.key == .downArrow) {
-                return .handled
-            }
             return .ignored
         }
     }
 
+    private func handleCommandListKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        handleCommandKeyPress(
+            press,
+            count: filteredCommands.count,
+            onReturn: { selectCommand(at: cursor) },
+            onEscape: { searchText = "" }
+        )
+    }
+
     private func handleCommandOptionsKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        let count = commandOptions.count
-
-        switch press.key {
-        case .downArrow:
-            guard count > 0 else { return .handled }
-            cursor = (cursor + 1) % count
-            anchor = cursor
+        // Backspace acts as Escape in command options
+        if press.key == .delete {
+            returnToCommandList()
             return .handled
-
-        case .upArrow:
-            guard count > 0 else { return .handled }
-            cursor = (cursor - 1 + count) % count
-            anchor = cursor
-            return .handled
-
-        case .return:
-            executeOption(at: cursor)
-            return .handled
-
-        case .escape:
-            // Back to command list
-            panelMode = .commandList
-            searchText = "/"
-            cursor = 0
-            anchor = 0
-            return .handled
-
-        // Disabled in command options
-        case .rightArrow, .deleteForward:
-            return .handled
-
-        default:
-            // Backspace acts as Escape in command options
-            if press.key == .delete {
-                panelMode = .commandList
-                searchText = "/"
-                cursor = 0
-                anchor = 0
-                return .handled
-            }
-            // Block shift+arrow
-            if press.modifiers.contains(.shift) && (press.key == .upArrow || press.key == .downArrow) {
-                return .handled
-            }
-            return .ignored
         }
+        return handleCommandKeyPress(
+            press,
+            count: commandOptions.count,
+            onReturn: { executeOption(at: cursor) },
+            onEscape: { returnToCommandList() }
+        )
+    }
+
+    private func returnToCommandList() {
+        panelMode = .commandList
+        searchText = "/"
+        cursor = 0
+        anchor = 0
     }
 
     // MARK: - Command Actions

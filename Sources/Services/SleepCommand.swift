@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 @MainActor
 final class SleepCommand: SlashCommand {
@@ -12,6 +12,8 @@ final class SleepCommand: SlashCommand {
     init(service: CaffeinateService) {
         self.service = service
     }
+
+    var isActive: Bool { service.isActive }
 
     func options() -> [CommandOption] {
         var opts: [CommandOption] = []
@@ -46,5 +48,39 @@ final class SleepCommand: SlashCommand {
         case "4h":     service.start(duration: 4 * 60 * 60)
         default: break
         }
+    }
+
+    func activeStatusView() -> AnyView {
+        guard service.isActive, let remaining = service.remainingTime else {
+            return AnyView(EmptyView())
+        }
+        return AnyView(
+            VStack(spacing: 8) {
+                Image(systemName: "moon.zzz")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text("Sleep Prevention Active")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                // TimelineView polls every 1s — CaffeinateService is not @Observable,
+                // so reactive observation is not available. Do not remove the TimelineView wrapper.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    let secs = self.service.remainingTime ?? remaining
+                    Text(SleepCommand.formatDuration(secs))
+                        .font(.system(size: 28, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.primary)
+                }
+            }
+        )
+    }
+
+    static func formatDuration(_ seconds: TimeInterval) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
     }
 }

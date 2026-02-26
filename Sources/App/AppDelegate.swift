@@ -113,8 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = FloatingPanel {
             PanelView(
                 database: self.database,
-                commands: [sleepCommand],
-                caffeinateService: self.caffeinateService
+                commands: [sleepCommand]
             )
         }
         panel?.showCentered()
