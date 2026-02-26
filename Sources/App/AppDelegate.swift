@@ -13,7 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureHotKey: HotKey?
     private var captureHotkeyObserver: Any?
     private var captureService: ScreenCaptureService?
+    private let caffeinateService = CaffeinateService()
     private var statusItem: NSStatusItem?
+    private var badgeDotView: NSView?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -75,6 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up menu bar status item with custom icon
         setupStatusItem()
 
+        // Caffeinate badge: update menu bar dot when state changes
+        caffeinateService.onStateChange = { [weak self] state in
+            self?.updateMenuBarBadge(isActive: state != .idle)
+        }
+
         // Check Accessibility permission on launch
         checkAccessibilityOnLaunch()
 
@@ -102,8 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPanel() {
         panel?.close()
+        let sleepCommand = SleepCommand(service: caffeinateService)
         panel = FloatingPanel {
-            ClipboardPanelView(database: self.database)
+            PanelView(
+                database: self.database,
+                commands: [sleepCommand]
+            )
         }
         panel?.showCentered()
     }
@@ -142,12 +153,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
+    private func updateMenuBarBadge(isActive: Bool) {
+        guard let button = statusItem?.button else { return }
+        if isActive {
+            if badgeDotView == nil {
+                let dot = NSView(frame: NSRect(x: button.bounds.maxX - 7, y: 1, width: 6, height: 6))
+                dot.wantsLayer = true
+                dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
+                dot.layer?.cornerRadius = 3
+                button.addSubview(dot)
+                badgeDotView = dot
+            }
+        } else {
+            badgeDotView?.removeFromSuperview()
+            badgeDotView = nil
+        }
+    }
+
     @objc private func openPreferences() {
         NotificationCenter.default.post(name: .openSettingsFromMenu, object: nil)
     }
 
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        caffeinateService.cleanup()
     }
 
     // MARK: - Accessibility Onboarding
