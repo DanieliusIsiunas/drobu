@@ -1,12 +1,20 @@
 # CLAUDE.md
 
+## Memory Organization
+
+- **This file** (`CLAUDE.md`): Stable project conventions, commands, architecture. Only add things that apply to every session.
+- **Auto-memory** (`MEMORY.md`): Session context, preferences, project-specific decisions. Claude manages this.
+- **Rules** (`.claude/rules/*.md`): Reusable technical gotchas and workarounds, organized by topic.
+
+When you discover a reusable gotcha or workaround during a session, **proactively append it** to `.claude/rules/<topic>.md` (create the file if needed). Choose a descriptive topic name (e.g., `swiftui-macos-gotchas.md`, `grdb-sqlite.md`). Keep each file focused on one topic.
+
 ## Build & Run Commands
 
 ```bash
 pkill -x ClipboardHistory && ./build.sh && open .build/ClipboardHistory.app
 ```
 
-Kill → build → launch. Always use this combo (stale binaries persist otherwise).
+Always use this combo — kills stale process, rebuilds, launches.
 
 **Debug helpers:**
 - DB inspection: `sqlite3 ~/Library/Application\ Support/ClipboardHistory/clipboard.sqlite`
@@ -39,11 +47,3 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 - **Settings persistence:** UserDefaults with immediate save. Hotkey changes post `.hotkeyDidChange` notification.
 - **Permissions:** Accessibility (for Cmd+V simulation), Pasteboard (macOS 15.4+ `accessBehavior` check)
 - **Panel modes:** `PanelMode.clipboard` (history) and `.commands` (slash commands like `/sleep`)
-
-## Settings Scene Gotchas
-
-The `Settings` scene switches activation policy: `.accessory` → `.regular` (open) → `.accessory` (close).
-
-- **Buttons don't receive clicks** inside grouped `Form`. Use `Text` + `.onTapGesture` instead of `Button`.
-- **`NSApp.delegate as? AppDelegate` returns nil**. Access shared resources directly (e.g. `AppDatabase()`).
-- **`.alert` / `.confirmationDialog` actions silently never fire**. Use `NSAlert.beginSheetModal(for: NSApp.keyWindow!)`.
