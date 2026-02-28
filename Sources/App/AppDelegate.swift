@@ -79,9 +79,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up menu bar status item with custom icon
         setupStatusItem()
 
-        // Caffeinate badge: update menu bar dot when state changes
-        caffeinateService.onStateChange = { [weak self] state in
-            self?.updateMenuBarBadge(isActive: state != .idle)
+        // Badge: update menu bar dot when either sleep service changes state
+        caffeinateService.onStateChange = { [weak self] _ in
+            self?.refreshMenuBarBadge()
+        }
+        closedLidService.onStateChange = { [weak self] _ in
+            self?.refreshMenuBarBadge()
         }
 
         // Check Accessibility permission on launch
@@ -161,20 +164,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
-    private func updateMenuBarBadge(isActive: Bool) {
-        guard let button = statusItem?.button else { return }
-        if isActive {
-            if badgeDotView == nil {
-                let dot = NSView(frame: NSRect(x: button.bounds.maxX - 7, y: 1, width: 6, height: 6))
-                dot.wantsLayer = true
-                dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
-                dot.layer?.cornerRadius = 3
-                button.addSubview(dot)
-                badgeDotView = dot
-            }
+    enum SleepMode {
+        case none
+        case keepAwake
+        case closedLid
+    }
+
+    private func refreshMenuBarBadge() {
+        let mode: SleepMode
+        if closedLidService.isActive {
+            mode = .closedLid
+        } else if caffeinateService.isActive {
+            mode = .keepAwake
         } else {
+            mode = .none
+        }
+        updateMenuBarBadge(mode: mode)
+    }
+
+    private func updateMenuBarBadge(mode: SleepMode) {
+        guard let button = statusItem?.button else { return }
+        switch mode {
+        case .none:
             badgeDotView?.removeFromSuperview()
             badgeDotView = nil
+        case .keepAwake:
+            ensureBadgeDot(in: button, color: .systemGreen)
+        case .closedLid:
+            ensureBadgeDot(in: button, color: .systemOrange)
+        }
+    }
+
+    private func ensureBadgeDot(in button: NSStatusBarButton, color: NSColor) {
+        if let dot = badgeDotView {
+            dot.layer?.backgroundColor = color.cgColor
+        } else {
+            let dot = NSView(frame: NSRect(x: button.bounds.maxX - 7, y: 1, width: 6, height: 6))
+            dot.wantsLayer = true
+            dot.layer?.backgroundColor = color.cgColor
+            dot.layer?.cornerRadius = 3
+            button.addSubview(dot)
+            badgeDotView = dot
         }
     }
 

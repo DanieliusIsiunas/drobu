@@ -350,10 +350,10 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/App/AppDelegate.swift` (modified)
 
 **Tasks:**
-- [ ] Replace `updateMenuBarBadge(isActive: Bool)` with `updateMenuBarBadge(mode: SleepMode)`
-- [ ] Green dot for Keep Awake, orange dot for Closed Lid, no dot for idle
-- [ ] Wire both services' `onStateChange` callbacks to badge update
-- [ ] Inject both services into `SleepCommand` in `showPanel()`
+- [x] Replace `updateMenuBarBadge(isActive: Bool)` with `updateMenuBarBadge(mode: SleepMode)`
+- [x] Green dot for Keep Awake, orange dot for Closed Lid, no dot for idle
+- [x] Wire both services' `onStateChange` callbacks to badge update
+- [x] Inject both services into `SleepCommand` in `showPanel()`
 
 ## Acceptance Criteria
 
