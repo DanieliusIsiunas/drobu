@@ -331,18 +331,18 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/Views/CommandItemRow.swift` (possibly modified)
 
 **Tasks:**
-- [ ] Add `@State var activeSection: Int = 0` to PanelView
-- [ ] Filter command options by active section name
-- [ ] Render section tabs as horizontal pills above options list when command has sections
-- [ ] Active tab: accent-colored background, inactive: subtle background
-- [ ] Left/right arrow keys switch sections in `commandOptions` mode
+- [x] Add `@State var activeSection: Int = 0` to PanelView
+- [x] Filter command options by active section name
+- [x] Render section tabs as horizontal pills above options list when command has sections
+- [x] Active tab: accent-colored background, inactive: subtle background
+- [x] Left/right arrow keys switch sections in `commandOptions` mode
   - Left on first section: no-op (boundary stop)
   - Right on last section: no-op (boundary stop)
   - Reset cursor to 0 on section switch
-- [ ] Backspace/Escape still go back to command list (unchanged)
-- [ ] Reset `activeSection = 0` when entering command options mode
-- [ ] When a mode is active, default to that mode's section on open
-- [ ] Show section hint in footer: "←→ switch section  ↑↓ navigate  ↵ select"
+- [x] Backspace/Escape still go back to command list (unchanged)
+- [x] Reset `activeSection = 0` when entering command options mode
+- [x] When a mode is active, default to that mode's section on open
+- [x] Show section hint in footer: "←→ switch section  ↑↓ navigate  ↵ select"
 
 ### Phase 6: Menu Bar Badge + Polish
 

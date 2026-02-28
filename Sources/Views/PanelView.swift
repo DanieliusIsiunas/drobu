@@ -39,6 +39,7 @@ struct PanelView: View {
     @State private var originalText = ""
     @State private var editingItemId: Int64?   // track edited item across list refreshes
     @State private var panelMode: PanelMode = .clipboard
+    @State private var activeSection: Int = 0
     @FocusState private var isSearchFocused: Bool
     @Environment(\.floatingPanel) private var panelWrapper
 
@@ -82,13 +83,23 @@ struct PanelView: View {
         selectedCommand?.options() ?? []
     }
 
+    /// Options filtered to the active section (for commands with sections).
+    private var activeSectionOptions: [CommandOption] {
+        guard let cmd = selectedCommand else { return [] }
+        let allOpts = cmd.options()
+        let secs = cmd.sections
+        guard !secs.isEmpty, activeSection < secs.count else { return allOpts }
+        let sectionName = secs[activeSection]
+        return allOpts.filter { $0.section == sectionName }
+    }
+
     // MARK: - Item Count for Current Mode
 
     private var currentListCount: Int {
         switch panelMode {
         case .clipboard: return items.count
         case .commandList: return filteredCommands.count
-        case .commandOptions: return commandOptions.count
+        case .commandOptions: return activeSectionOptions.count
         }
     }
 
@@ -177,6 +188,7 @@ struct PanelView: View {
             anchor = 0
             cursor = 0
             panelMode = .clipboard
+            activeSection = 0
         }
         .onChange(of: searchText) { _, newValue in
             if isEditing { discardEdit() }
@@ -335,35 +347,80 @@ struct PanelView: View {
         // TimelineView re-evaluates every 1s so the option list updates
         // when a timed command (e.g. sleep prevention) expires naturally.
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(commandOptions.enumerated()), id: \.element.id) { index, option in
-                            CommandItemRow(
-                                label: option.label,
-                                icon: option.icon,
-                                isCursor: index == cursor,
-                                isDestructive: option.isDestructive
-                            )
-                            .id(option.id)
-                            .onTapGesture {
-                                executeOption(at: index)
+            VStack(spacing: 0) {
+                // Section tabs (only shown for commands with sections)
+                if let cmd = selectedCommand, !cmd.sections.isEmpty {
+                    sectionTabs(sections: cmd.sections)
+                }
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(activeSectionOptions.enumerated()), id: \.element.id) { index, option in
+                                CommandItemRow(
+                                    label: option.label,
+                                    icon: option.icon,
+                                    isCursor: index == cursor,
+                                    isDestructive: option.isDestructive
+                                )
+                                .id(option.id)
+                                .onTapGesture {
+                                    executeSectionOption(at: index)
+                                }
                             }
                         }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .onChange(of: cursor) { _, newValue in
+                        guard case .commandOptions = panelMode else { return }
+                        let opts = activeSectionOptions
+                        guard newValue < opts.count else { return }
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(opts[newValue].id, anchor: .center)
+                        }
+                    }
                 }
-                .onChange(of: cursor) { _, newValue in
-                    guard case .commandOptions = panelMode else { return }
-                    let opts = commandOptions
-                    guard newValue < opts.count else { return }
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(opts[newValue].id, anchor: .center)
-                    }
+
+                // Footer hint for section navigation
+                if let cmd = selectedCommand, !cmd.sections.isEmpty {
+                    Divider()
+                    Text("\u{2190}\u{2192} section  \u{2191}\u{2193} navigate  \u{21B5} select")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 4)
                 }
             }
         }
+    }
+
+    // MARK: - Section Tabs
+
+    @ViewBuilder
+    private func sectionTabs(sections: [String]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+                Text(section)
+                    .font(.system(size: 13, weight: index == activeSection ? .semibold : .regular))
+                    .foregroundStyle(index == activeSection ? .primary : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(index == activeSection ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06))
+                    )
+                    .onTapGesture {
+                        if activeSection != index {
+                            activeSection = index
+                            cursor = 0
+                            anchor = 0
+                        }
+                    }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Command Preview Panels
@@ -559,10 +616,31 @@ struct PanelView: View {
             returnToCommandList()
             return .handled
         }
+
+        // Left/right arrows switch sections
+        if let cmd = selectedCommand, !cmd.sections.isEmpty {
+            if press.key == .leftArrow {
+                if activeSection > 0 {
+                    activeSection -= 1
+                    cursor = 0
+                    anchor = 0
+                }
+                return .handled
+            }
+            if press.key == .rightArrow {
+                if activeSection < cmd.sections.count - 1 {
+                    activeSection += 1
+                    cursor = 0
+                    anchor = 0
+                }
+                return .handled
+            }
+        }
+
         return handleCommandKeyPress(
             press,
-            count: commandOptions.count,
-            onReturn: { executeOption(at: cursor) },
+            count: activeSectionOptions.count,
+            onReturn: { executeSectionOption(at: cursor) },
             onEscape: { returnToCommandList() }
         )
     }
@@ -572,6 +650,7 @@ struct PanelView: View {
         searchText = "/"
         cursor = 0
         anchor = 0
+        activeSection = 0
     }
 
     // MARK: - Command Actions
@@ -584,15 +663,29 @@ struct PanelView: View {
         searchText = "/\(cmd.name)"
         cursor = 0
         anchor = 0
+
+        // Default to the active mode's section if one is active
+        if let sleepCmd = cmd as? SleepCommand, !sleepCmd.sections.isEmpty {
+            if let activeName = sleepCmd.activeSectionName,
+               let idx = sleepCmd.sections.firstIndex(of: activeName) {
+                activeSection = idx
+            } else {
+                activeSection = 0
+            }
+        } else {
+            activeSection = 0
+        }
     }
 
-    private func executeOption(at index: Int) {
-        guard let cmd = selectedCommand else { return }
-        let opts = cmd.options()
+    /// Execute an option from the section-filtered list.
+    private func executeSectionOption(at index: Int) {
+        let opts = activeSectionOptions
         guard index < opts.count else { return }
-        panel?.close()  // Close before async execute (auth dialog needs to stand alone)
+        guard let cmd = selectedCommand else { return }
+        let option = opts[index]
+        panel?.close()
         Task {
-            await cmd.execute(option: opts[index])
+            await cmd.execute(option: option)
         }
     }
 
