@@ -198,9 +198,6 @@ final class ClosedLidService {
     // MARK: - Command Building
 
     private func buildActivationCommand(tmpPlistPath: String, username: String, durationInt: Int) -> String {
-        let escapedCleanupPath = Self.cleanupScriptPath.replacingOccurrences(of: " ", with: "\\\\ ")
-        let escapedCleanupDir = "/Library/Application\\\\ Support/ClipboardHistory"
-
         return """
         /usr/bin/pmset disablesleep 1 && \
         mkdir -p /Library/Application\\ Support/ClipboardHistory && \
