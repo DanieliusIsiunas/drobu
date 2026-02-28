@@ -318,11 +318,11 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/Services/ClosedLidService.swift` (modified)
 
 **Tasks:**
-- [ ] In `applicationDidFinishLaunching`: check `isDisableSleepActive()` + whether app has an active session
-- [ ] If orphaned `disablesleep` detected with no LaunchDaemon plist: log warning, attempt cleanup on next admin auth opportunity
-- [ ] If orphaned with LaunchDaemon present: log, let daemon handle it
-- [ ] Install `DispatchSource` signal handlers for SIGTERM/SIGHUP that call `closedLidService.cleanup()`
-- [ ] Add `closedLidService.cleanup()` to `applicationWillTerminate`
+- [x] In `applicationDidFinishLaunching`: check `isDisableSleepActive()` + whether app has an active session
+- [x] If orphaned `disablesleep` detected with no LaunchDaemon plist: log warning, attempt cleanup on next admin auth opportunity
+- [x] If orphaned with LaunchDaemon present: log, let daemon handle it
+- [x] Install `DispatchSource` signal handlers for SIGTERM/SIGHUP that call `closedLidService.cleanup()`
+- [x] Add `closedLidService.cleanup()` to `applicationWillTerminate`
 
 ### Phase 5: Sectioned Tab UI in PanelView
 

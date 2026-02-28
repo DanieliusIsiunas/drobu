@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -95,6 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.runCleanup()
             }
         }
+
+        // Startup audit: detect orphaned disablesleep state from a previous crash
+        auditDisableSleep()
+
+        // Signal handlers for SIGTERM/SIGHUP: best-effort cleanup of Closed Lid mode
+        installSignalHandlers()
     }
 
     private func togglePanel() {
@@ -181,6 +188,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         caffeinateService.cleanup()
+        closedLidService.cleanup()
+    }
+
+    // MARK: - Closed Lid Startup Audit
+
+    private func auditDisableSleep() {
+        guard closedLidService.isDisableSleepActive() else { return }
+        // pmset disablesleep is enabled but we have no active session.
+        // This means the app crashed or was killed while Closed Lid was active.
+        let daemonExists = FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/com.clipboardhistory.disablesleep-reversal.plist")
+        if daemonExists {
+            NSLog("AppDelegate: orphaned disablesleep detected — LaunchDaemon present, will handle reversal")
+        } else {
+            NSLog("AppDelegate: orphaned disablesleep detected — no LaunchDaemon found, cleanup needed on next admin auth")
+        }
+    }
+
+    // MARK: - Signal Handlers
+
+    private func installSignalHandlers() {
+        for sig in [SIGTERM, SIGHUP] {
+            signal(sig, SIG_IGN) // Ignore default handling so DispatchSource can catch it
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.closedLidService.cleanup()
+                    self?.caffeinateService.cleanup()
+                    exit(0)
+                }
+            }
+            source.resume()
+            signalSources.append(source)
+        }
     }
 
     // MARK: - Accessibility Onboarding
