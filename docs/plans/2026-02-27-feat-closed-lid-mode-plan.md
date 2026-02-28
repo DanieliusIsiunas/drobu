@@ -299,17 +299,17 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/Services/SlashCommand.swift` (modified)
 
 **Tasks:**
-- [ ] Add `section: String?` to `CommandOption`
-- [ ] Add `sections: [String]` to `SlashCommand` protocol with default `[]`
-- [ ] Update `SleepCommand` to accept both `CaffeinateService` and `ClosedLidService`
-- [ ] `SleepCommand.sections` returns `["Keep Awake", "Closed Lid"]`
-- [ ] `SleepCommand.options()` returns options tagged with section names
-- [ ] "Stop" option appears only in the section of the currently active mode
-- [ ] `SleepCommand.execute(option:)` dispatches to correct service based on option section
-- [ ] Before activating either mode, stop the other (mutual exclusion)
-- [ ] Make `execute` async to support auth dialog
-- [ ] Update `isActive` to check either service
-- [ ] Update `activeStatusView()` to show mode-appropriate label ("Keep Awake" vs "Closed Lid Mode") + countdown
+- [x] Add `section: String?` to `CommandOption`
+- [x] Add `sections: [String]` to `SlashCommand` protocol with default `[]`
+- [x] Update `SleepCommand` to accept both `CaffeinateService` and `ClosedLidService`
+- [x] `SleepCommand.sections` returns `["Keep Awake", "Closed Lid"]`
+- [x] `SleepCommand.options()` returns options tagged with section names
+- [x] "Stop" option appears only in the section of the currently active mode
+- [x] `SleepCommand.execute(option:)` dispatches to correct service based on option section
+- [x] Before activating either mode, stop the other (mutual exclusion)
+- [x] Make `execute` async to support auth dialog
+- [x] Update `isActive` to check either service
+- [x] Update `activeStatusView()` to show mode-appropriate label ("Keep Awake" vs "Closed Lid Mode") + countdown
 
 ### Phase 4: Startup Audit + Signal Handlers
 

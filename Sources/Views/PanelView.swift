@@ -332,31 +332,35 @@ struct PanelView: View {
     // MARK: - Command Options List
 
     private var commandOptionsListView: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(commandOptions.enumerated()), id: \.element.id) { index, option in
-                        CommandItemRow(
-                            label: option.label,
-                            icon: option.icon,
-                            isCursor: index == cursor,
-                            isDestructive: option.isDestructive
-                        )
-                        .id(option.id)
-                        .onTapGesture {
-                            executeOption(at: index)
+        // TimelineView re-evaluates every 1s so the option list updates
+        // when a timed command (e.g. sleep prevention) expires naturally.
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(commandOptions.enumerated()), id: \.element.id) { index, option in
+                            CommandItemRow(
+                                label: option.label,
+                                icon: option.icon,
+                                isCursor: index == cursor,
+                                isDestructive: option.isDestructive
+                            )
+                            .id(option.id)
+                            .onTapGesture {
+                                executeOption(at: index)
+                            }
                         }
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-            }
-            .onChange(of: cursor) { _, newValue in
-                guard case .commandOptions = panelMode else { return }
-                let opts = commandOptions
-                guard newValue < opts.count else { return }
-                withAnimation(.easeOut(duration: 0.1)) {
-                    proxy.scrollTo(opts[newValue].id, anchor: .center)
+                .onChange(of: cursor) { _, newValue in
+                    guard case .commandOptions = panelMode else { return }
+                    let opts = commandOptions
+                    guard newValue < opts.count else { return }
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(opts[newValue].id, anchor: .center)
+                    }
                 }
             }
         }
@@ -586,8 +590,10 @@ struct PanelView: View {
         guard let cmd = selectedCommand else { return }
         let opts = cmd.options()
         guard index < opts.count else { return }
-        cmd.execute(option: opts[index])
-        panel?.close()
+        panel?.close()  // Close before async execute (auth dialog needs to stand alone)
+        Task {
+            await cmd.execute(option: opts[index])
+        }
     }
 
     // MARK: - Database Observation

@@ -7,71 +7,173 @@ final class SleepCommand: SlashCommand {
     let icon = "moon.zzz"
     let description = "Prevent your Mac from sleeping"
 
-    private let service: CaffeinateService
+    private let caffeinateService: CaffeinateService
+    private let closedLidService: ClosedLidService
 
-    init(service: CaffeinateService) {
-        self.service = service
+    init(caffeinateService: CaffeinateService, closedLidService: ClosedLidService) {
+        self.caffeinateService = caffeinateService
+        self.closedLidService = closedLidService
     }
 
-    var isActive: Bool { service.isActive }
+    let sections = ["Keep Awake", "Closed Lid"]
+
+    var isActive: Bool {
+        caffeinateService.isActive || closedLidService.isActive
+    }
+
+    /// Returns the section name of the currently active mode, or nil if idle.
+    var activeSectionName: String? {
+        if closedLidService.isActive { return "Closed Lid" }
+        if caffeinateService.isActive { return "Keep Awake" }
+        return nil
+    }
 
     func options() -> [CommandOption] {
         var opts: [CommandOption] = []
 
-        if service.isActive {
+        // Keep Awake section
+        if caffeinateService.isActive {
             opts.append(CommandOption(
-                id: "cancel",
-                label: "Stop Sleep Prevention",
+                id: "ka-cancel",
+                label: "Stop Keep Awake",
                 icon: "stop.circle",
-                isDestructive: true
+                isDestructive: true,
+                section: "Keep Awake"
             ))
         }
 
-        opts.append(contentsOf: [
-            CommandOption(id: "15m", label: "15 minutes", icon: "clock", isDestructive: false),
-            CommandOption(id: "30m", label: "30 minutes", icon: "clock", isDestructive: false),
-            CommandOption(id: "1h", label: "1 hour", icon: "clock", isDestructive: false),
-            CommandOption(id: "2h", label: "2 hours", icon: "clock", isDestructive: false),
-            CommandOption(id: "4h", label: "4 hours", icon: "clock", isDestructive: false),
-        ])
+        for item in Self.durations {
+            opts.append(CommandOption(
+                id: "ka-\(item.id)",
+                label: item.label,
+                icon: "clock",
+                isDestructive: false,
+                section: "Keep Awake"
+            ))
+        }
+
+        // Closed Lid section
+        if closedLidService.isActive {
+            opts.append(CommandOption(
+                id: "cl-cancel",
+                label: "Stop Closed Lid",
+                icon: "stop.circle",
+                isDestructive: true,
+                section: "Closed Lid"
+            ))
+        }
+
+        for item in Self.durations {
+            opts.append(CommandOption(
+                id: "cl-\(item.id)",
+                label: item.label,
+                icon: "clock",
+                isDestructive: false,
+                section: "Closed Lid"
+            ))
+        }
 
         return opts
     }
 
-    func execute(option: CommandOption) {
-        switch option.id {
-        case "cancel": service.stop()
-        case "15m":    service.start(duration: 15 * 60)
-        case "30m":    service.start(duration: 30 * 60)
-        case "1h":     service.start(duration: 60 * 60)
-        case "2h":     service.start(duration: 2 * 60 * 60)
-        case "4h":     service.start(duration: 4 * 60 * 60)
-        default: break
+    func execute(option: CommandOption) async {
+        let id = option.id
+
+        // Keep Awake actions
+        if id == "ka-cancel" {
+            caffeinateService.stop()
+            return
+        }
+        if id.hasPrefix("ka-"), let duration = Self.parseDuration(id: String(id.dropFirst(3))) {
+            // Mutual exclusion: stop Closed Lid first
+            if closedLidService.isActive { closedLidService.stop() }
+            caffeinateService.start(duration: duration)
+            return
+        }
+
+        // Closed Lid actions
+        if id == "cl-cancel" {
+            closedLidService.stop()
+            return
+        }
+        if id.hasPrefix("cl-"), let duration = Self.parseDuration(id: String(id.dropFirst(3))) {
+            // Mutual exclusion: stop Keep Awake first
+            if caffeinateService.isActive { caffeinateService.stop() }
+            do {
+                try closedLidService.start(duration: duration)
+            } catch let error as PrivilegedCommandError {
+                switch error {
+                case .userCancelled:
+                    NSLog("SleepCommand: user cancelled auth for Closed Lid mode")
+                case .executionFailed(let code, let message):
+                    NSLog("SleepCommand: Closed Lid activation failed: \(code) - \(message)")
+                case .scriptCreationFailed:
+                    NSLog("SleepCommand: failed to create AppleScript for Closed Lid mode")
+                }
+            } catch {
+                NSLog("SleepCommand: unexpected error: \(error)")
+            }
+            return
         }
     }
 
     func activeStatusView() -> AnyView {
-        guard service.isActive, let remaining = service.remainingTime else {
-            return AnyView(EmptyView())
+        if closedLidService.isActive {
+            return AnyView(statusView(
+                icon: "laptopcomputer.slash",
+                title: "Closed Lid Mode",
+                service: .closedLid
+            ))
         }
-        return AnyView(
-            VStack(spacing: 8) {
-                Image(systemName: "moon.zzz")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                Text("Sleep Prevention Active")
-                    .font(.headline)
+        if caffeinateService.isActive {
+            return AnyView(statusView(
+                icon: "moon.zzz",
+                title: "Keep Awake",
+                service: .keepAwake
+            ))
+        }
+        return AnyView(EmptyView())
+    }
+
+    // MARK: - Private
+
+    private enum ActiveService { case keepAwake, closedLid }
+
+    private func remainingForService(_ service: ActiveService) -> TimeInterval {
+        switch service {
+        case .keepAwake: return caffeinateService.remainingTime ?? 0
+        case .closedLid: return closedLidService.remainingTime ?? 0
+        }
+    }
+
+    private func statusView(icon: String, title: String, service: ActiveService) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+            // TimelineView polls every 1s — services are not @Observable,
+            // so reactive observation is not available.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Text(Self.formatDuration(self.remainingForService(service)))
+                    .font(.system(size: 28, weight: .medium, design: .monospaced))
                     .foregroundStyle(.primary)
-                // TimelineView polls every 1s — CaffeinateService is not @Observable,
-                // so reactive observation is not available. Do not remove the TimelineView wrapper.
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    let secs = self.service.remainingTime ?? remaining
-                    Text(SleepCommand.formatDuration(secs))
-                        .font(.system(size: 28, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.primary)
-                }
             }
-        )
+        }
+    }
+
+    private static let durations: [(id: String, label: String, seconds: TimeInterval)] = [
+        ("15m", "15 minutes", 15 * 60),
+        ("30m", "30 minutes", 30 * 60),
+        ("1h", "1 hour", 60 * 60),
+        ("2h", "2 hours", 2 * 60 * 60),
+        ("4h", "4 hours", 4 * 60 * 60),
+    ]
+
+    private static func parseDuration(id: String) -> TimeInterval? {
+        durations.first(where: { $0.id == id })?.seconds
     }
 
     static func formatDuration(_ seconds: TimeInterval) -> String {

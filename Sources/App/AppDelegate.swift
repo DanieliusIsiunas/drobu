@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureHotkeyObserver: Any?
     private var captureService: ScreenCaptureService?
     private let caffeinateService = CaffeinateService()
+    private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
 
@@ -109,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPanel() {
         panel?.close()
-        let sleepCommand = SleepCommand(service: caffeinateService)
+        let sleepCommand = SleepCommand(caffeinateService: caffeinateService, closedLidService: closedLidService)
         panel = FloatingPanel {
             PanelView(
                 database: self.database,
