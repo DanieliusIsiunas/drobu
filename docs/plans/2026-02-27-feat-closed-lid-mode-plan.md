@@ -271,25 +271,25 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/Services/ClosedLidService.swift` (new)
 
 **Tasks:**
-- [ ] Create `@MainActor` class with `State` enum (`.idle`, `.active(startDate:, duration:)`)
-- [ ] Implement `start(duration:)`:
+- [x] Create `@MainActor` class with `State` enum (`.idle`, `.active(startDate:, duration:)`)
+- [x] Implement `start(duration:)`:
   - Generate reversal plist via `PropertyListSerialization`
   - Write plist to temp file
   - Run single privileged batch: pmset on + write cleanup script + sudoers entry + copy plist + chown/chmod + launchctl bootstrap
   - Start companion `caffeinate -dims -t N` process
   - Handle `.userCancelled` gracefully (no state change)
-- [ ] Implement `stop()`:
+- [x] Implement `stop()`:
   - Run cleanup script via `sudo` (no auth prompt due to sudoers entry)
   - Kill caffeinate process
   - Reset state to `.idle`
-- [ ] Implement `cleanup()` for `applicationWillTerminate`:
+- [x] Implement `cleanup()` for `applicationWillTerminate`:
   - Same as `stop()` but best-effort (no throws)
-- [ ] Implement `isDisableSleepActive() -> Bool`:
+- [x] Implement `isDisableSleepActive() -> Bool`:
   - Run `pmset -g`, parse for `SleepDisabled 1`
   - No root needed for reading
-- [ ] Add `onStateChange` callback
-- [ ] Add caffeinate `terminationHandler` with `@MainActor` dispatch (match CaffeinateService pattern)
-- [ ] Add 30-second state reconciliation timer (poll `pmset -g` when active)
+- [x] Add `onStateChange` callback
+- [x] Add caffeinate `terminationHandler` with `@MainActor` dispatch (match CaffeinateService pattern)
+- [x] Add 30-second state reconciliation timer (poll `pmset -g` when active)
 
 ### Phase 3: Mutual Exclusion + SleepCommand Adapter
 
