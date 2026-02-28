@@ -260,10 +260,10 @@ When Closed Lid is believed active, poll `pmset -g` every 30 seconds to detect e
 - `Sources/Services/PrivilegedCommand.swift` (new)
 
 **Tasks:**
-- [ ] Create `PrivilegedCommandError` enum with `.userCancelled`, `.executionFailed`, `.scriptCreationFailed`
-- [ ] Implement `runPrivileged(_ command: String) throws -> String` using `NSAppleScript`
-- [ ] Handle error code -128 as user cancellation
-- [ ] Test with a simple privileged command (`whoami` → should return "root")
+- [x] Create `PrivilegedCommandError` enum with `.userCancelled`, `.executionFailed`, `.scriptCreationFailed`
+- [x] Implement `runPrivileged(_ command: String) throws -> String` using `NSAppleScript`
+- [x] Handle error code -128 as user cancellation
+- [x] Test with a simple privileged command (`whoami` → should return "root")
 
 ### Phase 2: ClosedLidService
 
