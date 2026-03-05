@@ -683,9 +683,9 @@ struct PanelView: View {
         guard index < opts.count else { return }
         guard let cmd = selectedCommand else { return }
         let option = opts[index]
-        panel?.close()
         Task {
             await cmd.execute(option: option)
+            panel?.close()
         }
     }
 
@@ -699,7 +699,9 @@ struct PanelView: View {
         observation = ValueObservation.tracking { db in
             try ClipboardRecord.search(query: query, in: db)
         }
-        .start(in: pool, onError: { _ in }, onChange: { [self] newItems in
+        .start(in: pool, onError: { error in
+            Log.error("PanelView: observation failed: \(error)")
+        }, onChange: { [self] newItems in
             items = newItems
 
             // While editing, follow the edited item to its new index
@@ -758,8 +760,12 @@ struct PanelView: View {
         guard let itemId = savedItemId else { return }
 
         Task.detached {
-            try? await database.pool.write { db in
-                try ClipboardRecord.updatePlainText(id: itemId, newText: trimmed, in: db)
+            do {
+                try await database.pool.write { db in
+                    try ClipboardRecord.updatePlainText(id: itemId, newText: trimmed, in: db)
+                }
+            } catch {
+                Log.error("PanelView: saveEdit failed: \(error)")
             }
         }
 
@@ -778,8 +784,12 @@ struct PanelView: View {
         guard let itemId = savedItemId else { return }
 
         Task.detached {
-            try? await database.pool.write { db in
-                try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
+            do {
+                try await database.pool.write { db in
+                    try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
+                }
+            } catch {
+                Log.error("PanelView: saveGifTrim failed: \(error)")
             }
         }
 
@@ -817,10 +827,14 @@ struct PanelView: View {
             : max(0, min(anchor, cursor) - 1)
 
         Task.detached {
-            try? await database.pool.write { db in
-                for id in toDelete {
-                    try ClipboardRecord.deleteById(id, in: db)
+            do {
+                try await database.pool.write { db in
+                    for id in toDelete {
+                        try ClipboardRecord.deleteById(id, in: db)
+                    }
                 }
+            } catch {
+                Log.error("PanelView: deleteSelected failed: \(error)")
             }
         }
 

@@ -24,10 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             database = try AppDatabase()
         } catch {
-            NSLog("Failed to initialize database: \(error)")
+            Log.error("AppDelegate: failed to initialize database: \(error)")
             NSApplication.shared.terminate(nil)
             return
         }
+        Log.info("AppDelegate: launch — pid \(ProcessInfo.processInfo.processIdentifier)")
 
         // Start clipboard monitoring
         monitor = ClipboardMonitor(database: database)
@@ -135,8 +136,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let maxCount = RetentionDefaults.loadMaxItemCount()
 
         Task.detached { [database] in
-            try? await database!.pool.write { db in
-                try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
+            do {
+                try await database!.pool.write { db in
+                    try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
+                }
+            } catch {
+                Log.error("AppDelegate: cleanup failed: \(error)")
             }
         }
     }
@@ -229,9 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // This means the app crashed or was killed while Closed Lid was active.
         let daemonExists = FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/com.clipboardhistory.disablesleep-reversal.plist")
         if daemonExists {
-            NSLog("AppDelegate: orphaned disablesleep detected — LaunchDaemon present, will handle reversal")
+            Log.info("AppDelegate: orphaned disablesleep — LaunchDaemon present, will handle reversal")
         } else {
-            NSLog("AppDelegate: orphaned disablesleep detected — no LaunchDaemon found, cleanup needed on next admin auth")
+            Log.error("AppDelegate: orphaned disablesleep — no LaunchDaemon, cleanup needed on next admin auth")
         }
     }
 
@@ -313,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleCaptureComplete(_ gifData: Data) {
+        Log.debug("AppDelegate: screen capture complete, \(gifData.count / 1024)KB")
         let hash = gifData.sha256String
         let record = ClipboardRecord(
             kind: ClipboardRecord.kindGif,
@@ -327,8 +333,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Save to database
         let db = database!
         Task.detached {
-            try? await db.pool.write { dbConn in
-                try ClipboardRecord.upsert(record, in: dbConn)
+            do {
+                _ = try await db.pool.write { dbConn in
+                    try ClipboardRecord.upsert(record, in: dbConn)
+                }
+            } catch {
+                Log.error("AppDelegate: capture upsert failed: \(error)")
             }
         }
 

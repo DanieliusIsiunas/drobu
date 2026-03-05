@@ -125,7 +125,7 @@ struct SettingsView: View {
             do {
                 try AppDatabase().deleteAll()
             } catch {
-                NSLog("Delete all data failed: \(error)")
+                Log.error("SettingsView: delete all data failed: \(error)")
             }
         }
     }

@@ -66,16 +66,16 @@ enum GIFFrameEngine {
         return data as Data
     }
 
-    /// Encode GIF from compressed frame data (JPEG).
+    /// Encode GIF from compressed frame data (JPEG) with per-frame delays.
     /// Decompresses one frame at a time to minimize peak memory during screen capture encoding.
-    static func encodeFromCompressedFrames(_ compressedFrames: [Data], delay: Double) -> Data? {
-        guard !compressedFrames.isEmpty else { return nil }
+    static func encodeFromCompressedFrames(_ frames: [(data: Data, delay: Double)]) -> Data? {
+        guard !frames.isEmpty else { return nil }
 
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             data as CFMutableData,
             UTType.gif.identifier as CFString,
-            compressedFrames.count,
+            frames.count,
             nil
         ) else { return nil }
 
@@ -86,15 +86,15 @@ enum GIFFrameEngine {
         ]
         CGImageDestinationSetProperties(destination, fileProperties as CFDictionary)
 
-        let frameProperties: [String: Any] = [
-            kCGImagePropertyGIFDictionary as String: [
-                kCGImagePropertyGIFDelayTime as String: delay
-            ]
-        ]
-        for jpegData in compressedFrames {
-            guard let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
+        for frame in frames {
+            guard let source = CGImageSourceCreateWithData(frame.data as CFData, nil),
                   let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
             else { continue }
+            let frameProperties: [String: Any] = [
+                kCGImagePropertyGIFDictionary as String: [
+                    kCGImagePropertyGIFDelayTime as String: frame.delay
+                ]
+            ]
             CGImageDestinationAddImage(destination, cgImage, frameProperties as CFDictionary)
         }
 

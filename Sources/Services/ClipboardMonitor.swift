@@ -52,10 +52,12 @@ final class ClipboardMonitor {
 
         if suppressCount > 0 {
             suppressCount -= 1
+            Log.debug("ClipboardMonitor: change \(lastChangeCount - 1)→\(lastChangeCount), suppressed (remaining: \(suppressCount))")
             return
         }
 
         guard let items = pasteboard.pasteboardItems else {
+            Log.debug("ClipboardMonitor: pasteboardItems nil")
             // Poll failure may indicate pasteboard privacy denial (macOS 15.4+)
             if pasteboard.responds(to: NSSelectorFromString("accessBehavior")),
                let rawValue = pasteboard.value(forKey: "accessBehavior") as? Int,
@@ -64,23 +66,33 @@ final class ClipboardMonitor {
             }
             return
         }
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        Log.debug("ClipboardMonitor: change \(lastChangeCount - 1)→\(lastChangeCount) from \(frontApp?.localizedName ?? "unknown") (\(frontApp?.bundleIdentifier ?? "?")), types: [\(items.flatMap { $0.types.map(\.rawValue) }.joined(separator: ", "))]")
         for item in items {
             let typeStrings = item.types.map(\.rawValue)
 
             // Skip concealed/transient types (password managers, etc.)
             if typeStrings.contains(where: { Self.ignoredTypes.contains($0) }) {
+                Log.debug("ClipboardMonitor: skipped — concealed type: \(typeStrings.filter { Self.ignoredTypes.contains($0) }.joined(separator: ", "))")
                 continue
             }
 
             // Extract content on main thread (NSPasteboard requires it)
             if let record = extractRecord(from: item) {
+                Log.debug("ClipboardMonitor: captured \(record.kind) (\(record.imageData?.count ?? record.plainText?.utf8.count ?? 0) bytes) hash=\(record.contentHash.prefix(8))")
                 // Write to DB on background task
                 let db = database
                 Task.detached {
-                    try? await db.pool.write { dbConn in
-                        try ClipboardRecord.upsert(record, in: dbConn)
+                    do {
+                        _ = try await db.pool.write { dbConn in
+                            try ClipboardRecord.upsert(record, in: dbConn)
+                        }
+                    } catch {
+                        Log.error("ClipboardMonitor: upsert failed: \(error)")
                     }
                 }
+            } else {
+                Log.debug("ClipboardMonitor: no extractable content, types: [\(typeStrings.joined(separator: ", "))]")
             }
         }
     }
@@ -104,7 +116,10 @@ final class ClipboardMonitor {
 
         // 1. Check for GIF — both raw data and file URLs (e.g. copying .gif from Finder)
         if let gifData = item.data(forType: .gif) {
-            guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
+            guard gifData.count <= 20_000_000 else {
+                Log.debug("ClipboardMonitor: GIF too large (\(gifData.count / 1_000_000)MB)")
+                return nil
+            }
 
             let hash = gifData.sha256String
             return ClipboardRecord(
@@ -124,7 +139,10 @@ final class ClipboardMonitor {
            fileURL.scheme == "file",
            fileURL.pathExtension.lowercased() == "gif" {
             if let gifData = try? Data(contentsOf: fileURL) {
-                guard gifData.count <= 20_000_000 else { return nil } // 20MB cap
+                guard gifData.count <= 20_000_000 else {
+                    Log.debug("ClipboardMonitor: GIF too large (\(gifData.count / 1_000_000)MB)")
+                    return nil
+                }
 
                 let hash = gifData.sha256String
                 return ClipboardRecord(
@@ -142,12 +160,21 @@ final class ClipboardMonitor {
         // 2. Text
         if types.contains(.string), let text = item.string(forType: .string) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
+            guard !trimmed.isEmpty else {
+                Log.debug("ClipboardMonitor: empty after trim")
+                return nil
+            }
 
             // Strip ANSI escape sequences (terminal color codes, cursor control, OSC)
             let cleaned = Self.stripANSI(trimmed)
-            guard !cleaned.isEmpty else { return nil }
-            guard cleaned.utf8.count <= 1_000_000 else { return nil } // 1MB cap
+            guard !cleaned.isEmpty else {
+                Log.debug("ClipboardMonitor: empty after ANSI strip")
+                return nil
+            }
+            guard cleaned.utf8.count <= 1_000_000 else {
+                Log.debug("ClipboardMonitor: text too large (\(cleaned.utf8.count / 1000)KB)")
+                return nil
+            }
 
             let hash = cleaned.data(using: .utf8)!.sha256String
             return ClipboardRecord(
@@ -162,7 +189,10 @@ final class ClipboardMonitor {
         }
 
         if let imageData = item.data(forType: .png) ?? item.data(forType: .tiff) {
-            guard imageData.count <= 10_000_000 else { return nil } // 10MB cap
+            guard imageData.count <= 10_000_000 else {
+                Log.debug("ClipboardMonitor: image too large (\(imageData.count / 1_000_000)MB)")
+                return nil
+            }
 
             let hash = imageData.sha256String
             return ClipboardRecord(

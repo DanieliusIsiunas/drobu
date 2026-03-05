@@ -18,7 +18,8 @@ Always use this combo — kills stale process, rebuilds, launches.
 
 **Debug helpers:**
 - DB inspection: `sqlite3 ~/Library/Application\ Support/ClipboardHistory/clipboard.sqlite`
-- Logs don't show in `log show` — use file-based logging to `~/Desktop/` when debugging
+- App log: `cat ~/Library/Application\ Support/ClipboardHistory/app.log`
+- `log show` does NOT work for this app — always use the file-based log above
 
 **Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it.
 
@@ -33,11 +34,44 @@ Sources/
 ├── App/           # AppDelegate, ClipboardHistoryApp (entry point)
 ├── Database/      # AppDatabase (GRDB pool, migrations)
 ├── Models/        # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
-├── Services/      # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine
+├── Services/      # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
 └── Views/         # PanelView (main UI), FloatingPanel, SettingsView, PreviewPanel, GIF views
 ```
 
 DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
+
+## Debugging
+
+**First step for any bug:** Read the app log. It captures errors, state transitions, and DB failures.
+
+```bash
+cat ~/Library/Application\ Support/ClipboardHistory/app.log
+```
+
+The log truncates on every app launch — it only contains the current session. If investigating a crash or past issue, the log may be empty (app restarted). In that case, reproduce the issue first, then read the log.
+
+**`Log` utility** (`Sources/Services/Log.swift`): Async file-based logger using a serial `DispatchQueue`. Three levels: `debug`, `info`, `error`. All messages use `@autoclosure` — safe on hot paths.
+
+**What gets logged automatically:**
+- App launch (pid)
+- ClipboardMonitor decision breadcrumbs: every change → captured/skipped/rejected with source app, types, sizes, and reason
+- Paste flow: what was written to pasteboard, Cmd+V fired or failed
+- State transitions: CaffeinateService and ClosedLidService log every `idle ↔ active` change
+- DB write failures: ClipboardMonitor upsert, PanelView edit/delete/trim, AppDelegate cleanup/capture
+- GRDB ValueObservation errors (PanelView)
+- External process failures: ClosedLidService cleanup exit codes + stderr
+- Screen capture encoding pipeline (frame counts, GIF sizes, fallback attempts)
+
+**What does NOT get logged** (by design):
+- Clipboard content (security: passwords, tokens, private text)
+- Successful DB writes (noise: monitor fires every 0.5s)
+- Per-frame data in screen capture (hot path: would cause frame drops)
+
+**When adding logging to new code:**
+- Use `TypeName: message` format (e.g., `Log.error("MyService: thing failed: \(error)")`)
+- Use `do/catch` with `Log.error` instead of `try?` for operations that should produce signal on failure
+- Never log clipboard content or user data in the message
+- Never add `Log` calls inside `ScreenCaptureService.FrameCaptureOutput.stream()` — it's a hot path at screen refresh rate
 
 ## Key Patterns
 

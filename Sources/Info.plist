@@ -18,5 +18,7 @@
     <string>Copyright 2026. All rights reserved.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>ClipboardHistory needs screen recording access to capture GIF screen recordings.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ClipboardHistory needs to run privileged commands for sleep prevention features.</string>
 </dict>
 </plist>

@@ -100,18 +100,18 @@ final class SleepCommand: SlashCommand {
             // Mutual exclusion: stop Keep Awake first
             if caffeinateService.isActive { caffeinateService.stop() }
             do {
-                try closedLidService.start(duration: duration)
+                try await closedLidService.start(duration: duration)
             } catch let error as PrivilegedCommandError {
                 switch error {
                 case .userCancelled:
-                    NSLog("SleepCommand: user cancelled auth for Closed Lid mode")
+                    Log.info("SleepCommand: user cancelled auth for Closed Lid mode")
                 case .executionFailed(let code, let message):
-                    NSLog("SleepCommand: Closed Lid activation failed: \(code) - \(message)")
+                    Log.error("SleepCommand: Closed Lid activation failed: \(code) — \(message)")
                 case .scriptCreationFailed:
-                    NSLog("SleepCommand: failed to create AppleScript for Closed Lid mode")
+                    Log.error("SleepCommand: script creation failed for Closed Lid mode")
                 }
             } catch {
-                NSLog("SleepCommand: unexpected error: \(error)")
+                Log.error("SleepCommand: unexpected error: \(error)")
             }
             return
         }

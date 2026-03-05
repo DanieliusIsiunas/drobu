@@ -8,7 +8,10 @@ final class CaffeinateService {
     }
 
     private(set) var state: State = .idle {
-        didSet { onStateChange?(state) }
+        didSet {
+            Log.info("CaffeinateService: state → \(state)")
+            onStateChange?(state)
+        }
     }
 
     /// Callback for state changes — set by AppDelegate to update menu bar badge.
@@ -17,7 +20,10 @@ final class CaffeinateService {
     private var process: Process?
 
     var isActive: Bool {
-        if case .idle = state { return false }
+        guard case .active(_, _) = state else { return false }
+        // Treat as inactive once remaining time has elapsed,
+        // even if the caffeinate process hasn't terminated yet.
+        if let remaining = remainingTime, remaining <= 0 { return false }
         return true
     }
 
@@ -50,10 +56,11 @@ final class CaffeinateService {
 
         do {
             try proc.run()
+            Log.debug("CaffeinateService: launched caffeinate pid=\(proc.processIdentifier), duration=\(Int(duration))s")
             process = proc
             state = .active(startDate: Date(), duration: duration)
         } catch {
-            NSLog("CaffeinateService: failed to launch caffeinate: \(error)")
+            Log.error("CaffeinateService: failed to launch caffeinate: \(error)")
             state = .idle
             process = nil
         }

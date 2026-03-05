@@ -118,7 +118,7 @@ final class ScreenCaptureService {
                     }
                 }
             } catch {
-                NSLog("Screen capture failed to start: \(error)")
+                Log.error("ScreenCaptureService: failed to start: \(error)")
                 setState(.idle)
                 // ScreenCaptureKit errors when permission is denied
                 let desc = error.localizedDescription
@@ -176,7 +176,7 @@ final class ScreenCaptureService {
         config.destinationRect = CGRect(x: 0, y: 0, width: Int(rect.width), height: Int(rect.height))
         config.scalesToFit = true
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(Self.fps))
-        config.queueDepth = 5
+        config.queueDepth = 8
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.captureResolution = .nominal
@@ -203,42 +203,69 @@ final class ScreenCaptureService {
         setState(.encoding)
 
         guard let output = frameOutput else {
-            NSLog("[ScreenCapture] encodeCapture: no frameOutput")
+            Log.error("ScreenCaptureService: encodeCapture with no frameOutput")
             setState(.idle)
             return
         }
 
-        let compressedFrames = output.compressedFrames
+        let rawFrames = output.compressedFrames
         frameOutput = nil
-        NSLog("[ScreenCapture] encodeCapture: \(compressedFrames.count) frames captured")
+        Log.info("ScreenCaptureService: encoding \(rawFrames.count) frames")
 
-        guard !compressedFrames.isEmpty else {
+        guard !rawFrames.isEmpty else {
             setState(.idle)
             onCaptureError?("No frames captured.")
             return
         }
 
-        // Encode on a background thread to avoid blocking UI
-        let delay = 1.0 / Double(Self.fps)
+        // Compute per-frame delays from presentation timestamps
+        let defaultDelay = 1.0 / Double(Self.fps)
+        var frames: [(data: Data, delay: Double)] = []
+        frames.reserveCapacity(rawFrames.count)
+        for i in 0..<rawFrames.count {
+            let delay: Double
+            if i < rawFrames.count - 1 {
+                delay = max(rawFrames[i + 1].timestamp - rawFrames[i].timestamp, 0.02)
+            } else if frames.isEmpty {
+                delay = defaultDelay
+            } else {
+                delay = frames.last!.delay
+            }
+            frames.append((data: rawFrames[i].data, delay: delay))
+        }
+
+        let totalDuration = frames.reduce(0.0) { $0 + $1.delay }
+        Log.info("ScreenCaptureService: \(frames.count) frames, total duration \(String(format: "%.1f", totalDuration))s")
+
         let maxBytes = Self.maxGIFBytes
 
         let gifData: Data? = await Task.detached {
             // Full quality attempt
-            if let data = GIFFrameEngine.encodeFromCompressedFrames(compressedFrames, delay: delay) {
-                NSLog("[ScreenCapture] encoded GIF: \(data.count) bytes (\(data.count / 1024)KB)")
+            if let data = GIFFrameEngine.encodeFromCompressedFrames(frames) {
+                Log.info("ScreenCaptureService: encoded GIF \(data.count / 1024)KB")
                 if data.count <= maxBytes {
                     return data
                 }
-                NSLog("[ScreenCapture] GIF exceeds \(maxBytes) bytes, trying half framerate")
+                Log.info("ScreenCaptureService: exceeds \(maxBytes) bytes, trying half framerate")
             } else {
-                NSLog("[ScreenCapture] encodeFromCompressedFrames returned nil")
+                Log.error("ScreenCaptureService: encodeFromCompressedFrames returned nil")
             }
 
-            // Half frame rate attempt
-            let everyOther = compressedFrames.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
-            if let data = GIFFrameEngine.encodeFromCompressedFrames(everyOther, delay: delay * 2),
+            // Half frame rate: take every other frame, sum delay pairs
+            var halfFrames: [(data: Data, delay: Double)] = []
+            halfFrames.reserveCapacity(frames.count / 2 + 1)
+            var i = 0
+            while i < frames.count {
+                if i + 1 < frames.count {
+                    halfFrames.append((data: frames[i].data, delay: frames[i].delay + frames[i + 1].delay))
+                } else {
+                    halfFrames.append(frames[i])
+                }
+                i += 2
+            }
+            if let data = GIFFrameEngine.encodeFromCompressedFrames(halfFrames),
                data.count <= maxBytes {
-                NSLog("[ScreenCapture] half-rate GIF: \(data.count) bytes")
+                Log.info("ScreenCaptureService: half-rate GIF \(data.count / 1024)KB")
                 return data
             }
 
@@ -246,11 +273,11 @@ final class ScreenCaptureService {
         }.value
 
         if let gifData {
-            NSLog("[ScreenCapture] success: \(gifData.count) bytes, calling onCaptureComplete")
+            Log.info("ScreenCaptureService: capture complete \(gifData.count / 1024)KB")
             setState(.idle)
             onCaptureComplete?(gifData)
         } else {
-            NSLog("[ScreenCapture] encoding failed or too large")
+            Log.error("ScreenCaptureService: encoding failed or too large")
             setState(.idle)
             onCaptureError?("Recording too large — try a smaller region or shorter duration.")
         }
@@ -294,10 +321,10 @@ final class ScreenCaptureService {
 /// Thread-safe: callbacks arrive on a background DispatchQueue.
 final class FrameCaptureOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let lock = NSLock()
-    private var _compressedFrames: [Data] = []
+    private var _compressedFrames: [(data: Data, timestamp: Double)] = []
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
-    var compressedFrames: [Data] {
+    var compressedFrames: [(data: Data, timestamp: Double)] {
         lock.lock()
         defer { lock.unlock() }
         return _compressedFrames
@@ -326,6 +353,8 @@ final class FrameCaptureOutput: NSObject, SCStreamOutput, @unchecked Sendable {
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+
         frameCount += 1
         if frameCount <= 3 || frameCount % 10 == 0 {
             NSLog("[ScreenCapture] frame \(frameCount): \(CVPixelBufferGetWidth(pixelBuffer))x\(CVPixelBufferGetHeight(pixelBuffer))")
@@ -348,7 +377,7 @@ final class FrameCaptureOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         guard CGImageDestinationFinalize(dest) else { return }
 
         lock.lock()
-        _compressedFrames.append(jpegData as Data)
+        _compressedFrames.append((data: jpegData as Data, timestamp: pts))
         lock.unlock()
     }
 }

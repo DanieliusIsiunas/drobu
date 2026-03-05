@@ -137,6 +137,8 @@ final class FloatingPanel: NSPanel {
             break
         }
 
+        Log.debug("FloatingPanel: pasted \(record.kind) (\(record.imageData?.count ?? record.plainText?.utf8.count ?? 0) bytes)")
+
         // 3. Auto-paste if we have Accessibility, otherwise show "Copied" notification
         if AXIsProcessTrusted() {
             firePaste()
@@ -205,6 +207,7 @@ final class FloatingPanel: NSPanel {
         }
 
         // Execute sequentially with delay
+        Log.debug("FloatingPanel: pasting \(operations.count) items sequentially")
         executePasteSequence(operations, index: 0)
     }
 
@@ -254,13 +257,17 @@ final class FloatingPanel: NSPanel {
 
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
-        else { return }
+        else {
+            Log.error("FloatingPanel: CGEvent creation failed — paste will not fire")
+            return
+        }
 
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
 
         keyDown.post(tap: .cgSessionEventTap)
         keyUp.post(tap: .cgSessionEventTap)
+        Log.debug("FloatingPanel: fired Cmd+V")
     }
 
     /// Write GIF data to pasteboard as a temp file URL.

@@ -15,7 +15,7 @@ final class AppDatabase: Sendable {
             return try DatabasePool(path: path)
         } catch {
             // Database corruption: delete and recreate
-            NSLog("Database error, recreating: \(error)")
+            Log.error("AppDatabase: corruption detected, recreating: \(error)")
             try? FileManager.default.removeItem(atPath: path)
             try? FileManager.default.removeItem(atPath: path + "-wal")
             try? FileManager.default.removeItem(atPath: path + "-shm")
