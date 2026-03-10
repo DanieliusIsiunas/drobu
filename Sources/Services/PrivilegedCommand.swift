@@ -29,7 +29,7 @@ func runPrivileged(_ command: String) async throws -> String {
     let askpassContent = """
         #!/bin/sh
         /usr/bin/osascript <<'APPLESCRIPT'
-        text returned of (display dialog "ClipboardHistory needs administrator access to prevent sleep with the lid closed." with title "Administrator Access" with icon caution with hidden answer default answer "" buttons {"Cancel", "OK"} default button "OK")
+        text returned of (display dialog "Drobu needs administrator access to prevent sleep with the lid closed." with title "Administrator Access" with icon caution with hidden answer default answer "" buttons {"Cancel", "OK"} default button "OK")
         APPLESCRIPT
         """
     do {

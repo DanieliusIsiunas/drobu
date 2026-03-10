@@ -157,9 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 image.isTemplate = true
                 button.image = image
             } else {
-                button.image = NSImage(systemSymbolName: "clipboard", accessibilityDescription: "Clipboard History")
+                button.image = NSImage(systemSymbolName: "clipboard", accessibilityDescription: "Drobu")
             }
-            button.setAccessibilityLabel("Clipboard History")
+            button.setAccessibilityLabel("Drobu")
         }
 
         let menu = NSMenu()
@@ -266,10 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Accessibility Permission Required"
         alert.informativeText = """
-            ClipboardHistory needs Accessibility permission to auto-paste items. \
+            Drobu needs Accessibility permission to auto-paste items. \
             Without it, items will be copied to clipboard but you'll need to paste manually with Cmd+V.
 
-            Click 'Open System Settings' and toggle on ClipboardHistory.
+            Click 'Open System Settings' and toggle on Drobu.
             """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open System Settings")

@@ -296,8 +296,8 @@ final class ScreenCaptureService {
         let alert = NSAlert()
         alert.messageText = "Screen Recording Permission Required"
         alert.informativeText = """
-            ClipboardHistory needs Screen Recording permission to capture GIFs. \
-            Click 'Open System Settings' and toggle on ClipboardHistory.
+            Drobu needs Screen Recording permission to capture GIFs. \
+            Click 'Open System Settings' and toggle on Drobu.
             """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open System Settings")
