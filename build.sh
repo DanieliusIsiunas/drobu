@@ -67,6 +67,10 @@ fi
 
 echo ""
 echo "Built: $APP_BUNDLE"
-echo ""
-echo "To run:  open $APP_BUNDLE"
-echo "To install: cp -r $APP_BUNDLE /Applications/"
+
+if [[ "${1:-}" == "--install" ]]; then
+    echo "Installing to /Applications..."
+    rm -rf "/Applications/ClipboardHistory.app"
+    cp -r "$APP_BUNDLE" "/Applications/ClipboardHistory.app"
+    echo "Installed: /Applications/ClipboardHistory.app"
+fi

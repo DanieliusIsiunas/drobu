@@ -11,10 +11,10 @@ When you discover a reusable gotcha or workaround during a session, **proactivel
 ## Build & Run Commands
 
 ```bash
-pkill -x ClipboardHistory && ./build.sh && open .build/ClipboardHistory.app
+pkill -x ClipboardHistory; ./build.sh --install && open /Applications/ClipboardHistory.app
 ```
 
-Always use this combo — kills stale process, rebuilds, launches.
+Always use this combo — kills stale process, rebuilds, installs to `/Applications/`, launches. The `--install` flag copies the bundle to `/Applications/` so SMAppService "Launch at login" points to a stable path.
 
 **Debug helpers:**
 - DB inspection: `sqlite3 ~/Library/Application\ Support/ClipboardHistory/clipboard.sqlite`

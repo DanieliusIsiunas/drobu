@@ -19,7 +19,7 @@ struct SettingsView: View {
                 }
 
                 HStack {
-                    Text("Capture Hotkey")
+                    Text("Capture GIF Hotkey")
                     Spacer()
                     HotkeyRecorderView(keyCombo: $captureHotkeyCombo, saveAction: CaptureHotkeyDefaults.save)
                         .frame(width: 160, height: 24)
