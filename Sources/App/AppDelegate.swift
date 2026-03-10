@@ -360,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Clipboard Access Required"
-        alert.informativeText = "Clipboard History needs permission to read the clipboard. Please grant access in System Settings > Privacy & Security > Pasteboard."
+        alert.informativeText = "Drobu needs permission to read the clipboard. Please grant access in System Settings > Privacy & Security > Pasteboard."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")

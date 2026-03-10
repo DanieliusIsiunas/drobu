@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="ClipboardHistory"
+APP_NAME="Drobu"
 BUILD_DIR="$SCRIPT_DIR/.build"
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
 BUNDLE_ID="com.danielius.ClipboardHistory"
@@ -70,7 +70,8 @@ echo "Built: $APP_BUNDLE"
 
 if [[ "${1:-}" == "--install" ]]; then
     echo "Installing to /Applications..."
-    rm -rf "/Applications/ClipboardHistory.app"
-    cp -r "$APP_BUNDLE" "/Applications/ClipboardHistory.app"
-    echo "Installed: /Applications/ClipboardHistory.app"
+    rm -rf "/Applications/ClipboardHistory.app"  # one-time cleanup of old name
+    rm -rf "/Applications/${APP_NAME}.app"
+    cp -r "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+    echo "Installed: /Applications/${APP_NAME}.app"
 fi

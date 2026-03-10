@@ -11,7 +11,7 @@ When you discover a reusable gotcha or workaround during a session, **proactivel
 ## Build & Run Commands
 
 ```bash
-pkill -x ClipboardHistory; ./build.sh --install && open /Applications/ClipboardHistory.app
+pkill -x Drobu; ./build.sh --install && open /Applications/Drobu.app
 ```
 
 Always use this combo — kills stale process, rebuilds, installs to `/Applications/`, launches. The `--install` flag copies the bundle to `/Applications/` so SMAppService "Launch at login" points to a stable path.
@@ -31,7 +31,7 @@ macOS menu bar app (SwiftUI + AppKit hybrid, GRDB for SQLite, HotKey for shortcu
 
 ```
 Sources/
-├── App/           # AppDelegate, ClipboardHistoryApp (entry point)
+├── App/           # AppDelegate, DrobuApp (entry point)
 ├── Database/      # AppDatabase (GRDB pool, migrations)
 ├── Models/        # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
 ├── Services/      # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log

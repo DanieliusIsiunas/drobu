@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClipboardHistory",
+    name: "Drobu",
     platforms: [
         .macOS(.v14)
     ],
@@ -12,7 +12,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "ClipboardHistory",
+            name: "Drobu",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "HotKey", package: "HotKey"),

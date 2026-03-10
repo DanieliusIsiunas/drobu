@@ -95,7 +95,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("Clipboard History v1.0")
+                Text("Drobu v1.0")
                     .foregroundStyle(.secondary)
             }
         }

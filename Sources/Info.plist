@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleName</key>
     <string>Drobu</string>
+    <key>CFBundleExecutable</key>
+    <string>Drobu</string>
     <key>CFBundleIdentifier</key>
     <string>com.danielius.ClipboardHistory</string>
     <key>CFBundleVersion</key>

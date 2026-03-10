@@ -6,7 +6,7 @@ extension Notification.Name {
 }
 
 @main
-struct ClipboardHistoryApp: App {
+struct DrobuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
