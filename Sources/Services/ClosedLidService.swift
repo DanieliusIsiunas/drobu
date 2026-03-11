@@ -2,11 +2,11 @@ import Foundation
 import IOKit
 import IOKit.pwr_mgt
 
-// Not exported as Swift symbols — define from xnu/iokit/IOKit/pwr_mgt/IOPM.h
+// Clamshell state change from xnu/iokit/IOKit/pwr_mgt/IOPM.h
 private let kIOPMMessageClamshellStateChange: UInt32 = 0xE003_4100
 private let kClamshellStateBit: UInt32 = 1 << 0
 
-private let clamshellCallback: IOServiceInterestCallback = { refcon, service, messageType, messageArgument in
+private let clamshellCallback: IOServiceInterestCallback = { refcon, _, messageType, messageArgument in
     guard messageType == kIOPMMessageClamshellStateChange else { return }
     let bits = UInt32(UInt(bitPattern: messageArgument))
     let isClosed = (bits & kClamshellStateBit) != 0
@@ -37,6 +37,7 @@ final class ClosedLidService {
     private var isActivating = false
     private var clamshellNotifyPort: IONotificationPortRef?
     private var clamshellNotifier: io_object_t = IO_OBJECT_NULL
+    private var savedBrightness: Float?
 
     // MARK: - Paths
 
@@ -48,11 +49,7 @@ final class ClosedLidService {
     // MARK: - Public API
 
     var isActive: Bool {
-        if case .idle = state { return false }
-        // Treat as inactive once remaining time has elapsed,
-        // even if cleanup hasn't run yet.
-        if let remaining = remainingTime, remaining <= 0 { return false }
-        return true
+        state != .idle
     }
 
     var remainingTime: TimeInterval? {
@@ -110,23 +107,8 @@ final class ClosedLidService {
 
     /// Best-effort cleanup for applicationWillTerminate / signal handlers.
     func cleanup() {
-        // Kill caffeinate
-        if let proc = caffeinateProcess, proc.isRunning {
-            proc.terminate()
-        }
-        caffeinateProcess = nil
-        reconciliationTimer?.invalidate()
-        reconciliationTimer = nil
-        stopClamshellMonitoring()
-
-        // Run cleanup script via sudo (no auth needed due to sudoers entry)
         guard isActive else { return }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        proc.arguments = [Self.cleanupScriptPath]
-        try? proc.run()
-        proc.waitUntilExit()
-        state = .idle
+        stopInternal()
     }
 
     /// Check if pmset disablesleep is currently enabled (no root needed).
@@ -152,6 +134,7 @@ final class ClosedLidService {
     // MARK: - Private
 
     private func stopInternal() {
+        restoreDisplay()
         stopClamshellMonitoring()
 
         // Kill caffeinate first
@@ -198,11 +181,7 @@ final class ClosedLidService {
         proc.terminationHandler = { [weak self] terminatedProcess in
             Task { @MainActor in
                 guard let self, self.caffeinateProcess === terminatedProcess else { return }
-                // Caffeinate exited (timer expired or killed externally).
-                // Check if pmset is still active and reverse it.
-                if self.isActive {
-                    self.stopInternal()
-                }
+                self.stopInternal()
             }
         }
 
@@ -219,23 +198,24 @@ final class ClosedLidService {
         reconciliationTimer?.invalidate()
         reconciliationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.isActive else { return }
+                guard let self, case .active = self.state else { return }
+
+                // Duration expired but cleanup hasn't run yet (belt-and-suspenders)
+                if let remaining = self.remainingTime, remaining <= 0 {
+                    self.stopInternal()
+                    return
+                }
+
                 // If pmset was reversed externally, clear our state
                 if !self.isDisableSleepActive() {
                     Log.info("ClosedLidService: pmset disablesleep was reversed externally")
-                    if let proc = self.caffeinateProcess, proc.isRunning {
-                        proc.terminate()
-                    }
-                    self.caffeinateProcess = nil
-                    self.reconciliationTimer?.invalidate()
-                    self.reconciliationTimer = nil
-                    self.state = .idle
+                    self.stopInternal()
                 }
             }
         }
     }
 
-    // MARK: - Clamshell Monitoring
+    // MARK: - Clamshell Monitoring & Display Brightness
 
     private func startClamshellMonitoring() {
         stopClamshellMonitoring()
@@ -286,30 +266,52 @@ final class ClosedLidService {
             IONotificationPortDestroy(port)
             clamshellNotifyPort = nil
         }
-
-        Log.info("ClosedLidService: clamshell monitoring stopped")
     }
 
     func handleClamshellChange(isClosed: Bool) {
         guard isActive else { return }
         if isClosed {
-            Log.info("ClosedLidService: lid closed — forcing display sleep")
-            forceDisplaySleep()
+            dimDisplay()
         } else {
-            Log.info("ClosedLidService: lid opened")
+            restoreDisplay()
         }
     }
 
-    private func forceDisplaySleep() {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        proc.arguments = ["/usr/bin/pmset", "displaysleepnow"]
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-        } catch {
-            Log.error("ClosedLidService: displaysleepnow failed: \(error)")
+    private func withDisplayService(_ body: (io_object_t) -> Void) {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(
+            kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &iterator
+        ) == kIOReturnSuccess else { return }
+        defer { IOObjectRelease(iterator) }
+
+        let service = IOIteratorNext(iterator)
+        guard service != IO_OBJECT_NULL else { return }
+        defer { IOObjectRelease(service) }
+
+        body(service)
+    }
+
+    /// Set display brightness to 0 — no sleep cascade, just backlight off.
+    private func dimDisplay() {
+        withDisplayService { display in
+            var current: Float = 0
+            guard IODisplayGetFloatParameter(display, 0, "brightness" as CFString, &current) == kIOReturnSuccess else {
+                Log.error("ClosedLidService: could not read brightness, skipping dim")
+                return
+            }
+            savedBrightness = current
+            IODisplaySetFloatParameter(display, 0, "brightness" as CFString, 0)
+            Log.info("ClosedLidService: lid closed — display dimmed (was \(current))")
+        }
+    }
+
+    /// Restore display brightness to the value saved before dimming.
+    private func restoreDisplay() {
+        guard let brightness = savedBrightness else { return }
+        savedBrightness = nil
+        withDisplayService { display in
+            IODisplaySetFloatParameter(display, 0, "brightness" as CFString, brightness)
+            Log.info("ClosedLidService: display brightness restored to \(brightness)")
         }
     }
 
@@ -329,7 +331,7 @@ final class ClosedLidService {
         /bin/rm -f '\(Self.sudoersPath)'
         CLEANUP_SCRIPT
         chmod 755 '\(Self.cleanupScriptPath)' && \
-        echo '\(username) ALL=(root) NOPASSWD: \(Self.cleanupScriptPath), /usr/bin/pmset displaysleepnow' > '\(Self.sudoersPath)' && \
+        echo '\(username) ALL=(root) NOPASSWD: \(Self.cleanupScriptPath)' > '\(Self.sudoersPath)' && \
         chmod 440 '\(Self.sudoersPath)' && \
         /bin/launchctl bootout system/\(Self.daemonLabel) 2>/dev/null ; \
         cp '\(tmpPlistPath)' '\(Self.daemonPlistPath)' && \
