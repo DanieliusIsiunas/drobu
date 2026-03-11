@@ -140,17 +140,17 @@ Set up the Astro project, dark theme, font loading, GitHub Actions deployment, a
 Build all six sections with placeholder content, responsive layout, and proper semantic HTML. No videos or GSAP yet — static images and text only.
 
 **Tasks:**
-- [ ] `Header.astro`: Sticky header with backdrop-blur, Drobule logo, section anchor links, GitHub icon link
-- [ ] `MacWindow.astro`: Reusable component — macOS-style window chrome (rounded corners, traffic light dots, title bar) that wraps a `<slot>` for content (images, videos, or other components)
-- [ ] `Hero.astro`: Headline + subheadline + download CTA button + `MacWindow` with a static screenshot placeholder
+- [x] `Header.astro`: Sticky header with backdrop-blur, Drobule logo, section anchor links, GitHub icon link
+- [x] `MacWindow.astro`: Reusable component — macOS-style window chrome (rounded corners, traffic light dots, title bar) that wraps a `<slot>` for content (images, videos, or other components)
+- [x] `Hero.astro`: Headline + subheadline + download CTA button + `MacWindow` with a static screenshot placeholder
   - Headline: "Your clipboard, with a memory."
   - Subheadline: "Drobu keeps everything you copy and lets you find it instantly."
   - Platform detection: show "Download for macOS" on Mac, "Available on macOS" + GitHub link on other platforms
   - Display macOS 14+ requirement in small text
-- [ ] `ProblemSolution.astro`: Two-column or stacked layout
+- [x] `ProblemSolution.astro`: Two-column or stacked layout
   - Left/top: "You copied it. Then you copied something else. Now it's gone."
   - Right/bottom: "Drobu remembers. Search, preview, paste — in one keystroke."
-- [ ] `BentoGrid.astro` + `BentoCard.astro`: Asymmetric grid (CSS Grid, not Flexbox)
+- [x] `BentoGrid.astro` + `BentoCard.astro`: Asymmetric grid (CSS Grid, not Flexbox)
   - Card 1 (large): Instant search — FTS5 finds anything as you type
   - Card 2 (medium): Global hotkey — Cmd+Shift+V from any app
   - Card 3 (medium): Image & GIF history — not just text
@@ -159,20 +159,20 @@ Build all six sections with placeholder content, responsive layout, and proper s
   - Card 6 (medium): GIF screen capture — record any region as GIF
   - Each card: headline, one-line description, placeholder image area, hover lift effect
   - Responsive: 3-column → 2-column (tablet) → 1-column (mobile)
-- [ ] `SpeedPrivacy.astro`: Centered text section with accent highlights
+- [x] `SpeedPrivacy.astro`: Centered text section with accent highlights
   - "Everything stays on your Mac."
   - "No cloud. No account. No tracking."
   - "SQLite + FTS5 search in milliseconds."
   - "Password managers automatically ignored."
-- [ ] `DownloadCTA.astro`: Repeat download button + system requirements + Gatekeeper bypass note
+- [x] `DownloadCTA.astro`: Repeat download button + system requirements + Gatekeeper bypass note
   - "If macOS shows a security warning, right-click the app and choose Open."
   - Link to GitHub releases page
   - Version number (v1.0)
-- [ ] `Footer.astro`: GitHub link, "Built with Swift & SwiftUI", copyright, version
-- [ ] Responsive breakpoints: mobile (<768px), tablet (768-1024px), desktop (>1024px)
-- [ ] `prefers-reduced-motion` media query: disable all transitions/animations
-- [ ] Skip navigation link for keyboard users
-- [ ] All images have alt text
+- [x] `Footer.astro`: GitHub link, "Built with Swift & SwiftUI", copyright, version
+- [x] Responsive breakpoints: mobile (<768px), tablet (768-1024px), desktop (>1024px)
+- [x] `prefers-reduced-motion` media query: disable all transitions/animations (in global.css)
+- [x] Skip navigation link for keyboard users (in Landing.astro)
+- [x] All images have alt text / aria-labels
 
 **Success criteria:**
 - Full page renders with all 6 sections + header + footer

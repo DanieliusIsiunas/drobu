@@ -1,0 +1,70 @@
+---
+import MacWindow from "./MacWindow.astro";
+---
+
+<section class="relative pt-32 pb-20 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex flex-col items-center text-center mb-16">
+      <h1 class="text-5xl md:text-7xl font-bold tracking-tight text-text-primary max-w-3xl leading-[1.1]">
+        Your clipboard, with a&nbsp;<span class="text-accent">memory</span>.
+      </h1>
+      <p class="mt-6 text-lg md:text-xl text-text-secondary max-w-xl">
+        Drobu keeps everything you copy and lets you find it instantly. Search, preview, paste — in one keystroke.
+      </p>
+
+      <div class="mt-10 flex flex-col sm:flex-row items-center gap-4">
+        <a
+          href="https://github.com/DanieliusIsiunas/clipboard-history/releases/latest"
+          class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-base"
+          id="download-cta"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span class="download-label">Download for macOS</span>
+        </a>
+        <a
+          href="https://github.com/DanieliusIsiunas/clipboard-history"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-2 px-6 py-3 text-text-secondary hover:text-text-primary border border-white/10 hover:border-white/20 rounded-xl transition-colors duration-200 text-base"
+        >
+          View on GitHub
+        </a>
+      </div>
+
+      <p class="mt-4 text-sm text-text-muted">
+        Free &middot; macOS 14+ &middot; No account required
+      </p>
+    </div>
+
+    <!-- App preview -->
+    <MacWindow title="Drobu" class="max-w-3xl mx-auto">
+      <div class="aspect-video bg-bg-primary flex items-center justify-center" id="hero-media">
+        <!-- Placeholder until real video/screenshot is added -->
+        <div class="text-center p-12">
+          <div class="text-6xl mb-4 text-accent font-bold">D</div>
+          <p class="text-text-muted text-sm">App demo video coming soon</p>
+        </div>
+      </div>
+    </MacWindow>
+  </div>
+</section>
+
+<script>
+  // Platform detection: adjust CTA for non-macOS visitors
+  const label = document.querySelector(".download-label");
+  const cta = document.getElementById("download-cta");
+  if (label && cta) {
+    const isMac = navigator.platform?.includes("Mac") ||
+      (navigator as any).userAgentData?.platform === "macOS";
+    if (!isMac) {
+      label.textContent = "Available on macOS";
+      cta.setAttribute("href", "https://github.com/DanieliusIsiunas/clipboard-history");
+      cta.setAttribute("target", "_blank");
+      cta.setAttribute("rel", "noopener noreferrer");
+    }
+  }
+</script>

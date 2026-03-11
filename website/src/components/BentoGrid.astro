@@ -1,0 +1,72 @@
+---
+import BentoCard from "./BentoCard.astro";
+---
+
+<section id="features" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <h2 class="text-3xl md:text-4xl font-bold text-text-primary">
+        Everything you need, nothing you don't.
+      </h2>
+      <p class="mt-4 text-text-secondary text-lg max-w-xl mx-auto">
+        A clipboard manager that stays out of your way until you need it.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <BentoCard
+        title="Instant search"
+        description="FTS5 full-text search finds anything as you type. Your entire clipboard history, instantly searchable."
+        size="large"
+      >
+        <Fragment slot="placeholder">Search demo</Fragment>
+      </BentoCard>
+
+      <BentoCard
+        title="Global hotkey"
+        description="Cmd+Shift+V from any app. The panel appears without stealing focus."
+        size="medium"
+      >
+        <Fragment slot="placeholder">
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">&#8984;</kbd>
+            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">&#8679;</kbd>
+            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">V</kbd>
+          </div>
+        </Fragment>
+      </BentoCard>
+
+      <BentoCard
+        title="Images & GIFs"
+        description="Not just text. Drobu captures images and GIFs with full preview."
+        size="medium"
+      >
+        <Fragment slot="placeholder">Image preview</Fragment>
+      </BentoCard>
+
+      <BentoCard
+        title="Multi-select paste"
+        description="Select multiple items with Shift, paste them all at once."
+        size="small"
+      >
+        <Fragment slot="placeholder">Multi-select demo</Fragment>
+      </BentoCard>
+
+      <BentoCard
+        title="Slash commands"
+        description="Type / for built-in commands. Keep your Mac awake, prevent sleep with lid closed."
+        size="small"
+      >
+        <Fragment slot="placeholder">/sleep</Fragment>
+      </BentoCard>
+
+      <BentoCard
+        title="GIF screen capture"
+        description="Record any region of your screen as a GIF. Drag to select, trim, and save to clipboard."
+        size="medium"
+      >
+        <Fragment slot="placeholder">Screen capture demo</Fragment>
+      </BentoCard>
+    </div>
+  </div>
+</section>
