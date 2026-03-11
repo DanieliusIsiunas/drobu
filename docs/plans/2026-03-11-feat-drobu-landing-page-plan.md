@@ -117,15 +117,15 @@ clipboard-history/
 Set up the Astro project, dark theme, font loading, GitHub Actions deployment, and verify a blank page deploys to GitHub Pages.
 
 **Tasks:**
-- [ ] `website/`: Initialize Astro 5 project with `npm create astro@latest`
-- [ ] Install dependencies: `@astrojs/react`, `@tailwindcss/vite`, `gsap`
-- [ ] `website/astro.config.mjs`: Configure static output, `site` URL, `base` path (see Open Questions Q1)
-- [ ] `website/src/styles/global.css`: Design tokens, Geist font-face declarations, Tailwind v4 import
-- [ ] `website/src/layouts/Landing.astro`: HTML boilerplate with dark background, meta tags, OG tags, font preloads
-- [ ] `website/public/favicon.svg`: Convert Drobule silhouette to SVG favicon
-- [ ] `website/public/og-image.png`: Create 1200x630 social preview (Drobule + tagline on dark background)
-- [ ] `.github/workflows/deploy-website.yml`: Astro build → deploy to `gh-pages` branch
-- [ ] Verify deployment: blank dark page live at GitHub Pages URL
+- [x] `website/`: Initialize Astro 6 project (manually scaffolded)
+- [x] Install dependencies: `@astrojs/react`, `@tailwindcss/vite`, `gsap`, `@fontsource-variable/geist`
+- [x] `website/astro.config.mjs`: Configure static output, `site` URL, `base: '/clipboard-history'`
+- [x] `website/src/styles/global.css`: Design tokens, Geist font-face declarations, Tailwind v4 import
+- [x] `website/src/layouts/Landing.astro`: HTML boilerplate with dark background, meta tags, OG tags, structured data
+- [x] `website/public/favicon.svg`: Placeholder "D" favicon in brand coral
+- [x] `website/public/og-image.png`: Placeholder (needs real image later)
+- [x] `.github/workflows/deploy-website.yml`: Astro build → deploy to gh-pages branch
+- [ ] Verify deployment: blank dark page live at GitHub Pages URL (requires merge to main + Pages setup)
 
 **Success criteria:**
 - `npm run build` succeeds in `/website`
