@@ -167,18 +167,18 @@ After /thank-you and /terms and /privacy pages are deployed:
 
 ## Acceptance Criteria
 
-- [ ] No GitHub URLs, "open source", or "free" text anywhere on the site
-- [ ] Primary CTA in Hero links to Stripe Payment Link
-- [ ] Primary CTA in DownloadCTA links to Stripe Payment Link
-- [ ] Pricing copy shows "$9.99/mo after 14-day free trial"
-- [ ] "Cancel anytime" messaging visible near price
-- [ ] Non-macOS visitors see disabled "macOS only" CTA (no dead GitHub link)
-- [ ] /thank-you page exists with download link and setup instructions
-- [ ] /terms page exists with subscription terms and auto-renewal disclosure
-- [ ] /privacy page exists with local-first data practices and Stripe data collection
-- [ ] Footer links to Terms and Privacy pages
-- [ ] Schema.org structured data shows price "9.99" USD
-- [ ] `npm run build` succeeds with no errors
+- [x] No GitHub URLs, "open source", or "free" text anywhere on the site
+- [x] Primary CTA in Hero links to Stripe Payment Link
+- [x] Primary CTA in DownloadCTA links to Stripe Payment Link
+- [x] Pricing copy shows "$9.99/mo after 14-day free trial"
+- [x] "Cancel anytime" messaging visible near price
+- [x] Non-macOS visitors see disabled "macOS only" CTA (no dead GitHub link)
+- [x] /thank-you page exists with download link and setup instructions
+- [x] /terms page exists with subscription terms and auto-renewal disclosure
+- [x] /privacy page exists with local-first data practices and Stripe data collection
+- [x] Footer links to Terms and Privacy pages
+- [x] Schema.org structured data shows price "9.99" USD
+- [x] `npm run build` succeeds with no errors
 - [ ] Full Stripe Payment Link → /thank-you flow works end-to-end
 
 ## Open Items (Deferred)

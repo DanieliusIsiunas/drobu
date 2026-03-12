@@ -8,7 +8,7 @@ interface Props {
 
 const {
   title = "Drobu — Clipboard History for macOS",
-  description = "Drobu keeps everything you copy and lets you find it instantly. Search, preview, paste — in one keystroke. Fully local, no cloud.",
+  description = "Drobu keeps everything you copy and lets you find it instantly. $9.99/mo with a 14-day free trial. Fully local, no cloud.",
 } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
@@ -53,8 +53,14 @@ const ogImage = new URL("/clipboard-history/og-image.png", Astro.site);
       "applicationCategory": "UtilitiesApplication",
       "offers": {
         "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
+        "price": "9.99",
+        "priceCurrency": "USD",
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": "9.99",
+          "priceCurrency": "USD",
+          "billingDuration": "P1M"
+        }
       },
       "description": description,
     })} />

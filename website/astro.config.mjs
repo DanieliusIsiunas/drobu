@@ -7,6 +7,7 @@ export default defineConfig({
   site: "https://danieliusisiunas.github.io",
   base: "/clipboard-history",
   integrations: [react()],
+  devToolbar: { enabled: false },
   vite: {
     plugins: [tailwindcss()],
   },

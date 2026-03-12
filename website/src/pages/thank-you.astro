@@ -1,0 +1,66 @@
+---
+import Landing from "../layouts/Landing.astro";
+---
+
+<Landing title="Welcome to Drobu" description="Thank you for subscribing to Drobu. Download the app and get started.">
+  <main class="min-h-screen flex items-center justify-center px-6 py-24">
+    <div class="max-w-xl mx-auto text-center">
+      <img
+        src="/clipboard-history/drobule.png"
+        alt="Drobu mascot"
+        width="80"
+        height="80"
+        class="mx-auto mb-8"
+      />
+
+      <h1 class="text-4xl md:text-5xl font-bold text-text-primary mb-4">
+        You're in!
+      </h1>
+      <p class="text-lg text-text-secondary mb-10">
+        Welcome to Drobu. A receipt has been sent to your email.
+      </p>
+
+      <a
+        href="https://github.com/DanieliusIsiunas/clipboard-history/releases/latest"
+        class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg mb-8"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download Drobu for macOS
+      </a>
+
+      <div class="text-left bg-white/5 rounded-xl p-6 mb-8 text-sm text-text-secondary space-y-3">
+        <h2 class="text-base font-semibold text-text-primary mb-3">Getting started</h2>
+        <ol class="list-decimal list-inside space-y-2">
+          <li>Open the downloaded <code class="text-text-primary">.dmg</code> file</li>
+          <li>Drag Drobu to your Applications folder</li>
+          <li>Launch Drobu &mdash; grant Accessibility permission when prompted</li>
+          <li>Press <kbd class="px-1.5 py-0.5 bg-white/10 rounded text-text-primary text-xs">Cmd+Shift+V</kbd> from any app to open your clipboard history</li>
+        </ol>
+        <details class="mt-3">
+          <summary class="cursor-pointer hover:text-text-primary transition-colors">
+            macOS shows a security warning?
+          </summary>
+          <p class="mt-2 text-text-muted leading-relaxed">
+            Right-click the app, choose "Open", then click "Open" in the dialog. This only happens once because Drobu isn't notarized yet.
+          </p>
+        </details>
+      </div>
+
+      <p class="text-sm text-text-muted mb-2">
+        On a different device? Open this page on your Mac to download.
+      </p>
+
+      <div class="flex items-center justify-center gap-4 text-sm text-text-muted">
+        <a href="/clipboard-history/" class="hover:text-text-secondary transition-colors">Back to home</a>
+        <span>&middot;</span>
+        <a href="/clipboard-history/terms" class="hover:text-text-secondary transition-colors">Terms</a>
+        <span>&middot;</span>
+        <a href="/clipboard-history/privacy" class="hover:text-text-secondary transition-colors">Privacy</a>
+      </div>
+    </div>
+  </main>
+</Landing>
