@@ -122,10 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPanel() {
         panel?.close()
         let sleepCommand = SleepCommand(caffeinateService: caffeinateService, closedLidService: closedLidService)
+        let settingsCommand = SettingsCommand()
         panel = FloatingPanel {
             PanelView(
                 database: self.database,
-                commands: [sleepCommand]
+                commands: [sleepCommand, settingsCommand]
             )
         }
         panel?.showCentered()

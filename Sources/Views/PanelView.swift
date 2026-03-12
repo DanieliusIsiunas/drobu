@@ -659,6 +659,17 @@ struct PanelView: View {
         let cmds = filteredCommands
         guard index < cmds.count else { return }
         let cmd = cmds[index]
+
+        // Auto-execute commands that have exactly one option
+        let opts = cmd.options()
+        if opts.count == 1 {
+            Task {
+                await cmd.execute(option: opts[0])
+                panel?.close()
+            }
+            return
+        }
+
         panelMode = .commandOptions(commandName: cmd.name)
         searchText = "/\(cmd.name)"
         cursor = 0
