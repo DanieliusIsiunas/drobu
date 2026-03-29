@@ -1,3 +1,5 @@
+import AVFoundation
+import AVKit
 import SwiftUI
 
 struct PreviewPanel: View {
@@ -41,6 +43,8 @@ struct PreviewPanel: View {
             gifPreview(for: item)
         case ClipboardRecord.kindImage:
             imagePreview(for: item)
+        case ClipboardRecord.kindVideo:
+            videoPreview(for: item)
         default:
             textPreview(for: item)
         }
@@ -136,6 +140,32 @@ struct PreviewPanel: View {
         }
     }
 
+    @ViewBuilder
+    private func videoPreview(for item: ClipboardRecord) -> some View {
+        let url = ClipboardRecord.videoPath(for: item.contentHash)
+        if FileManager.default.fileExists(atPath: url.path) {
+            InlineVideoPlayerView(url: url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let data = item.imageData, let nsImage = NSImage(data: data) {
+            // Fallback: show thumbnail if video file is missing
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(12)
+        } else {
+            VStack {
+                Image(systemName: "video.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.quaternary)
+                Text("Video file not found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
     // MARK: - Metadata Bar
 
     private func metadataBar(for item: ClipboardRecord) -> some View {
@@ -159,6 +189,21 @@ struct PreviewPanel: View {
                 Text(detailStr)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else if item.kind == ClipboardRecord.kindVideo {
+                let url = ClipboardRecord.videoPath(for: item.contentHash)
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+                let sizeStr = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+                if let thumb = item.imageData, let nsImage = NSImage(data: thumb) {
+                    let w = Int(nsImage.size.width)
+                    let h = Int(nsImage.size.height)
+                    Text("\(w)x\(h) | \(sizeStr)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(sizeStr)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else if item.kind == ClipboardRecord.kindImage, let data = item.imageData, let nsImage = NSImage(data: data) {
                 let w = Int(nsImage.size.width)
                 let h = Int(nsImage.size.height)
@@ -210,5 +255,70 @@ struct PreviewPanel: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Inline Video Player
+
+private struct InlineVideoPlayerView: NSViewRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var loopObserver: NSObjectProtocol?
+
+        func replaceObserver(for player: AVPlayer) {
+            if let old = loopObserver {
+                NotificationCenter.default.removeObserver(old)
+            }
+            loopObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: player.currentItem,
+                queue: .main
+            ) { _ in
+                player.seek(to: .zero)
+                player.play()
+            }
+        }
+
+        deinit {
+            if let obs = loopObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.controlsStyle = .inline
+        playerView.showsFullScreenToggleButton = false
+
+        let player = AVPlayer(url: url)
+        playerView.player = player
+        context.coordinator.replaceObserver(for: player)
+        player.play()
+
+        return playerView
+    }
+
+    func updateNSView(_ playerView: AVPlayerView, context: Context) {
+        if let currentURL = (playerView.player?.currentItem?.asset as? AVURLAsset)?.url,
+           currentURL != url {
+            playerView.player?.pause()
+            let player = AVPlayer(url: url)
+            playerView.player = player
+            context.coordinator.replaceObserver(for: player)
+            player.play()
+        }
+    }
+
+    static func dismantleNSView(_ playerView: AVPlayerView, coordinator: Coordinator) {
+        if let obs = coordinator.loopObserver {
+            NotificationCenter.default.removeObserver(obs)
+            coordinator.loopObserver = nil
+        }
+        playerView.player?.pause()
+        playerView.player = nil
     }
 }

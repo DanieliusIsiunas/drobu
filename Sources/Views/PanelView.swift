@@ -829,8 +829,14 @@ struct PanelView: View {
     }
 
     private func deleteSelected() {
-        let toDelete = selectedItems.compactMap(\.id)
+        let selected = selectedItems
+        let toDelete = selected.compactMap(\.id)
         guard !toDelete.isEmpty else { return }
+
+        // Delete video files on disk before removing DB records
+        for item in selected where item.kind == ClipboardRecord.kindVideo {
+            try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: item.contentHash))
+        }
 
         let afterIndex = max(anchor, cursor) + 1
         let newIndex = afterIndex < items.count
