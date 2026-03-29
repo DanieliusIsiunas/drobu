@@ -132,7 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkAccessibilityOnLaunch()
 
         // Run cleanup on launch + schedule hourly
-        runCleanup()
+        // Orphan video scan only at launch (no recording in progress yet)
+        runCleanup(includeOrphanScan: true)
         cleanupTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 // Defer cleanup while panel is visible
@@ -173,11 +174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel?.showCentered()
     }
 
-    private func runCleanup() {
+    private func runCleanup(includeOrphanScan: Bool = false) {
         let retentionDays = RetentionDefaults.loadRetentionDays()
         let maxCount = RetentionDefaults.loadMaxItemCount()
-        // Capture video service state before entering detached task
-        let videoIdle = videoCaptureService?.state == .idle
 
         Task.detached { [database] in
             do {
@@ -185,9 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
                 }
 
-                // Orphan cleanup: remove video files with no matching DB record.
-                // Skip if video capture is in progress — file may exist before DB record is written.
-                guard videoIdle else { return }
+                // Orphan scan only at launch — no recording in progress, safe to delete unmatched files.
+                // Hourly cleanup skips this to avoid racing with active capture finalization.
+                guard includeOrphanScan else { return }
 
                 let knownHashes = try await database!.pool.read { db in
                     try Set(String.fetchAll(db, sql: "SELECT contentHash FROM clipboardItem WHERE kind = 'video'"))

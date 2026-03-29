@@ -932,10 +932,10 @@ struct PanelView: View {
         let toDelete = selected.compactMap(\.id)
         guard !toDelete.isEmpty else { return }
 
-        // Delete video files on disk before removing DB records
-        for item in selected where item.kind == ClipboardRecord.kindVideo {
-            try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: item.contentHash))
-        }
+        // Collect video hashes before deletion (needed to find files on disk)
+        let videoHashes = selected
+            .filter { $0.kind == ClipboardRecord.kindVideo }
+            .map(\.contentHash)
 
         let afterIndex = max(anchor, cursor) + 1
         let newIndex = afterIndex < items.count
@@ -948,6 +948,10 @@ struct PanelView: View {
                     for id in toDelete {
                         try ClipboardRecord.deleteById(id, in: db)
                     }
+                }
+                // Delete video files only after DB delete succeeds
+                for hash in videoHashes {
+                    try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: hash))
                 }
             } catch {
                 Log.error("PanelView: deleteSelected failed: \(error)")
