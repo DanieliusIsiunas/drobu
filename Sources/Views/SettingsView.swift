@@ -103,7 +103,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("Drobu v1.0")
+                Text("Drobu v1.1")
                     .foregroundStyle(.secondary)
             }
         }
