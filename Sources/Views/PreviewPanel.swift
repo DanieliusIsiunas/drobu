@@ -10,6 +10,7 @@ struct PreviewPanel: View {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onGifSave: ((Data) -> Void)?
+    var onVideoSave: ((URL) -> Void)?
     var onCleanup: (() -> Void)?
 
     /// Character threshold for SwiftUI Text (fast for small strings).
@@ -143,7 +144,13 @@ struct PreviewPanel: View {
     @ViewBuilder
     private func videoPreview(for item: ClipboardRecord) -> some View {
         let url = ClipboardRecord.videoPath(for: item.contentHash)
-        if FileManager.default.fileExists(atPath: url.path) {
+        if isEditing, FileManager.default.fileExists(atPath: url.path) {
+            VideoTrimView(
+                url: url,
+                onSave: { trimmedURL in onVideoSave?(trimmedURL) },
+                onDiscard: { onDiscard?() }
+            )
+        } else if FileManager.default.fileExists(atPath: url.path) {
             InlineVideoPlayerView(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let data = item.imageData, let nsImage = NSImage(data: data) {

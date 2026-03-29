@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var videoCaptureHotKey: HotKey?
     private var videoCaptureHotkeyObserver: Any?
     private var videoCaptureService: VideoCaptureService?
+    private var stopCaptureHotKey: HotKey?
     private let caffeinateService = CaffeinateService()
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
@@ -103,6 +104,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.registerVideoCaptureHotkey(VideoCaptureHotkeyDefaults.load())
+            }
+        }
+
+        // Cmd+Esc to stop any active recording (GIF or video)
+        stopCaptureHotKey = HotKey(keyCombo: KeyCombo(key: .escape, modifiers: .command))
+        stopCaptureHotKey?.keyDownHandler = { [weak self] in
+            if self?.captureService?.state == .recording {
+                self?.captureService?.stopRecording()
+            } else if self?.videoCaptureService?.state == .recording {
+                self?.videoCaptureService?.stopRecording()
             }
         }
 
