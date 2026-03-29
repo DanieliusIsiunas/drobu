@@ -829,24 +829,24 @@ struct PanelView: View {
         guard let itemId = savedItemId else { return }
 
         Task.detached {
-            do {
-                // 1. Compute hash of trimmed video (streaming)
-                guard let fileHandle = try? FileHandle(forReadingFrom: trimmedURL) else {
-                    Log.error("PanelView: video trim — failed to read trimmed file")
-                    try? FileManager.default.removeItem(at: trimmedURL)
-                    return
-                }
-                var hasher = CryptoKit.SHA256()
-                while true {
-                    let chunk = fileHandle.readData(ofLength: 1_048_576)
-                    if chunk.isEmpty { break }
-                    hasher.update(data: chunk)
-                }
-                try? fileHandle.close()
-                let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            // Compute hash first (needed for cleanup on error)
+            guard let fileHandle = try? FileHandle(forReadingFrom: trimmedURL) else {
+                Log.error("PanelView: video trim — failed to read trimmed file")
+                try? FileManager.default.removeItem(at: trimmedURL)
+                return
+            }
+            var hasher = CryptoKit.SHA256()
+            while true {
+                let chunk = fileHandle.readData(ofLength: 1_048_576)
+                if chunk.isEmpty { break }
+                hasher.update(data: chunk)
+            }
+            try? fileHandle.close()
+            let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            let finalURL = ClipboardRecord.videoPath(for: hash)
 
-                // 2. Move trimmed file to videos directory
-                let finalURL = ClipboardRecord.videoPath(for: hash)
+            do {
+                // 1. Move trimmed file to videos directory
                 if FileManager.default.fileExists(atPath: finalURL.path) {
                     try FileManager.default.removeItem(at: finalURL)
                 }
@@ -900,7 +900,9 @@ struct PanelView: View {
                 }
             } catch {
                 Log.error("PanelView: saveVideoTrim failed: \(error)")
+                // Clean up: try both paths. One will exist depending on where the error occurred.
                 try? FileManager.default.removeItem(at: trimmedURL)
+                try? FileManager.default.removeItem(at: finalURL)
             }
         }
 
