@@ -10,6 +10,10 @@ struct PreviewPanel: View {
     var onGifSave: ((Data) -> Void)?
     var onCleanup: (() -> Void)?
 
+    /// Character threshold for SwiftUI Text (fast for small strings).
+    /// Above this, text is truncated; right-arrow enters edit mode for full content.
+    private static let textPreviewLimit = 5_000
+
     var body: some View {
         VStack(spacing: 0) {
             if selectionCount > 1 {
@@ -52,12 +56,31 @@ struct PreviewPanel: View {
                 onCleanup: onCleanup
             )
         } else {
-            ScrollView {
-                Text(item.plainText ?? "")
-                    .font(.system(.body, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .textSelection(.enabled)
+            let text = item.plainText ?? ""
+            let isTruncated = text.count > Self.textPreviewLimit
+            let displayText = isTruncated ? String(text.prefix(Self.textPreviewLimit)) : text
+
+            VStack(spacing: 0) {
+                ScrollView {
+                    Text(displayText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .textSelection(.enabled)
+                }
+
+                if isTruncated {
+                    Divider()
+
+                    let formatted = ByteCountFormatter.string(
+                        fromByteCount: Int64(text.utf8.count),
+                        countStyle: .file
+                    )
+                    Text("Showing \(Self.textPreviewLimit.formatted()) of \(text.count.formatted()) chars (\(formatted))  \u{2192} to show full")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 6)
+                }
             }
         }
     }
