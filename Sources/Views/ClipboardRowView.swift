@@ -44,6 +44,7 @@ struct ClipboardRowView: View {
             let iconName = switch item.kind {
             case ClipboardRecord.kindGif: "play.rectangle"
             case ClipboardRecord.kindImage: "photo"
+            case ClipboardRecord.kindVideo: "video.fill"
             default: "doc.on.clipboard"
             }
             Image(systemName: iconName)
@@ -88,6 +89,11 @@ struct ClipboardRowView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(.primary)
             }
+        case ClipboardRecord.kindVideo:
+            Text(item.plainText ?? "Screen Recording")
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
         default:
             Text(item.plainText?.prefix(100) ?? "")
                 .lineLimit(1)

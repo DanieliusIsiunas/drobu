@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureHotKey: HotKey?
     private var captureHotkeyObserver: Any?
     private var captureService: ScreenCaptureService?
+    private var videoCaptureHotKey: HotKey?
+    private var videoCaptureHotkeyObserver: Any?
+    private var videoCaptureService: VideoCaptureService?
+    private var stopCaptureHotKey: HotKey?
     private let caffeinateService = CaffeinateService()
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
@@ -77,6 +81,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Video capture service + hotkey
+        let videoService = VideoCaptureService()
+        videoService.onCaptureComplete = { [weak self] videoURL, thumbnail, duration in
+            self?.handleVideoCaptureComplete(videoURL: videoURL, thumbnail: thumbnail, duration: duration)
+        }
+        videoService.onCaptureError = { message in
+            let alert = NSAlert()
+            alert.messageText = "Video Capture"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        videoCaptureService = videoService
+        registerVideoCaptureHotkey(VideoCaptureHotkeyDefaults.load())
+
+        videoCaptureHotkeyObserver = NotificationCenter.default.addObserver(
+            forName: .videoCaptureHotkeyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.registerVideoCaptureHotkey(VideoCaptureHotkeyDefaults.load())
+            }
+        }
+
+        // Cmd+Esc to stop any active recording (GIF or video)
+        stopCaptureHotKey = HotKey(keyCombo: KeyCombo(key: .escape, modifiers: .command))
+        stopCaptureHotKey?.keyDownHandler = { [weak self] in
+            if self?.captureService?.state == .recording {
+                self?.captureService?.stopRecording()
+            } else if self?.videoCaptureService?.state == .recording {
+                self?.videoCaptureService?.stopRecording()
+            }
+        }
+
         // Set up menu bar status item with custom icon
         setupStatusItem()
 
@@ -109,8 +149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func togglePanel() {
-        // Ignore panel toggle while capture is active
+        // Ignore panel toggle while any capture is active
         if captureService?.state != .idle { return }
+        if videoCaptureService?.state != .idle { return }
 
         if let panel = panel, panel.isVisible {
             panel.close()
@@ -140,6 +181,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try await database!.pool.write { db in
                     try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
+                }
+
+                // Orphan scan: remove video files with no matching DB record.
+                // Catches files left behind when retention deletes video records.
+                let knownHashes = try await database!.pool.read { db in
+                    try Set(String.fetchAll(db, sql: "SELECT contentHash FROM clipboardItem WHERE kind = 'video'"))
+                }
+                let videosDir = ClipboardRecord.videosDirectory
+                if let files = try? FileManager.default.contentsOfDirectory(
+                    at: videosDir,
+                    includingPropertiesForKeys: nil
+                ) {
+                    for file in files where file.pathExtension == "mp4" {
+                        let hash = file.deletingPathExtension().lastPathComponent
+                        if !knownHashes.contains(hash) {
+                            try? FileManager.default.removeItem(at: file)
+                            Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
+                        }
+                    }
                 }
             } catch {
                 Log.error("AppDelegate: cleanup failed: \(error)")
@@ -301,10 +361,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func registerVideoCaptureHotkey(_ combo: KeyCombo) {
+        videoCaptureHotKey = nil
+        videoCaptureHotKey = HotKey(keyCombo: combo)
+        videoCaptureHotKey?.keyDownHandler = { [weak self] in
+            self?.handleVideoCaptureHotkey()
+        }
+    }
+
     // MARK: - Screen Capture
 
     private func handleCaptureHotkey() {
         guard let service = captureService else { return }
+        guard videoCaptureService?.state == .idle else { return } // Mutual exclusion
         switch service.state {
         case .idle:
             if panel?.isVisible == true { togglePanel() }
@@ -348,6 +417,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         FloatingPanel.writeGIFToPasteboard(gifData, pasteboard: pasteboard)
+    }
+
+    // MARK: - Video Capture
+
+    private func handleVideoCaptureHotkey() {
+        guard let service = videoCaptureService else { return }
+        guard captureService?.state == .idle else { return } // Mutual exclusion
+        switch service.state {
+        case .idle:
+            if panel?.isVisible == true { togglePanel() }
+            service.startRegionSelection()
+        case .selecting:
+            service.cancelSelection()
+        case .recording:
+            service.stopRecording()
+        case .finalizing:
+            break
+        }
+    }
+
+    private func handleVideoCaptureComplete(videoURL: URL, thumbnail: Data, duration: TimeInterval) {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        let formatted = String(format: "%d:%02d", minutes, seconds)
+        Log.debug("AppDelegate: video capture complete — \(formatted)")
+
+        // Read content hash from the filename (already computed by VideoCaptureService)
+        let hash = videoURL.deletingPathExtension().lastPathComponent
+
+        let record = ClipboardRecord(
+            kind: ClipboardRecord.kindVideo,
+            plainText: "Screen Recording (\(formatted))",
+            imageData: thumbnail.isEmpty ? nil : thumbnail,
+            sourceApp: "Screen Capture",
+            sourceBundleId: Bundle.main.bundleIdentifier,
+            contentHash: hash,
+            createdAt: Date()
+        )
+
+        let db = database!
+        Task.detached {
+            do {
+                _ = try await db.pool.write { dbConn in
+                    try ClipboardRecord.upsert(record, in: dbConn)
+                }
+            } catch {
+                Log.error("AppDelegate: video capture upsert failed: \(error)")
+            }
+        }
+
+        // Write file URL to pasteboard
+        monitor?.suppressNextChange()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([videoURL as NSURL])
     }
 
     // MARK: - Pasteboard Privacy (macOS 15.4+)

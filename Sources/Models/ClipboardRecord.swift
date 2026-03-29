@@ -26,6 +26,16 @@ extension ClipboardRecord {
     static let kindText = "text"
     static let kindImage = "image"
     static let kindGif = "gif"
+    static let kindVideo = "video"
+
+    static var videosDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ClipboardHistory/videos")
+    }
+
+    static func videoPath(for contentHash: String) -> URL {
+        videosDirectory.appendingPathComponent("\(contentHash).mp4")
+    }
 }
 
 // MARK: - Query Methods

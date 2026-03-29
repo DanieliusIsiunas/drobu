@@ -1,3 +1,5 @@
+import AVFoundation
+import CryptoKit
 import SwiftUI
 import GRDB
 
@@ -267,6 +269,7 @@ struct PanelView: View {
                 onSave: { saveEdit() },
                 onDiscard: { discardEdit() },
                 onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+                onVideoSave: { trimmedURL in saveVideoTrim(url: trimmedURL) },
                 onCleanup: { cleanupText() }
             )
         case .commandList:
@@ -519,6 +522,13 @@ struct PanelView: View {
             if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
                 enterEditMode()
                 return .handled
+            }
+            if item.kind == ClipboardRecord.kindVideo {
+                let url = ClipboardRecord.videoPath(for: item.contentHash)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    enterEditMode()
+                    return .handled
+                }
             }
             return .ignored
 
@@ -809,6 +819,97 @@ struct PanelView: View {
         cursor = 0
     }
 
+    private func saveVideoTrim(url trimmedURL: URL) {
+        guard isEditing else { return }
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            // Compute hash first (needed for cleanup on error)
+            guard let fileHandle = try? FileHandle(forReadingFrom: trimmedURL) else {
+                Log.error("PanelView: video trim — failed to read trimmed file")
+                try? FileManager.default.removeItem(at: trimmedURL)
+                return
+            }
+            var hasher = CryptoKit.SHA256()
+            while true {
+                let chunk = fileHandle.readData(ofLength: 1_048_576)
+                if chunk.isEmpty { break }
+                hasher.update(data: chunk)
+            }
+            try? fileHandle.close()
+            let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            let finalURL = ClipboardRecord.videoPath(for: hash)
+
+            do {
+                // 1. Move trimmed file to videos directory
+                if FileManager.default.fileExists(atPath: finalURL.path) {
+                    try FileManager.default.removeItem(at: finalURL)
+                }
+                try FileManager.default.moveItem(at: trimmedURL, to: finalURL)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: finalURL.path)
+
+                // 3. Extract new thumbnail at 0.5s
+                let thumbnail: Data? = {
+                    let asset = AVAsset(url: finalURL)
+                    let generator = AVAssetImageGenerator(asset: asset)
+                    generator.appliesPreferredTrackTransform = true
+                    generator.requestedTimeToleranceBefore = .zero
+                    generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
+                    let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+                    guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
+                    let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
+                    return bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+                }()
+
+                // 4. Get trimmed duration
+                let asset = AVAsset(url: finalURL)
+                let duration = try await asset.load(.duration).seconds
+                let minutes = Int(duration) / 60
+                let seconds = Int(duration) % 60
+                let formatted = String(format: "%d:%02d", minutes, seconds)
+
+                // 5. Update DB: crash-safe ordering (write file → update DB → delete old)
+                let oldHash: String? = try await database.pool.write { db in
+                    let oldHash: String? = try String.fetchOne(db, sql: "SELECT contentHash FROM clipboardItem WHERE id = ?", arguments: [itemId])
+
+                    try db.execute(
+                        sql: "DELETE FROM clipboardItem WHERE contentHash = ? AND id != ?",
+                        arguments: [hash, itemId]
+                    )
+
+                    try db.execute(
+                        sql: """
+                            UPDATE clipboardItem
+                            SET contentHash = ?, imageData = ?, plainText = ?, createdAt = ?
+                            WHERE id = ?
+                            """,
+                        arguments: [hash, thumbnail, "Screen Recording (\(formatted))", Date(), itemId]
+                    )
+
+                    return oldHash
+                }
+
+                // Delete old video file AFTER DB transaction commits
+                if let oldHash, oldHash != hash {
+                    try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: oldHash))
+                }
+            } catch {
+                Log.error("PanelView: saveVideoTrim failed: \(error)")
+                // Clean up: try both paths. One will exist depending on where the error occurred.
+                try? FileManager.default.removeItem(at: trimmedURL)
+                try? FileManager.default.removeItem(at: finalURL)
+            }
+        }
+
+        anchor = 0
+        cursor = 0
+    }
+
     private func discardEdit() {
         isEditing = false
         editingItemId = nil
@@ -829,8 +930,14 @@ struct PanelView: View {
     }
 
     private func deleteSelected() {
-        let toDelete = selectedItems.compactMap(\.id)
+        let selected = selectedItems
+        let toDelete = selected.compactMap(\.id)
         guard !toDelete.isEmpty else { return }
+
+        // Collect video hashes before deletion (needed to find files on disk)
+        let videoHashes = selected
+            .filter { $0.kind == ClipboardRecord.kindVideo }
+            .map(\.contentHash)
 
         let afterIndex = max(anchor, cursor) + 1
         let newIndex = afterIndex < items.count
@@ -843,6 +950,10 @@ struct PanelView: View {
                     for id in toDelete {
                         try ClipboardRecord.deleteById(id, in: db)
                     }
+                }
+                // Delete video files only after DB delete succeeds
+                for hash in videoHashes {
+                    try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: hash))
                 }
             } catch {
                 Log.error("PanelView: deleteSelected failed: \(error)")

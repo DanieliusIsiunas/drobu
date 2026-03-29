@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
     @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
+    @State private var videoCaptureHotkeyCombo: KeyCombo? = VideoCaptureHotkeyDefaults.load()
     @State private var retentionDays = RetentionDefaults.loadRetentionDays()
     @State private var maxItemCount = RetentionDefaults.loadMaxItemCount()
     var body: some View {
@@ -22,6 +23,13 @@ struct SettingsView: View {
                     Text("Capture GIF Hotkey")
                     Spacer()
                     HotkeyRecorderView(keyCombo: $captureHotkeyCombo, saveAction: CaptureHotkeyDefaults.save)
+                        .frame(width: 160, height: 24)
+                }
+
+                HStack {
+                    Text("Capture Video Hotkey")
+                    Spacer()
+                    HotkeyRecorderView(keyCombo: $videoCaptureHotkeyCombo, saveAction: VideoCaptureHotkeyDefaults.save)
                         .frame(width: 160, height: 24)
                 }
 
@@ -95,7 +103,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("Drobu v1.0")
+                Text("Drobu v1.1")
                     .foregroundStyle(.secondary)
             }
         }
@@ -124,6 +132,8 @@ struct SettingsView: View {
             guard response == .alertFirstButtonReturn else { return }
             do {
                 try AppDatabase().deleteAll()
+                // Also purge video files on disk
+                try? FileManager.default.removeItem(at: ClipboardRecord.videosDirectory)
             } catch {
                 Log.error("SettingsView: delete all data failed: \(error)")
             }

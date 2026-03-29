@@ -133,6 +133,11 @@ final class FloatingPanel: NSPanel {
             if let data = record.imageData {
                 pasteboard.setData(data, forType: .tiff)
             }
+        case ClipboardRecord.kindVideo:
+            let url = ClipboardRecord.videoPath(for: record.contentHash)
+            if FileManager.default.fileExists(atPath: url.path) {
+                pasteboard.writeObjects([url as NSURL])
+            }
         default:
             break
         }
@@ -153,6 +158,7 @@ final class FloatingPanel: NSPanel {
         case text(String)
         case image(Data)
         case gif(Data)
+        case video(URL)
     }
 
     func pasteItems(_ records: [ClipboardRecord]) {
@@ -166,8 +172,9 @@ final class FloatingPanel: NSPanel {
 
         // Calculate how many pasteboard writes we'll make for suppression
         let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }.count
+        let videoCount = records.filter { $0.kind == ClipboardRecord.kindVideo }.count
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
-        let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount
+        let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount + videoCount
 
         if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
             appDelegate.monitor?.suppressChanges(count: suppressCount)
@@ -195,9 +202,14 @@ final class FloatingPanel: NSPanel {
             let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
             operations.append(.text(combined))
         }
-        let mediaItems = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }
+        let mediaItems = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif || $0.kind == ClipboardRecord.kindVideo }
         for item in mediaItems {
-            if let data = item.imageData {
+            if item.kind == ClipboardRecord.kindVideo {
+                let url = ClipboardRecord.videoPath(for: item.contentHash)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    operations.append(.video(url))
+                }
+            } else if let data = item.imageData {
                 if item.kind == ClipboardRecord.kindGif {
                     operations.append(.gif(data))
                 } else {
@@ -229,20 +241,22 @@ final class FloatingPanel: NSPanel {
             pb.setData(data, forType: .tiff)
         case .gif(let data):
             Self.writeGIFToPasteboard(data, pasteboard: pb)
+        case .video(let url):
+            pb.writeObjects([url as NSURL])
         }
 
         firePaste()
 
         // Schedule next operation after delay.
-        // Image pastes need a longer delay — apps like Claude Code CLI
-        // require time to process each image before accepting the next paste.
+        // Image/video pastes need a longer delay — apps need time to
+        // process each file before accepting the next paste.
         if index + 1 < ops.count {
-            let nextIsImage: Bool
+            let nextIsMedia: Bool
             switch ops[index + 1] {
-            case .image, .gif: nextIsImage = true
-            default: nextIsImage = false
+            case .image, .gif, .video: nextIsMedia = true
+            default: nextIsMedia = false
             }
-            let delay: TimeInterval = nextIsImage ? 0.6 : 0.1
+            let delay: TimeInterval = nextIsMedia ? 0.6 : 0.1
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.executePasteSequence(ops, index: index + 1)
             }
