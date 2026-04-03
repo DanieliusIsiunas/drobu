@@ -109,10 +109,6 @@ struct PanelView: View {
         return nil
     }
 
-    private var commandOptions: [CommandOption] {
-        selectedCommand?.options() ?? []
-    }
-
     /// Options filtered to the active section (for commands with sections).
     private var activeSectionOptions: [CommandOption] {
         guard let cmd = selectedCommand else { return [] }
