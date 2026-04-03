@@ -32,7 +32,8 @@ struct PanelView: View {
     }()
 
     @State private var searchText = ""
-    @State private var items: [ClipboardRecord] = []
+    @State private var allItems: [ClipboardRecord] = []   // raw from DB observation
+    @State private var items: [ClipboardRecord] = []      // filtered by activeFilter
     @State private var anchor = 0      // where Shift-select started
     @State private var cursor = 0      // current keyboard position
     @State private var observation: AnyDatabaseCancellable?
@@ -42,6 +43,8 @@ struct PanelView: View {
     @State private var editingItemId: Int64?   // track edited item across list refreshes
     @State private var panelMode: PanelMode = .clipboard
     @State private var activeSection: Int = 0
+    @State private var activeFilter: Int = 0
+    @State private var availableKinds: [String] = []
     @FocusState private var isSearchFocused: Bool
     @Environment(\.floatingPanel) private var panelWrapper
 
@@ -64,6 +67,31 @@ struct PanelView: View {
     private var previewItem: ClipboardRecord? {
         guard panelMode == .clipboard, cursor < items.count else { return nil }
         return items[cursor]
+    }
+
+    // MARK: - Content Type Filters
+
+    private static let kindOrder = [ClipboardRecord.kindText, ClipboardRecord.kindImage, ClipboardRecord.kindGif, ClipboardRecord.kindVideo]
+    private static let kindLabels: [String: String] = [
+        ClipboardRecord.kindText: "Text",
+        ClipboardRecord.kindImage: "Image",
+        ClipboardRecord.kindGif: "GIF",
+        ClipboardRecord.kindVideo: "Video",
+    ]
+
+    private var availableFilters: [(label: String, kind: String?)] {
+        var filters: [(label: String, kind: String?)] = [("All", nil)]
+        for kind in Self.kindOrder {
+            if availableKinds.contains(kind), let label = Self.kindLabels[kind] {
+                filters.append((label, kind))
+            }
+        }
+        return filters
+    }
+
+    private var activeFilterKind: String? {
+        guard activeFilter < availableFilters.count else { return nil }
+        return availableFilters[activeFilter].kind
     }
 
     // MARK: - Filtered Commands
@@ -145,10 +173,7 @@ struct PanelView: View {
             Divider()
 
             // Split layout: list | preview
-            if panelMode == .clipboard && items.isEmpty {
-                emptyState
-                    .frame(height: Self.listAreaHeight)
-            } else if panelMode != .clipboard && currentListCount == 0 {
+            if panelMode != .clipboard && currentListCount == 0 {
                 commandEmptyState
                     .frame(height: Self.listAreaHeight)
             } else {
@@ -191,6 +216,8 @@ struct PanelView: View {
             cursor = 0
             panelMode = .clipboard
             activeSection = 0
+            activeFilter = 0
+            allItems = []
         }
         .onChange(of: searchText) { _, newValue in
             if isEditing { discardEdit() }
@@ -210,6 +237,13 @@ struct PanelView: View {
                 cursor = 0
                 anchor = 0
                 startObservation()
+            }
+        }
+        .onChange(of: activeFilter) { _, _ in
+            if panelMode == .clipboard {
+                cursor = 0
+                anchor = 0
+                refilterItems()
             }
         }
         .onKeyPress(phases: [.down, .repeat]) { press in
@@ -282,34 +316,89 @@ struct PanelView: View {
     // MARK: - Clipboard List (existing)
 
     private var clipboardList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        ClipboardRowView(
-                            item: item,
-                            isSelected: selectionRange.contains(index),
-                            isCursor: index == cursor,
-                            shortcutIndex: index < 9 ? index : nil
-                        )
-                        .id(item.id)
-                        .onTapGesture {
-                            anchor = index
-                            cursor = index
-                            panel?.pasteItem(items[index])
+        VStack(spacing: 0) {
+            filterTabs()
+
+            if items.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "clipboard")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.quaternary)
+                    Text(searchText.isEmpty && activeFilterKind == nil
+                         ? "Copy something to get started"
+                         : "No matches found")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                ClipboardRowView(
+                                    item: item,
+                                    isSelected: selectionRange.contains(index),
+                                    isCursor: index == cursor,
+                                    shortcutIndex: index < 9 ? index : nil
+                                )
+                                .id(item.id)
+                                .onTapGesture {
+                                    anchor = index
+                                    cursor = index
+                                    panel?.pasteItem(items[index])
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                    }
+                    .onChange(of: cursor) { _, newValue in
+                        guard panelMode == .clipboard, newValue < items.count else { return }
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(items[newValue].id, anchor: .center)
                         }
                     }
                 }
-                .padding(.horizontal, 6)
+            }
+
+            Divider()
+            Text("\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
                 .padding(.vertical, 4)
-            }
-            .onChange(of: cursor) { _, newValue in
-                guard panelMode == .clipboard, newValue < items.count else { return }
-                withAnimation(.easeOut(duration: 0.1)) {
-                    proxy.scrollTo(items[newValue].id, anchor: .center)
-                }
-            }
         }
+    }
+
+    // MARK: - Filter Tabs
+
+    @ViewBuilder
+    private func filterTabs() -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(availableFilters.enumerated()), id: \.offset) { index, filter in
+                Text(filter.label)
+                    .font(.system(size: 13, weight: index == activeFilter ? .semibold : .regular))
+                    .foregroundStyle(index == activeFilter ? .primary : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(index == activeFilter ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06))
+                    )
+                    .onTapGesture {
+                        if activeFilter != index {
+                            activeFilter = index
+                            cursor = 0
+                            anchor = 0
+                        }
+                    }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Command List
@@ -477,20 +566,6 @@ struct PanelView: View {
 
     // MARK: - Empty States
 
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "clipboard")
-                .font(.system(size: 40))
-                .foregroundStyle(.quaternary)
-            Text(searchText.isEmpty ? "Copy something to get started" : "No matches found")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private var commandEmptyState: some View {
         VStack(spacing: 12) {
             Spacer()
@@ -513,24 +588,38 @@ struct PanelView: View {
 
         switch press.key {
         case .rightArrow:
-            guard !items.isEmpty, !hasMultiSelection else { return .ignored }
-            let item = items[cursor]
-            if item.kind == ClipboardRecord.kindText, item.plainText != nil {
-                enterEditMode()
-                return .handled
-            }
-            if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
-                enterEditMode()
-                return .handled
-            }
-            if item.kind == ClipboardRecord.kindVideo {
-                let url = ClipboardRecord.videoPath(for: item.contentHash)
-                if FileManager.default.fileExists(atPath: url.path) {
+            // Cmd+Right → enter edit mode
+            if press.modifiers.contains(.command) {
+                guard !items.isEmpty, !hasMultiSelection else { return .ignored }
+                let item = items[cursor]
+                if item.kind == ClipboardRecord.kindText, item.plainText != nil {
                     enterEditMode()
                     return .handled
                 }
+                if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
+                    enterEditMode()
+                    return .handled
+                }
+                if item.kind == ClipboardRecord.kindVideo {
+                    let url = ClipboardRecord.videoPath(for: item.contentHash)
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        enterEditMode()
+                        return .handled
+                    }
+                }
+                return .ignored
             }
-            return .ignored
+            // Plain Right → next filter tab
+            if activeFilter < availableFilters.count - 1 {
+                activeFilter += 1
+            }
+            return .handled
+
+        case .leftArrow:
+            if activeFilter > 0 {
+                activeFilter -= 1
+            }
+            return .handled
 
         case .downArrow:
             guard !items.isEmpty else { return .handled }
@@ -718,25 +807,43 @@ struct PanelView: View {
         let pool = database.pool
 
         observation = ValueObservation.tracking { db in
-            try ClipboardRecord.search(query: query, in: db)
+            let kinds = try ClipboardRecord.availableKinds(in: db)
+            let items = try ClipboardRecord.search(query: query, in: db)
+            return (kinds, items)
         }
         .start(in: pool, onError: { error in
             Log.error("PanelView: observation failed: \(error)")
-        }, onChange: { [self] newItems in
-            items = newItems
+        }, onChange: { [self] result in
+            let (newKinds, newItems) = result
+            availableKinds = newKinds
+            allItems = newItems
+
+            // Auto-reset filter if the active kind no longer exists
+            if let kind = activeFilterKind, !newKinds.contains(kind) {
+                activeFilter = 0
+            }
+
+            refilterItems()
 
             // While editing, follow the edited item to its new index
             if isEditing, let targetId = editingItemId,
-               let newIndex = newItems.firstIndex(where: { $0.id == targetId }) {
+               let newIndex = items.firstIndex(where: { $0.id == targetId }) {
                 anchor = newIndex
                 cursor = newIndex
-            } else {
-                let maxIdx = max(0, newItems.count - 1)
-                if anchor > maxIdx { anchor = maxIdx }
-                if cursor > maxIdx { cursor = maxIdx }
             }
-
         })
+    }
+
+    /// Derive `items` from `allItems` by applying the active content-type filter.
+    private func refilterItems() {
+        if let kind = activeFilterKind {
+            items = allItems.filter { $0.kind == kind }
+        } else {
+            items = allItems
+        }
+        let maxIdx = max(0, items.count - 1)
+        if anchor > maxIdx { anchor = maxIdx }
+        if cursor > maxIdx { cursor = maxIdx }
     }
 
     // MARK: - Edit Mode

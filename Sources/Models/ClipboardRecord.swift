@@ -82,6 +82,11 @@ extension ClipboardRecord {
         return try request.fetchAll(db)
     }
 
+    /// Fetch distinct content kinds present in the database.
+    static func availableKinds(in db: Database) throws -> [String] {
+        try String.fetchAll(db, sql: "SELECT DISTINCT kind FROM clipboardItem ORDER BY kind")
+    }
+
     /// Insert a new record, handling duplicates by deleting the old row first.
     @discardableResult
     static func upsert(_ record: ClipboardRecord, in db: Database) throws -> ClipboardRecord {
