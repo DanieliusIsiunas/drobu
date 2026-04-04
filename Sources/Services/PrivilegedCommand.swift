@@ -50,11 +50,11 @@ func runPrivileged(_ command: String) async throws -> String {
         }
     } catch let error as PrivilegedCommandError {
         do { try FileManager.default.removeItem(atPath: scriptPath) }
-        catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
+        catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
         throw error
     } catch {
         do { try FileManager.default.removeItem(atPath: scriptPath) }
-        catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
+        catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
         throw PrivilegedCommandError.scriptCreationFailed
     }
 
@@ -62,9 +62,9 @@ func runPrivileged(_ command: String) async throws -> String {
         DispatchQueue.global(qos: .userInitiated).async {
             defer {
                 do { try FileManager.default.removeItem(atPath: scriptPath) }
-                catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
+                catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
                 do { try FileManager.default.removeItem(atPath: askpassPath) }
-                catch { Log.debug("PrivilegedCommand: cleanup askpass failed: \(error)") }
+                catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup askpass failed: \(cleanupErr)") }
             }
 
             let proc = Process()

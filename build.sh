@@ -70,31 +70,33 @@ fi
 echo ""
 echo "Built: $APP_BUNDLE"
 
-if [[ "${1:-}" == "--install" ]]; then
-    echo "Installing to /Applications..."
-    rm -rf "/Applications/ClipboardHistory.app"  # one-time cleanup of old name
-    rm -rf "/Applications/${APP_NAME}.app"
-    cp -r "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
-    echo "Installed: /Applications/${APP_NAME}.app"
-fi
-
-if [[ "${1:-}" == "--dmg" ]]; then
-    DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
-    rm -f "$DMG_PATH"
-    hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" \
-        -ov -format UDZO "$DMG_PATH"
-    echo "Created: $DMG_PATH"
-fi
-
-# Notarization requires Apple Developer ID certificate ($99/yr).
-# One-time setup: xcrun notarytool store-credentials "notary-profile"
-if [[ "${1:-}" == "--notarize" ]]; then
-    echo "Creating zip for notarization..."
-    ditto -c -k --keepParent "$APP_BUNDLE" "$BUILD_DIR/${APP_NAME}.zip"
-    echo "Submitting for notarization..."
-    xcrun notarytool submit "$BUILD_DIR/${APP_NAME}.zip" \
-        --keychain-profile "notary-profile" --wait
-    echo "Stapling..."
-    xcrun stapler staple "$APP_BUNDLE"
-    echo "Notarization complete."
-fi
+for arg in "$@"; do
+    case "$arg" in
+        --install)
+            echo "Installing to /Applications..."
+            rm -rf "/Applications/ClipboardHistory.app"  # one-time cleanup of old name
+            rm -rf "/Applications/${APP_NAME}.app"
+            cp -r "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+            echo "Installed: /Applications/${APP_NAME}.app"
+            ;;
+        --dmg)
+            DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
+            rm -f "$DMG_PATH"
+            hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" \
+                -ov -format UDZO "$DMG_PATH"
+            echo "Created: $DMG_PATH"
+            ;;
+        --notarize)
+            # Requires Apple Developer ID certificate ($99/yr).
+            # One-time setup: xcrun notarytool store-credentials "notary-profile"
+            echo "Creating zip for notarization..."
+            ditto -c -k --keepParent "$APP_BUNDLE" "$BUILD_DIR/${APP_NAME}.zip"
+            echo "Submitting for notarization..."
+            xcrun notarytool submit "$BUILD_DIR/${APP_NAME}.zip" \
+                --keychain-profile "notary-profile" --wait
+            echo "Stapling..."
+            xcrun stapler staple "$APP_BUNDLE"
+            echo "Notarization complete."
+            ;;
+    esac
+done

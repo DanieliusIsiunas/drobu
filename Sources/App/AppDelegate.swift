@@ -34,8 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.info("AppDelegate: launch — pid \(ProcessInfo.processInfo.processIdentifier)")
 
-        // database is guaranteed non-nil after init above (app terminates on failure)
-        let db = database!
+        guard let db = database else { return }
 
         // Start clipboard monitoring
         monitor = ClipboardMonitor(database: db)
