@@ -41,6 +41,7 @@ final class VideoCaptureService {
         let mouseLocation = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main else {
             Log.error("VideoCaptureService: no screen available")
+            setState(.idle)
             return
         }
 
