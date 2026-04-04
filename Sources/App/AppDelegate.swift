@@ -202,9 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     for file in files where file.pathExtension == "mp4" {
                         let hash = file.deletingPathExtension().lastPathComponent
                         if !knownHashes.contains(hash) {
-                            do { try FileManager.default.removeItem(at: file) }
-                            catch { Log.debug("AppDelegate: failed to remove orphaned video \(hash.prefix(8)): \(error)") }
-                            Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
+                            do {
+                                try FileManager.default.removeItem(at: file)
+                                Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
+                            } catch {
+                                Log.debug("AppDelegate: failed to remove orphaned video \(hash.prefix(8)): \(error)")
+                            }
                         }
                     }
                 } catch {

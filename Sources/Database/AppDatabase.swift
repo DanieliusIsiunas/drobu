@@ -38,6 +38,8 @@ final class AppDatabase: Sendable {
             at: appSupport, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        // Ensure permissions are tightened on pre-existing directories from older versions
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: appSupport.path)
         return appSupport.appendingPathComponent("clipboard.sqlite").path
     }
 
