@@ -83,7 +83,7 @@ final class ClosedLidService {
         let plistXML = generateDaemonPlist(sleepSeconds: durationInt)
 
         // 2. Write plist to /tmp first (no privileges needed)
-        let tmpPlistPath = "/tmp/\(Self.daemonLabel).plist"
+        let tmpPlistPath = NSTemporaryDirectory() + "\(Self.daemonLabel).plist"
         do {
             try plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
         } catch {
