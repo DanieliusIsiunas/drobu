@@ -5,7 +5,7 @@ final class AppDatabase: Sendable {
     let pool: DatabasePool
 
     init(path: String? = nil) throws {
-        let dbPath = path ?? AppDatabase.defaultPath()
+        let dbPath = try path ?? AppDatabase.defaultPath()
         pool = try AppDatabase.openPool(at: dbPath)
         try migrator.migrate(pool)
     }
@@ -26,11 +26,13 @@ final class AppDatabase: Sendable {
         }
     }
 
-    private static func defaultPath() -> String {
+    private static func defaultPath() throws -> String {
         guard let base = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first else {
-            fatalError("AppDatabase: Application Support directory not found")
+            throw CocoaError(.fileNoSuchFile, userInfo: [
+                NSLocalizedDescriptionKey: "Application Support directory not found"
+            ])
         }
         let appSupport = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
 

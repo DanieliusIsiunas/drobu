@@ -110,7 +110,7 @@ extension ClipboardRecord {
 
     /// Update text content, recalculate hash, and move to top of list.
     static func updatePlainText(id: Int64, newText: String, in db: Database) throws {
-        let newHash = newText.data(using: .utf8)!.sha256String
+        let newHash = Data(newText.utf8).sha256String
 
         // Delete any other item with the same hash (dedup)
         try db.execute(

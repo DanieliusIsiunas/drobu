@@ -176,7 +176,7 @@ final class ClipboardMonitor {
                 return nil
             }
 
-            let hash = cleaned.data(using: .utf8)!.sha256String
+            let hash = Data(cleaned.utf8).sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindText,
                 plainText: cleaned,
