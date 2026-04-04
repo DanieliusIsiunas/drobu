@@ -39,7 +39,11 @@ final class VideoCaptureService {
         setState(.selecting)
 
         let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main!
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main else {
+            Log.error("VideoCaptureService: no screen available")
+            setState(.idle)
+            return
+        }
 
         let panel = RegionSelectionPanel(screen: screen)
         panel.onRegionSelected = { [weak self] rect, screen in
@@ -131,11 +135,15 @@ final class VideoCaptureService {
 
         // Ensure videos directory exists with restricted permissions
         let videosDir = ClipboardRecord.videosDirectory
-        try? FileManager.default.createDirectory(
-            at: videosDir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        do {
+            try FileManager.default.createDirectory(
+                at: videosDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            Log.error("VideoCaptureService: failed to create videos directory: \(error)")
+        }
 
         // Set up AVAssetWriter
         let writer: AVAssetWriter
@@ -363,7 +371,8 @@ final class VideoCaptureService {
 
     private func cleanupTempFile() {
         if let url = tempFileURL {
-            try? FileManager.default.removeItem(at: url)
+            do { try FileManager.default.removeItem(at: url) }
+            catch { Log.debug("VideoCaptureService: cleanup temp file failed: \(error)") }
             tempFileURL = nil
         }
     }

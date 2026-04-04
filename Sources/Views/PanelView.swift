@@ -935,7 +935,8 @@ struct PanelView: View {
             // Compute hash first (needed for cleanup on error)
             guard let fileHandle = try? FileHandle(forReadingFrom: trimmedURL) else {
                 Log.error("PanelView: video trim — failed to read trimmed file")
-                try? FileManager.default.removeItem(at: trimmedURL)
+                do { try FileManager.default.removeItem(at: trimmedURL) }
+                catch { Log.debug("PanelView: cleanup trimmed file failed: \(error)") }
                 return
             }
             var hasher = CryptoKit.SHA256()
@@ -944,7 +945,8 @@ struct PanelView: View {
                 if chunk.isEmpty { break }
                 hasher.update(data: chunk)
             }
-            try? fileHandle.close()
+            do { try fileHandle.close() }
+            catch { Log.debug("PanelView: close file handle failed: \(error)") }
             let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
             let finalURL = ClipboardRecord.videoPath(for: hash)
 
@@ -999,13 +1001,16 @@ struct PanelView: View {
 
                 // Delete old video file AFTER DB transaction commits
                 if let oldHash, oldHash != hash {
-                    try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: oldHash))
+                    do { try FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: oldHash)) }
+                    catch { Log.debug("PanelView: cleanup old video failed: \(error)") }
                 }
             } catch {
                 Log.error("PanelView: saveVideoTrim failed: \(error)")
                 // Clean up: try both paths. One will exist depending on where the error occurred.
-                try? FileManager.default.removeItem(at: trimmedURL)
-                try? FileManager.default.removeItem(at: finalURL)
+                do { try FileManager.default.removeItem(at: trimmedURL) }
+                catch { Log.debug("PanelView: cleanup trimmedURL failed: \(error)") }
+                do { try FileManager.default.removeItem(at: finalURL) }
+                catch { Log.debug("PanelView: cleanup finalURL failed: \(error)") }
             }
         }
 
@@ -1056,7 +1061,8 @@ struct PanelView: View {
                 }
                 // Delete video files only after DB delete succeeds
                 for hash in videoHashes {
-                    try? FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: hash))
+                    do { try FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: hash)) }
+                    catch { Log.debug("PanelView: cleanup video \(hash.prefix(8)) failed: \(error)") }
                 }
             } catch {
                 Log.error("PanelView: deleteSelected failed: \(error)")

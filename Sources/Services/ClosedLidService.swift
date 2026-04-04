@@ -74,12 +74,22 @@ final class ClosedLidService {
         let durationInt = Int(duration)
         let username = NSUserName()
 
+        // Validate username before interpolating into shell scripts and sudoers
+        guard username.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == ".") }) else {
+            throw PrivilegedCommandError.executionFailed(code: -1, message: "Username contains unsupported characters for sudoers")
+        }
+
         // 1. Generate LaunchDaemon plist XML
         let plistXML = generateDaemonPlist(sleepSeconds: durationInt)
 
         // 2. Write plist to /tmp first (no privileges needed)
         let tmpPlistPath = "/tmp/\(Self.daemonLabel).plist"
-        try? plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
+        do {
+            try plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
+        } catch {
+            Log.error("ClosedLidService: failed to write tmp plist: \(error)")
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
 
         // 3. Build the privileged batch command
         let batch = buildActivationCommand(

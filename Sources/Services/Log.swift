@@ -1,7 +1,11 @@
 import Foundation
 
 enum Log {
+    #if DEBUG
     static let debugEnabled = true
+    #else
+    static let debugEnabled = false
+    #endif
 
     private static let queue = DispatchQueue(label: "com.clipboardhistory.log", qos: .utility)
 
@@ -12,16 +16,27 @@ enum Log {
     }()
 
     private static let fileHandle: FileHandle? = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!.appendingPathComponent("ClipboardHistory", isDirectory: true)
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let dir = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("app.log")
+        let prevURL = dir.appendingPathComponent("app.log.1")
+
+        // Rotate: if current log > 2MB, move to .1 (overwrite previous)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? UInt64, size > 2_000_000 {
+            try? FileManager.default.removeItem(at: prevURL)
+            try? FileManager.default.moveItem(at: url, to: prevURL)
+        }
+
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil,
                                            attributes: [.posixPermissions: 0o600])
         }
         let fh = try? FileHandle(forWritingTo: url)
-        fh?.truncateFile(atOffset: 0)
+        fh?.seekToEndOfFile()
         return fh
     }()
 

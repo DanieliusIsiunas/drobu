@@ -4,7 +4,7 @@ import HotKey
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private(set) var database: AppDatabase!
+    private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
     private var hotKey: HotKey?
@@ -34,8 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.info("AppDelegate: launch — pid \(ProcessInfo.processInfo.processIdentifier)")
 
+        guard let db = database else { return }
+
         // Start clipboard monitoring
-        monitor = ClipboardMonitor(database: database)
+        monitor = ClipboardMonitor(database: db)
         monitor?.onAccessDenied = { [weak self] in
             self?.checkPasteboardPrivacy()
         }
@@ -161,12 +163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showPanel() {
+        guard let database else { return }
         panel?.close()
         let sleepCommand = SleepCommand(caffeinateService: caffeinateService, closedLidService: closedLidService)
         let settingsCommand = SettingsCommand()
         panel = FloatingPanel {
             PanelView(
-                database: self.database,
+                database: database,
                 commands: [sleepCommand, settingsCommand]
             )
         }
@@ -178,28 +181,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let maxCount = RetentionDefaults.loadMaxItemCount()
 
         Task.detached { [database] in
+            guard let database else { return }
             do {
-                try await database!.pool.write { db in
+                try await database.pool.write { db in
                     try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
                 }
 
                 // Orphan scan: remove video files with no matching DB record.
                 // Catches files left behind when retention deletes video records.
-                let knownHashes = try await database!.pool.read { db in
+                let knownHashes = try await database.pool.read { db in
                     try Set(String.fetchAll(db, sql: "SELECT contentHash FROM clipboardItem WHERE kind = 'video'"))
                 }
                 let videosDir = ClipboardRecord.videosDirectory
-                if let files = try? FileManager.default.contentsOfDirectory(
-                    at: videosDir,
-                    includingPropertiesForKeys: nil
-                ) {
+                do {
+                    let files = try FileManager.default.contentsOfDirectory(
+                        at: videosDir,
+                        includingPropertiesForKeys: nil
+                    )
                     for file in files where file.pathExtension == "mp4" {
                         let hash = file.deletingPathExtension().lastPathComponent
                         if !knownHashes.contains(hash) {
-                            try? FileManager.default.removeItem(at: file)
-                            Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
+                            do {
+                                try FileManager.default.removeItem(at: file)
+                                Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
+                            } catch {
+                                Log.debug("AppDelegate: failed to remove orphaned video \(hash.prefix(8)): \(error)")
+                            }
                         }
                     }
+                } catch {
+                    Log.debug("AppDelegate: orphan scan skipped — could not list videos dir: \(error)")
                 }
             } catch {
                 Log.error("AppDelegate: cleanup failed: \(error)")
@@ -401,7 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Save to database
-        let db = database!
+        guard let db = database else { return }
         Task.detached {
             do {
                 _ = try await db.pool.write { dbConn in
@@ -456,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             createdAt: Date()
         )
 
-        let db = database!
+        guard let db = database else { return }
         Task.detached {
             do {
                 _ = try await db.pool.write { dbConn in

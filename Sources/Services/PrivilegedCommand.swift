@@ -14,13 +14,21 @@ enum PrivilegedCommandError: Error {
 /// 2. `sudo -A` + PAM (`/etc/pam.d/sudo`) for privilege escalation
 func runPrivileged(_ command: String) async throws -> String {
     let pid = ProcessInfo.processInfo.processIdentifier
-    let scriptPath = "/tmp/cliphistory-priv-\(pid).sh"
-    let askpassPath = "/tmp/cliphistory-askpass-\(pid).sh"
+    let tmpDir = NSTemporaryDirectory()
+    let scriptPath = "\(tmpDir)cliphistory-priv-\(pid).sh"
+    let askpassPath = "\(tmpDir)cliphistory-askpass-\(pid).sh"
 
-    // Write the command script
+    // Write the command script atomically with restricted permissions
     do {
-        try command.write(toFile: scriptPath, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+        guard let scriptData = command.data(using: .utf8) else {
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
+        guard FileManager.default.createFile(atPath: scriptPath, contents: scriptData,
+                                             attributes: [.posixPermissions: 0o700]) else {
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
+    } catch let error as PrivilegedCommandError {
+        throw error
     } catch {
         throw PrivilegedCommandError.scriptCreationFailed
     }
@@ -33,18 +41,30 @@ func runPrivileged(_ command: String) async throws -> String {
         APPLESCRIPT
         """
     do {
-        try askpassContent.write(toFile: askpassPath, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: askpassPath)
+        guard let askpassData = askpassContent.data(using: .utf8) else {
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
+        guard FileManager.default.createFile(atPath: askpassPath, contents: askpassData,
+                                             attributes: [.posixPermissions: 0o700]) else {
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
+    } catch let error as PrivilegedCommandError {
+        do { try FileManager.default.removeItem(atPath: scriptPath) }
+        catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
+        throw error
     } catch {
-        try? FileManager.default.removeItem(atPath: scriptPath)
+        do { try FileManager.default.removeItem(atPath: scriptPath) }
+        catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
         throw PrivilegedCommandError.scriptCreationFailed
     }
 
     return try await withCheckedThrowingContinuation { continuation in
         DispatchQueue.global(qos: .userInitiated).async {
             defer {
-                try? FileManager.default.removeItem(atPath: scriptPath)
-                try? FileManager.default.removeItem(atPath: askpassPath)
+                do { try FileManager.default.removeItem(atPath: scriptPath) }
+                catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup script failed: \(cleanupErr)") }
+                do { try FileManager.default.removeItem(atPath: askpassPath) }
+                catch let cleanupErr { Log.debug("PrivilegedCommand: cleanup askpass failed: \(cleanupErr)") }
             }
 
             let proc = Process()

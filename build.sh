@@ -32,9 +32,11 @@ cp "$SCRIPT_DIR/Resources/MenuBarIconTemplate@2x.png" "$APP_BUNDLE/Contents/Reso
 
 # Code signing: use a stable self-signed certificate so Accessibility permission persists across rebuilds.
 # Ad-hoc signing (codesign --sign -) generates a unique hash per build, which invalidates TCC grants.
+ENTITLEMENTS="$SCRIPT_DIR/Sources/Drobu.entitlements"
+
 if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
-    echo "Signing with certificate: $CERT_NAME"
-    codesign --force --sign "$CERT_NAME" "$APP_BUNDLE"
+    echo "Signing with certificate: $CERT_NAME (hardened runtime)"
+    codesign --force --sign "$CERT_NAME" --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 else
     echo ""
     echo "============================================================"
@@ -57,7 +59,7 @@ else
     echo "============================================================"
     echo ""
     echo "Falling back to ad-hoc signing (permission will reset each build)..."
-    codesign --force --sign - "$APP_BUNDLE"
+    codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
     # Only reset TCC when using ad-hoc signing, since the signature changes every build.
     # With a stable certificate, permission persists — that's the whole point.
@@ -68,10 +70,33 @@ fi
 echo ""
 echo "Built: $APP_BUNDLE"
 
-if [[ "${1:-}" == "--install" ]]; then
-    echo "Installing to /Applications..."
-    rm -rf "/Applications/ClipboardHistory.app"  # one-time cleanup of old name
-    rm -rf "/Applications/${APP_NAME}.app"
-    cp -r "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
-    echo "Installed: /Applications/${APP_NAME}.app"
-fi
+for arg in "$@"; do
+    case "$arg" in
+        --install)
+            echo "Installing to /Applications..."
+            rm -rf "/Applications/ClipboardHistory.app"  # one-time cleanup of old name
+            rm -rf "/Applications/${APP_NAME}.app"
+            cp -r "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+            echo "Installed: /Applications/${APP_NAME}.app"
+            ;;
+        --dmg)
+            DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
+            rm -f "$DMG_PATH"
+            hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" \
+                -ov -format UDZO "$DMG_PATH"
+            echo "Created: $DMG_PATH"
+            ;;
+        --notarize)
+            # Requires Apple Developer ID certificate ($99/yr).
+            # One-time setup: xcrun notarytool store-credentials "notary-profile"
+            echo "Creating zip for notarization..."
+            ditto -c -k --keepParent "$APP_BUNDLE" "$BUILD_DIR/${APP_NAME}.zip"
+            echo "Submitting for notarization..."
+            xcrun notarytool submit "$BUILD_DIR/${APP_NAME}.zip" \
+                --keychain-profile "notary-profile" --wait
+            echo "Stapling..."
+            xcrun stapler staple "$APP_BUNDLE"
+            echo "Notarization complete."
+            ;;
+    esac
+done

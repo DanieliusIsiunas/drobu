@@ -16,21 +16,30 @@ final class AppDatabase: Sendable {
         } catch {
             // Database corruption: delete and recreate
             Log.error("AppDatabase: corruption detected, recreating: \(error)")
-            try? FileManager.default.removeItem(atPath: path)
-            try? FileManager.default.removeItem(atPath: path + "-wal")
-            try? FileManager.default.removeItem(atPath: path + "-shm")
+            do { try FileManager.default.removeItem(atPath: path) }
+            catch { Log.error("AppDatabase: failed to remove corrupt db: \(error)") }
+            do { try FileManager.default.removeItem(atPath: path + "-wal") }
+            catch { Log.error("AppDatabase: failed to remove wal: \(error)") }
+            do { try FileManager.default.removeItem(atPath: path + "-shm") }
+            catch { Log.error("AppDatabase: failed to remove shm: \(error)") }
             return try DatabasePool(path: path)
         }
     }
 
     private static func defaultPath() -> String {
-        let appSupport = FileManager.default.urls(
+        guard let base = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("ClipboardHistory", isDirectory: true)
+        ).first else {
+            fatalError("AppDatabase: Application Support directory not found")
+        }
+        let appSupport = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
 
         try? FileManager.default.createDirectory(
-            at: appSupport, withIntermediateDirectories: true
+            at: appSupport, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
+        // Ensure permissions are tightened on pre-existing directories from older versions
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: appSupport.path)
         return appSupport.appendingPathComponent("clipboard.sqlite").path
     }
 
