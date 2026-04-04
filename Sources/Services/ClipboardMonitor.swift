@@ -30,7 +30,7 @@ final class ClipboardMonitor {
                 self?.checkForChanges()
             }
         }
-        RunLoop.current.add(timer!, forMode: .common)
+        if let timer { RunLoop.current.add(timer, forMode: .common) }
     }
 
     func stop() {

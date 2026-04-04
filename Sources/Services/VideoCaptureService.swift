@@ -39,7 +39,10 @@ final class VideoCaptureService {
         setState(.selecting)
 
         let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main!
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main else {
+            Log.error("VideoCaptureService: no screen available")
+            return
+        }
 
         let panel = RegionSelectionPanel(screen: screen)
         panel.onRegionSelected = { [weak self] rect, screen in

@@ -12,8 +12,10 @@ enum Log {
     }()
 
     private static let fileHandle: FileHandle? = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!.appendingPathComponent("ClipboardHistory", isDirectory: true)
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let dir = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("app.log")
         if !FileManager.default.fileExists(atPath: url.path) {

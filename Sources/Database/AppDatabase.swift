@@ -24,12 +24,16 @@ final class AppDatabase: Sendable {
     }
 
     private static func defaultPath() -> String {
-        let appSupport = FileManager.default.urls(
+        guard let base = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("ClipboardHistory", isDirectory: true)
+        ).first else {
+            fatalError("AppDatabase: Application Support directory not found")
+        }
+        let appSupport = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
 
         try? FileManager.default.createDirectory(
-            at: appSupport, withIntermediateDirectories: true
+            at: appSupport, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         return appSupport.appendingPathComponent("clipboard.sqlite").path
     }

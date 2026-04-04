@@ -45,7 +45,10 @@ final class ScreenCaptureService {
 
         // Show overlay on the screen with the mouse cursor
         let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main!
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main else {
+            Log.error("ScreenCaptureService: no screen available")
+            return
+        }
 
         let panel = RegionSelectionPanel(screen: screen)
         panel.onRegionSelected = { [weak self] rect, screen in
