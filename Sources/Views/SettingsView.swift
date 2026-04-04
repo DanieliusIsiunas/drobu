@@ -103,7 +103,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("Drobu v1.1")
+                Text("Drobu v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                     .foregroundStyle(.secondary)
             }
         }
