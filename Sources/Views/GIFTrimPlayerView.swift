@@ -60,7 +60,7 @@ struct GIFTrimPlayerView: NSViewRepresentable {
         var startFrame: Int
         var endFrame: Int
         var displayedFrame: Int
-        nonisolated(unsafe) private var timer: DispatchWorkItem?
+        private var timer: DispatchWorkItem?
 
         init(_ parent: GIFTrimPlayerView) {
             self.parent = parent
