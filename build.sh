@@ -36,7 +36,7 @@ ENTITLEMENTS="$SCRIPT_DIR/Sources/Drobu.entitlements"
 
 if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
     echo "Signing with certificate: $CERT_NAME (hardened runtime)"
-    codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$CERT_NAME" "$APP_BUNDLE"
+    codesign --force --sign "$CERT_NAME" --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 else
     echo ""
     echo "============================================================"
@@ -59,7 +59,7 @@ else
     echo "============================================================"
     echo ""
     echo "Falling back to ad-hoc signing (permission will reset each build)..."
-    codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
+    codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
     # Only reset TCC when using ad-hoc signing, since the signature changes every build.
     # With a stable certificate, permission persists — that's the whole point.
