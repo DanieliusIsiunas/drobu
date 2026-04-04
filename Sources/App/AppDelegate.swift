@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import HotKey
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
     private var signalSources: [DispatchSourceSignal] = []
+    private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -118,6 +120,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.videoCaptureService?.stopRecording()
             }
         }
+
+        // Start Sparkle auto-update checks
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        Log.info("AppDelegate: Sparkle updater started")
 
         // Set up menu bar status item with custom icon
         setupStatusItem()
@@ -236,6 +246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        if let controller = updaterController {
+            let checkForUpdatesItem = NSMenuItem(
+                title: "Check for Updates...",
+                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                keyEquivalent: ""
+            )
+            checkForUpdatesItem.target = controller
+            menu.addItem(checkForUpdatesItem)
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         statusItem?.menu = menu
