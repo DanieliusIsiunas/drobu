@@ -74,6 +74,11 @@ final class ClosedLidService {
         let durationInt = Int(duration)
         let username = NSUserName()
 
+        // Validate username before interpolating into shell scripts and sudoers
+        guard username.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == ".") }) else {
+            throw PrivilegedCommandError.executionFailed(code: -1, message: "Username contains unsupported characters for sudoers")
+        }
+
         // 1. Generate LaunchDaemon plist XML
         let plistXML = generateDaemonPlist(sleepSeconds: durationInt)
 
