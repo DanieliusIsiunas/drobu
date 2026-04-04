@@ -16,9 +16,12 @@ final class AppDatabase: Sendable {
         } catch {
             // Database corruption: delete and recreate
             Log.error("AppDatabase: corruption detected, recreating: \(error)")
-            try? FileManager.default.removeItem(atPath: path)
-            try? FileManager.default.removeItem(atPath: path + "-wal")
-            try? FileManager.default.removeItem(atPath: path + "-shm")
+            do { try FileManager.default.removeItem(atPath: path) }
+            catch { Log.error("AppDatabase: failed to remove corrupt db: \(error)") }
+            do { try FileManager.default.removeItem(atPath: path + "-wal") }
+            catch { Log.error("AppDatabase: failed to remove wal: \(error)") }
+            do { try FileManager.default.removeItem(atPath: path + "-shm") }
+            catch { Log.error("AppDatabase: failed to remove shm: \(error)") }
             return try DatabasePool(path: path)
         }
     }

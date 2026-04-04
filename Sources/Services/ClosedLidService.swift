@@ -84,7 +84,12 @@ final class ClosedLidService {
 
         // 2. Write plist to /tmp first (no privileges needed)
         let tmpPlistPath = "/tmp/\(Self.daemonLabel).plist"
-        try? plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
+        do {
+            try plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
+        } catch {
+            Log.error("ClosedLidService: failed to write tmp plist: \(error)")
+            throw PrivilegedCommandError.scriptCreationFailed
+        }
 
         // 3. Build the privileged batch command
         let batch = buildActivationCommand(

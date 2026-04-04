@@ -49,18 +49,22 @@ func runPrivileged(_ command: String) async throws -> String {
             throw PrivilegedCommandError.scriptCreationFailed
         }
     } catch let error as PrivilegedCommandError {
-        try? FileManager.default.removeItem(atPath: scriptPath)
+        do { try FileManager.default.removeItem(atPath: scriptPath) }
+        catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
         throw error
     } catch {
-        try? FileManager.default.removeItem(atPath: scriptPath)
+        do { try FileManager.default.removeItem(atPath: scriptPath) }
+        catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
         throw PrivilegedCommandError.scriptCreationFailed
     }
 
     return try await withCheckedThrowingContinuation { continuation in
         DispatchQueue.global(qos: .userInitiated).async {
             defer {
-                try? FileManager.default.removeItem(atPath: scriptPath)
-                try? FileManager.default.removeItem(atPath: askpassPath)
+                do { try FileManager.default.removeItem(atPath: scriptPath) }
+                catch { Log.debug("PrivilegedCommand: cleanup script failed: \(error)") }
+                do { try FileManager.default.removeItem(atPath: askpassPath) }
+                catch { Log.debug("PrivilegedCommand: cleanup askpass failed: \(error)") }
             }
 
             let proc = Process()

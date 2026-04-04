@@ -194,17 +194,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     try Set(String.fetchAll(db, sql: "SELECT contentHash FROM clipboardItem WHERE kind = 'video'"))
                 }
                 let videosDir = ClipboardRecord.videosDirectory
-                if let files = try? FileManager.default.contentsOfDirectory(
-                    at: videosDir,
-                    includingPropertiesForKeys: nil
-                ) {
+                do {
+                    let files = try FileManager.default.contentsOfDirectory(
+                        at: videosDir,
+                        includingPropertiesForKeys: nil
+                    )
                     for file in files where file.pathExtension == "mp4" {
                         let hash = file.deletingPathExtension().lastPathComponent
                         if !knownHashes.contains(hash) {
-                            try? FileManager.default.removeItem(at: file)
+                            do { try FileManager.default.removeItem(at: file) }
+                            catch { Log.debug("AppDelegate: failed to remove orphaned video \(hash.prefix(8)): \(error)") }
                             Log.debug("AppDelegate: removed orphaned video \(hash.prefix(8)).mp4")
                         }
                     }
+                } catch {
+                    Log.debug("AppDelegate: orphan scan skipped — could not list videos dir: \(error)")
                 }
             } catch {
                 Log.error("AppDelegate: cleanup failed: \(error)")
