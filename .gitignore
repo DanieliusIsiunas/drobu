@@ -13,7 +13,6 @@ DerivedData/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
 
 # macOS
 .DS_Store
@@ -25,3 +24,6 @@ build/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Sparkle EdDSA private key (NEVER commit)
+sparkle_private_key*

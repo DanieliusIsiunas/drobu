@@ -90,9 +90,12 @@ Semver (`MAJOR.MINOR`). Bump version when merging significant changes to main.
 - **Minor (1.0 → 1.1):** New feature that doesn't break existing functionality (e.g., video capture, new slash command).
 - **Major (1.x → 2.0):** Breaking changes (schema migration that drops data, removed features, fundamentally different UX).
 
-**Version is hardcoded in 3 places — update all three:**
-1. `Sources/Views/SettingsView.swift` — `Text("Drobu v1.1")` in the About section
-2. `website/src/components/DownloadCTA.astro` — `Version 1.1` in the download CTA
-3. `website/src/components/Footer.astro` — `v1.1` in the footer
+**Version is hardcoded in 4 places — update all four:**
+1. `Sources/Info.plist` — `CFBundleShortVersionString` (display version) and `CFBundleVersion` (build number, incrementing integer for Sparkle)
+2. `Sources/Views/SettingsView.swift` — `Text("Drobu v1.1")` in the About section
+3. `website/src/components/DownloadCTA.astro` — `Version 1.1` in the download CTA
+4. `website/src/components/Footer.astro` — `v1.1` in the footer
 
-When a feature is significant enough for a bump (new capability, not just a bug fix), update all 3 files in the same commit.
+`CFBundleVersion` must be strictly increasing for Sparkle update comparison. Bump it as an integer (2, 3, 4...) each release. `CFBundleShortVersionString` is the human-readable semver shown to users.
+
+When a feature is significant enough for a bump (new capability, not just a bug fix), update all 4 files in the same commit.
