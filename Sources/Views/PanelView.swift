@@ -45,6 +45,7 @@ struct PanelView: View {
     @State private var activeSection: Int = 0
     @State private var activeFilter: Int = 0
     @State private var availableKinds: [String] = []
+    @State private var largePreviewPanel: LargePreviewPanel?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.floatingPanel) private var panelWrapper
 
@@ -198,9 +199,14 @@ struct PanelView: View {
                     searchText = buffered
                 }
             }
+            panel?.onShiftTap = { [self] in
+                guard !isEditing, panelMode == .clipboard else { return }
+                toggleLargePreview()
+            }
         }
         .onDisappear {
             if isEditing { saveEdit() }
+            closeLargePreview()
             observation?.cancel()
             observation = nil
             searchText = ""
@@ -356,12 +362,13 @@ struct PanelView: View {
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(items[newValue].id, anchor: .center)
                         }
+                        largePreviewPanel?.update(for: items[newValue])
                     }
                 }
             }
 
             Divider()
-            Text("\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste")
+            Text("\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .padding(.vertical, 4)
@@ -648,7 +655,9 @@ struct PanelView: View {
             return .handled
 
         case .escape:
-            if hasMultiSelection {
+            if largePreviewPanel != nil {
+                closeLargePreview()
+            } else if hasMultiSelection {
                 anchor = cursor
             } else if !searchText.isEmpty {
                 searchText = ""
@@ -840,6 +849,33 @@ struct PanelView: View {
         let maxIdx = max(0, items.count - 1)
         if anchor > maxIdx { anchor = maxIdx }
         if cursor > maxIdx { cursor = maxIdx }
+
+        // Update or close large preview after items change
+        if items.isEmpty {
+            closeLargePreview()
+        } else if cursor < items.count {
+            largePreviewPanel?.update(for: items[cursor])
+        }
+    }
+
+    // MARK: - Large Preview
+
+    private func toggleLargePreview() {
+        if largePreviewPanel != nil {
+            closeLargePreview()
+        } else {
+            guard let item = previewItem, let parentPanel = panel else { return }
+            let screen = parentPanel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+            let preview = LargePreviewPanel()
+            preview.show(for: item, on: screen)
+            parentPanel.addChildWindow(preview, ordered: .above)
+            largePreviewPanel = preview
+        }
+    }
+
+    private func closeLargePreview() {
+        largePreviewPanel?.close()
+        largePreviewPanel = nil
     }
 
     // MARK: - Edit Mode
@@ -1077,7 +1113,7 @@ struct PanelView: View {
 
 // MARK: - Visual Effect Background
 
-private struct VisualEffectBackground: NSViewRepresentable {
+struct VisualEffectBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .hudWindow

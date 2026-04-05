@@ -267,7 +267,7 @@ struct PreviewPanel: View {
 
 // MARK: - Inline Video Player
 
-private struct InlineVideoPlayerView: NSViewRepresentable {
+struct InlineVideoPlayerView: NSViewRepresentable {
     let url: URL
 
     func makeCoordinator() -> Coordinator { Coordinator() }
