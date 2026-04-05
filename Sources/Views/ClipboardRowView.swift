@@ -45,6 +45,8 @@ struct ClipboardRowView: View {
             case ClipboardRecord.kindGif: "play.rectangle"
             case ClipboardRecord.kindImage: "photo"
             case ClipboardRecord.kindVideo: "video.fill"
+            case ClipboardRecord.kindFile:
+                (item.plainText?.contains("\n") == true) ? "doc.on.doc.fill" : "doc.fill"
             default: "doc.on.clipboard"
             }
             Image(systemName: iconName)
@@ -94,6 +96,11 @@ struct ClipboardRowView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+        case ClipboardRecord.kindFile:
+            Text(Self.fileDisplayText(for: item.plainText))
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
         default:
             Text(item.plainText?.prefix(100) ?? "")
                 .lineLimit(1)
@@ -118,6 +125,17 @@ struct ClipboardRowView: View {
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    // MARK: - File Display
+
+    private static func fileDisplayText(for plainText: String?) -> String {
+        guard let text = plainText, !text.isEmpty else { return "File:" }
+        let paths = text.split(separator: "\n")
+        if paths.count == 1 {
+            return "File: \(URL(fileURLWithPath: String(paths[0])).lastPathComponent)"
+        }
+        return "File: \(paths.count) files"
     }
 
     // MARK: - App Icon Resolution

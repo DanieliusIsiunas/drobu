@@ -218,6 +218,21 @@ struct PreviewPanel: View {
                 Text("\(w)x\(h) (\(sizeStr))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else if item.kind == ClipboardRecord.kindFile, let text = item.plainText {
+                let paths = text.split(separator: "\n")
+                if paths.count == 1 {
+                    let url = URL(fileURLWithPath: String(paths[0]))
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                    let size = attrs?[.size] as? Int64 ?? 0
+                    let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                    Text("\(url.lastPathComponent) · \(sizeStr)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(paths.count) files")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Text("Copied \(item.createdAt.formatted(.dateTime.day().month(.abbreviated).year().hour().minute()))")

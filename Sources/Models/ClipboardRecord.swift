@@ -27,6 +27,7 @@ extension ClipboardRecord {
     static let kindImage = "image"
     static let kindGif = "gif"
     static let kindVideo = "video"
+    static let kindFile = "file"
 
     static var videosDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -166,6 +167,21 @@ extension ClipboardRecord {
             }
         }
         return (count, duration)
+    }
+
+    /// Remove file entries where all referenced files have been deleted from disk.
+    static func cleanupMissingFiles(in db: Database) throws {
+        let cursor = try ClipboardRecord
+            .filter(Column("kind") == kindFile)
+            .fetchCursor(db)
+        while let record = try cursor.next() {
+            let paths = record.plainText?.split(separator: "\n").map(String.init) ?? []
+            let allMissing = !paths.isEmpty && paths.allSatisfy { !FileManager.default.fileExists(atPath: $0) }
+            if allMissing {
+                try record.delete(db)
+                Log.debug("ClipboardRecord: removed file entry — all paths missing, hash=\(record.contentHash.prefix(8))")
+            }
+        }
     }
 
     /// Cleanup: remove items older than retentionDays and enforce maxCount.

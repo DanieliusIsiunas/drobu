@@ -73,12 +73,13 @@ struct PanelView: View {
 
     // MARK: - Content Type Filters
 
-    private static let kindOrder = [ClipboardRecord.kindText, ClipboardRecord.kindImage, ClipboardRecord.kindGif, ClipboardRecord.kindVideo]
+    private static let kindOrder = [ClipboardRecord.kindText, ClipboardRecord.kindImage, ClipboardRecord.kindGif, ClipboardRecord.kindVideo, ClipboardRecord.kindFile]
     private static let kindLabels: [String: String] = [
         ClipboardRecord.kindText: "Text",
         ClipboardRecord.kindImage: "Image",
         ClipboardRecord.kindGif: "GIF",
         ClipboardRecord.kindVideo: "Video",
+        ClipboardRecord.kindFile: "File",
     ]
 
     private var availableFilters: [(label: String, kind: String?)] {
@@ -390,6 +391,8 @@ struct PanelView: View {
                 Text(filter.label)
                     .font(.system(size: 13, weight: index == activeFilter ? .semibold : .regular))
                     .foregroundStyle(index == activeFilter ? .primary : .secondary)
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(
