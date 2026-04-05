@@ -1,4 +1,5 @@
 import AVFoundation
+import Carbon.HIToolbox
 import CryptoKit
 import SwiftUI
 import GRDB
@@ -872,9 +873,39 @@ struct PanelView: View {
             guard let item = previewItem, let parentPanel = panel else { return }
             let screen = parentPanel.screen ?? NSScreen.main ?? NSScreen.screens[0]
             let preview = LargePreviewPanel()
+            preview.onNavigationKey = { keyCode in
+                self.handleLargePreviewKey(keyCode)
+            }
             preview.show(for: item, on: screen)
             parentPanel.addChildWindow(preview, ordered: .above)
             largePreviewPanel = preview
+        }
+    }
+
+    private func handleLargePreviewKey(_ keyCode: UInt16) {
+        switch Int(keyCode) {
+        case kVK_Escape:
+            closeLargePreview()
+        case kVK_UpArrow:
+            guard !items.isEmpty else { return }
+            let newIndex = (cursor - 1 + items.count) % items.count
+            anchor = newIndex
+            cursor = newIndex
+        case kVK_DownArrow:
+            guard !items.isEmpty else { return }
+            let newIndex = (cursor + 1) % items.count
+            anchor = newIndex
+            cursor = newIndex
+        case kVK_LeftArrow:
+            if activeFilter > 0 { activeFilter -= 1 }
+        case kVK_RightArrow:
+            if activeFilter < availableFilters.count - 1 { activeFilter += 1 }
+        case kVK_Return:
+            pasteSelected()
+        case kVK_ForwardDelete:
+            deleteSelected()
+        default:
+            break
         }
     }
 
