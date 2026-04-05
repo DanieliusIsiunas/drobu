@@ -8,6 +8,12 @@ import Carbon.HIToolbox
 final class FloatingPanel: NSPanel {
     private var bufferedKeystrokes: String = ""
 
+    // Shift-tap detection: toggle preview on Shift release if no other key was pressed
+    private var shiftDownWithoutKey = false
+    private var flagsMonitor: Any?
+    private var keyDownMonitor: Any?
+    var onShiftTap: (() -> Void)?
+
     init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 500),
                         @ViewBuilder content: @escaping () -> Content) {
         super.init(
@@ -40,12 +46,36 @@ final class FloatingPanel: NSPanel {
                 .ignoresSafeArea()
                 .environment(\.floatingPanel, WeakFloatingPanel(panel: self))
         )
+
+        // Monitor modifier key changes for Shift-tap detection.
+        // Using local monitors (not overrides) so they fire even when
+        // an NSTextView (search field) has first responder, and even when
+        // SwiftUI's onKeyPress consumes the event before it reaches keyDown.
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handleFlagsChanged(event)
+            return event
+        }
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.shiftDownWithoutKey = false
+            return event
+        }
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func close() {
+        // Remove event monitors
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
+        }
+        if let monitor = keyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyDownMonitor = nil
+        }
+        // Close child windows (e.g. large preview) before closing self
+        childWindows?.forEach { $0.close() }
         super.close()
     }
 
@@ -56,10 +86,24 @@ final class FloatingPanel: NSPanel {
 
     /// Buffer keystrokes that arrive before SwiftUI focus is established.
     override func keyDown(with event: NSEvent) {
+        shiftDownWithoutKey = false   // any key cancels a pending shift-tap
         if let chars = event.characters, !chars.isEmpty {
             bufferedKeystrokes.append(chars)
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: - Shift-Tap Detection
+
+    private func handleFlagsChanged(_ event: NSEvent) {
+        if event.modifierFlags.contains(.shift) {
+            // Shift pressed down
+            shiftDownWithoutKey = true
+        } else if shiftDownWithoutKey {
+            // Shift released with no intervening key → tap
+            shiftDownWithoutKey = false
+            onShiftTap?()
+        }
     }
 
     /// Consume buffered keystrokes and clear the buffer.
