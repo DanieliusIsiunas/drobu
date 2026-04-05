@@ -81,7 +81,16 @@ final class FloatingPanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        close()
+        // Defer close: when user clicks a child window (e.g., large preview for Live Text),
+        // isKeyWindow on the child is not yet updated when resignKey fires synchronously.
+        // One runloop cycle is enough for AppKit to finalize key window status.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isVisible, !self.isKeyWindow else { return }
+            if let children = self.childWindows, children.contains(where: { $0.isKeyWindow }) {
+                return
+            }
+            self.close()
+        }
     }
 
     /// Buffer keystrokes that arrive before SwiftUI focus is established.
