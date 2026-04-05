@@ -13,24 +13,19 @@ final class LargePreviewPanel: NSPanel {
     init() {
         super.init(
             contentRect: .zero,
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         isFloatingPanel = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        titleVisibility = .hidden
-        titlebarAppearsTransparent = true
         isOpaque = false
         backgroundColor = .clear
+        hasShadow = true
         animationBehavior = .none
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-
-        standardWindowButton(.closeButton)?.isHidden = true
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
     }
 
     /// Called when a navigation key is pressed while this panel is key.
@@ -195,6 +190,7 @@ struct LargePreviewContent: View {
             previewContent
                 .padding(16)
         }
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10))
     }
 
     @ViewBuilder
