@@ -200,6 +200,11 @@ struct PanelView: View {
                 }
             }
             panel?.onShiftTap = { [self] in
+                // Always allow closing an open preview, regardless of mode
+                if largePreviewPanel != nil {
+                    closeLargePreview()
+                    return
+                }
                 guard !isEditing, panelMode == .clipboard else { return }
                 toggleLargePreview()
             }
