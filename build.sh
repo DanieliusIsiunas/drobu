@@ -21,7 +21,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/release/${APP_NAME}" "$APP_BUNDLE/Contents/MacOS/${APP_NAME}"
 
 # Copy Info.plist
-cp "$SCRIPT_DIR/Sources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+cp "$SCRIPT_DIR/Sources/DrobuCore/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 
 # Copy app icon
 cp "$SCRIPT_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
@@ -47,7 +47,7 @@ fi
 
 # Code signing: use a stable self-signed certificate so Accessibility permission persists across rebuilds.
 # Ad-hoc signing (codesign --sign -) generates a unique hash per build, which invalidates TCC grants.
-ENTITLEMENTS="$SCRIPT_DIR/Sources/Drobu.entitlements"
+ENTITLEMENTS="$SCRIPT_DIR/Sources/DrobuCore/Drobu.entitlements"
 
 if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
     echo "Signing with certificate: $CERT_NAME (hardened runtime)"

@@ -2,14 +2,17 @@ import SwiftUI
 import HotKey
 import ServiceManagement
 
-struct SettingsView: View {
+public struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
     @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
     @State private var videoCaptureHotkeyCombo: KeyCombo? = VideoCaptureHotkeyDefaults.load()
     @State private var retentionDays = RetentionDefaults.loadRetentionDays()
     @State private var maxItemCount = RetentionDefaults.loadMaxItemCount()
-    var body: some View {
+
+    public init() {}
+
+    public var body: some View {
         Form {
             Section("General") {
                 HStack {
