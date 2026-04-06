@@ -16,8 +16,6 @@ pkill -x Drobu; ./build.sh --install && open /Applications/Drobu.app
 
 Always use this combo — kills stale process, rebuilds, installs to `/Applications/`, launches. The `--install` flag copies the bundle to `/Applications/` so SMAppService "Launch at login" points to a stable path.
 
-**Git hooks (one-time setup):** `git config core.hooksPath .githooks` — enables pre-commit test runner. Already done if you cloned after this was added; run it manually otherwise.
-
 **Debug helpers:**
 - DB inspection: `sqlite3 ~/Library/Application\ Support/ClipboardHistory/clipboard.sqlite`
 - App log: `cat ~/Library/Application\ Support/ClipboardHistory/app.log`
@@ -25,7 +23,7 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 
 **Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it.
 
-**Tests:** `swift test` — runs 45 tests across 4 suites in ~0.25s. Run before every commit.
+**Tests:** `swift test` — runs 45 tests across 4 suites in ~0.25s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
 
 ## Testing
 
@@ -50,7 +48,7 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 - `MockPasteboardItem.text/gif/image()` factories for extraction tests
 - `defer { service.cleanup() }` for any test that spawns processes
 
-**Run tests:** `swift test` — must pass before committing. If a test fails, fix it before proceeding.
+**Run tests:** `swift test` — run locally before pushing. CI enforces this on every PR to main. If a test fails, fix it before proceeding.
 
 ## Architecture
 
