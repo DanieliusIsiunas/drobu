@@ -178,7 +178,13 @@ final class FloatingPanel: NSPanel {
                 guard FileManager.default.fileExists(atPath: p) else { return nil }
                 return URL(fileURLWithPath: p) as NSURL
             }
-            guard !urls.isEmpty else { return }
+            guard !urls.isEmpty else {
+                // Clear the suppression token so the next real clipboard change isn't dropped
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.monitor?.suppressChanges(count: 0)
+                }
+                return
+            }
 
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -247,6 +253,9 @@ final class FloatingPanel: NSPanel {
         guard AXIsProcessTrusted() else {
             // Without accessibility, concatenate text and put on pasteboard (best effort)
             if !textItems.isEmpty {
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.monitor?.suppressNextChange()
+                }
                 let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
                 let pb = NSPasteboard.general
                 pb.clearContents()
