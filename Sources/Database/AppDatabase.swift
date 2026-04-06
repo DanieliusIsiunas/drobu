@@ -6,6 +6,11 @@ final class AppDatabase: Sendable {
 
     init(path: String? = nil) throws {
         let dbPath = try path ?? AppDatabase.defaultPath()
+        // Restrictive umask so all files SQLite creates (including WAL/SHM created
+        // lazily on first write) inherit owner-only permissions (0o600).
+        // Covers both pool creation and migration (which triggers the first write).
+        let oldMask = umask(0o077)
+        defer { umask(oldMask) }
         pool = try AppDatabase.openPool(at: dbPath)
         try migrator.migrate(pool)
     }

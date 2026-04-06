@@ -235,7 +235,8 @@ final class VideoCaptureService {
 
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         guard let targetDisplay = availableContent.displays.first(where: {
-            displayID != nil ? $0.displayID == displayID! : true
+            if let displayID { return $0.displayID == displayID }
+            return true
         }) else {
             throw CaptureError.displayNotFound
         }

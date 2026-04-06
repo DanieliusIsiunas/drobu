@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Required for simulating Cmd+V paste into the frontmost app via CGEvent -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+    <!-- Required because self-signed certs lack a team identifier, so library
+         validation rejects Sparkle.framework even when signed with the same cert.
+         Remove this once the app is signed with an Apple Developer ID certificate. -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
 </dict>

@@ -133,7 +133,8 @@ struct ClipboardRowView: View {
         guard let text = plainText, !text.isEmpty else { return "File:" }
         let paths = text.split(separator: "\n")
         if paths.count == 1 {
-            return "File: \(URL(fileURLWithPath: String(paths[0])).lastPathComponent)"
+            guard let first = paths.first else { return "File" }
+            return "File: \(URL(fileURLWithPath: String(first)).lastPathComponent)"
         }
         return "File: \(paths.count) files"
     }
