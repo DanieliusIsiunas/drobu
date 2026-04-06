@@ -23,7 +23,32 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 
 **Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it.
 
-**Tests:** `swift test` — runs 24 tests (ClipboardRecord + TerminalTextCleaner) in ~0.05s. Tests use temp-file databases against the real DatabasePool.
+**Tests:** `swift test` — runs 45 tests across 4 suites in ~0.25s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
+
+## Testing
+
+**Rule: New logic gets tests.** When adding or modifying code in Models/, Database/, or Services/, write tests alongside the implementation. Tests are not a follow-up task — they ship in the same commit as the feature.
+
+**What to test:**
+- Database operations (queries, migrations, CRUD) — use `makeTestDatabase()` for temp-file DatabasePool
+- Content extraction logic — use `MockPasteboardItem` with factory methods (`.text()`, `.gif()`, `.image()`)
+- Service state machines — test with real dependencies when harmless (e.g., CaffeinateService with real `/usr/bin/caffeinate`)
+- Pure functions (text processing, hash computation, type filtering)
+
+**What NOT to test:**
+- SwiftUI views, NSPanel lifecycle, AppKit UI wiring
+- System singletons (NSPasteboard.general, NSWorkspace.shared) — use protocol abstractions instead
+- Apple framework behavior (CryptoKit, ImageIO, SQLite internals)
+
+**Test patterns:**
+- Swift Testing framework (`import Testing`, `@Test`, `@Suite`). No XCTest.
+- `@MainActor @Suite` for testing `@MainActor`-isolated services
+- `makeTestDatabase()` for isolated temp-file databases (cleaned per process)
+- `makeRecord(...)` factory for ClipboardRecord with sensible defaults
+- `MockPasteboardItem.text/gif/image()` factories for extraction tests
+- `defer { service.cleanup() }` for any test that spawns processes
+
+**Run tests:** `swift test` — run locally before pushing. CI enforces this on every PR to main. If a test fails, fix it before proceeding.
 
 ## Architecture
 

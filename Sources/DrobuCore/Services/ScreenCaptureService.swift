@@ -2,7 +2,7 @@ import AppKit
 import CoreImage
 import CoreMedia
 import ImageIO
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 @MainActor
