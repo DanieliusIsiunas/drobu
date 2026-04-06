@@ -2,11 +2,20 @@ import Foundation
 import GRDB
 @testable import DrobuCore
 
+/// Shared directory for test databases, cleaned at the start of each test process.
+private let testDatabaseDirectory: URL = {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("drobu-tests")
+    try? FileManager.default.removeItem(at: dir)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+}()
+
 func makeTestDatabase() throws -> AppDatabase {
-    let tmp = FileManager.default.temporaryDirectory
-        .appendingPathComponent("drobu-test-\(UUID().uuidString)")
+    let path = testDatabaseDirectory
+        .appendingPathComponent(UUID().uuidString)
         .appendingPathExtension("sqlite")
-    return try AppDatabase(path: tmp.path)
+    return try AppDatabase(path: path.path)
 }
 
 func makeRecord(

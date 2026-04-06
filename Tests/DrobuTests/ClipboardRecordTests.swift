@@ -19,25 +19,6 @@ struct ClipboardRecordTests {
         #expect(inserted.id != nil)
     }
 
-    @Test func upsertDeduplicatesByContentHash() throws {
-        let db = try makeTestDatabase()
-        let hash = Data("hello".utf8).sha256String
-
-        try db.pool.write { conn in
-            try ClipboardRecord.upsert(
-                makeRecord(plainText: "hello", contentHash: hash, createdAt: Date(timeIntervalSinceNow: -60)),
-                in: conn
-            )
-            try ClipboardRecord.upsert(
-                makeRecord(plainText: "hello", contentHash: hash, createdAt: Date()),
-                in: conn
-            )
-
-            let all = try ClipboardRecord.fetchRecent(in: conn)
-            #expect(all.count == 1)
-        }
-    }
-
     @Test func upsertDuplicateUsesNewCreatedAt() throws {
         let db = try makeTestDatabase()
         let hash = "dedup-hash"
@@ -127,8 +108,8 @@ struct ClipboardRecordTests {
             try ClipboardRecord.search(query: "\"hello\"", in: conn)
         }
 
-        // Should not crash — quote escaping handles this
-        #expect(results.count >= 0)
+        // Quote escaping should still find the record containing "hello"
+        #expect(results.count == 1)
     }
 
     @Test func searchBySourceApp() throws {
