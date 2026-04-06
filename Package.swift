@@ -12,15 +12,28 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [
-        .executableTarget(
-            name: "Drobu",
+        .target(
+            name: "DrobuCore",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "HotKey", package: "HotKey"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Sources",
-            exclude: ["Info.plist"]
+            path: "Sources/DrobuCore",
+            exclude: ["Info.plist", "Drobu.entitlements"]
+        ),
+        .executableTarget(
+            name: "Drobu",
+            dependencies: ["DrobuCore"],
+            path: "Sources/Drobu"
+        ),
+        .testTarget(
+            name: "DrobuTests",
+            dependencies: [
+                "DrobuCore",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests"
         ),
     ]
 )

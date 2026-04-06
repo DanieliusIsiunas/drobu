@@ -199,17 +199,6 @@ final class ClipboardMonitor {
         }
     }
 
-    /// Strip ANSI escape sequences (CSI, OSC) from text.
-    private static func stripANSI(_ text: String) -> String {
-        // CSI: \x1B[ followed by parameter bytes and a letter
-        // OSC: \x1B] followed by content terminated by BEL (\x07) or ST (\x1B\\)
-        text.replacingOccurrences(
-            of: "\u{1B}(?:\\[[0-9;]*[A-Za-z]|\\][^\u{07}]*(?:\u{07}|\u{1B}\\\\))",
-            with: "",
-            options: .regularExpression
-        )
-    }
-
     private func extractRecord(from item: NSPasteboardItem) -> ClipboardRecord? {
         let types = item.types
         let frontmost = NSWorkspace.shared.frontmostApplication
@@ -268,7 +257,7 @@ final class ClipboardMonitor {
             }
 
             // Strip ANSI escape sequences (terminal color codes, cursor control, OSC)
-            let cleaned = Self.stripANSI(trimmed)
+            let cleaned = TerminalTextCleaner.stripANSI(trimmed)
             guard !cleaned.isEmpty else {
                 Log.debug("ClipboardMonitor: empty after ANSI strip")
                 return nil

@@ -1,9 +1,6 @@
 @preconcurrency import ObjectiveC
 import SwiftUI
-
-extension Notification.Name {
-    static let openSettingsFromMenu = Notification.Name("openSettingsFromMenu")
-}
+import DrobuCore
 
 @main
 struct DrobuApp: App {
@@ -41,7 +38,6 @@ private struct SettingsOpenerView: View {
 
     private func observeSettingsClose() {
         guard let settingsWindow = findSettingsWindow() else {
-            // Settings window might not exist yet — retry once
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if let settingsWindow = findSettingsWindow() {
                     addCloseObserver(for: settingsWindow)
@@ -61,8 +57,6 @@ private struct SettingsOpenerView: View {
     }
 
     private func addCloseObserver(for window: NSWindow) {
-        // Scoped to `object: window` — fires only when this specific window closes.
-        // The observer lives as long as the window; no manual removal needed.
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,

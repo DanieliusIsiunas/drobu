@@ -45,6 +45,17 @@ enum TerminalTextCleaner {
         return result.joined(separator: "\n")
     }
 
+    /// Strip ANSI escape sequences (CSI, OSC) from text.
+    static func stripANSI(_ text: String) -> String {
+        // CSI: \x1B[ followed by parameter bytes and a letter
+        // OSC: \x1B] followed by content terminated by BEL (\x07) or ST (\x1B\\)
+        text.replacingOccurrences(
+            of: "\u{1B}(?:\\[[0-9;]*[A-Za-z]|\\][^\u{07}]*(?:\u{07}|\u{1B}\\\\))",
+            with: "",
+            options: .regularExpression
+        )
+    }
+
     /// Detect lines that start a new structural element (not a continuation).
     private static func startsStructuralElement(_ trimmed: String) -> Bool {
         // Numbered list: "1. ", "2. ", "10. ", etc.
