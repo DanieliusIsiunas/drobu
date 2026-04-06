@@ -226,7 +226,7 @@ final class ClipboardMonitor {
             let hash = gifData.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindGif,
-                plainText: sourceApp,
+                plainText: ClipboardRecord.mediaDisplayText(from: gifData, kind: ClipboardRecord.kindGif),
                 imageData: gifData,
                 sourceApp: sourceApp,
                 sourceBundleId: sourceBundleId,
@@ -249,7 +249,7 @@ final class ClipboardMonitor {
                 let hash = gifData.sha256String
                 return ClipboardRecord(
                     kind: ClipboardRecord.kindGif,
-                    plainText: sourceApp,
+                    plainText: ClipboardRecord.mediaDisplayText(from: gifData, kind: ClipboardRecord.kindGif),
                     imageData: gifData,
                     sourceApp: sourceApp,
                     sourceBundleId: sourceBundleId,
@@ -299,7 +299,7 @@ final class ClipboardMonitor {
             let hash = imageData.sha256String
             return ClipboardRecord(
                 kind: ClipboardRecord.kindImage,
-                plainText: sourceApp, // Store source app in plainText for FTS searchability
+                plainText: ClipboardRecord.mediaDisplayText(from: imageData, kind: ClipboardRecord.kindImage),
                 imageData: imageData,
                 sourceApp: sourceApp,
                 sourceBundleId: sourceBundleId,

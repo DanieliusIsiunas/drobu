@@ -142,13 +142,14 @@ extension ClipboardRecord {
         )
 
         // Update the record in place
+        let displayText = mediaDisplayText(from: newData, kind: kindGif)
         try db.execute(
             sql: """
                 UPDATE clipboardItem
-                SET imageData = ?, contentHash = ?, createdAt = ?
+                SET imageData = ?, contentHash = ?, plainText = ?, createdAt = ?
                 WHERE id = ?
                 """,
-            arguments: [newData, newHash, Date(), id]
+            arguments: [newData, newHash, displayText, Date(), id]
         )
     }
 
@@ -223,5 +224,19 @@ import AppKit
 
 extension NSPasteboard.PasteboardType {
     static let gif = NSPasteboard.PasteboardType("com.compuserve.gif")
+}
+
+extension ClipboardRecord {
+    static func mediaDisplayText(from data: Data, kind: String) -> String {
+        let label = kind == kindGif ? "GIF" : "Image"
+        guard let nsImage = NSImage(data: data) else { return label }
+        let w = Int(nsImage.size.width)
+        let h = Int(nsImage.size.height)
+        let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+        if kind == kindGif, let meta = gifMetadata(from: data) {
+            return "\(label): \(w)×\(h) (\(sizeStr), \(String(format: "%.1fs", meta.duration)))"
+        }
+        return "\(label): \(w)×\(h) (\(sizeStr))"
+    }
 }
 #endif

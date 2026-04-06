@@ -94,6 +94,38 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3-backfillMediaDisplayText") { db in
+            // Backfill plainText for image/GIF records with descriptive display text
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT id, kind, imageData FROM clipboardItem
+                WHERE kind IN ('image', 'gif')
+                """)
+            while let row = try cursor.next() {
+                let id: Int64 = row["id"]
+                let kind: String = row["kind"]
+                guard let imageData = row["imageData"] as? Data else { continue }
+                let displayText = ClipboardRecord.mediaDisplayText(from: imageData, kind: kind)
+                try db.execute(
+                    sql: "UPDATE clipboardItem SET plainText = ? WHERE id = ?",
+                    arguments: [displayText, id]
+                )
+            }
+
+            // Add sourceApp to FTS index so media items remain searchable by app name.
+            // Drop sync triggers first — db.drop(table:) only removes the virtual table,
+            // not the triggers that synchronize(withTable:) created on clipboardItem.
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_ai")
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_ad")
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_au")
+            try db.drop(table: "clipboardItemFts")
+            try db.create(virtualTable: "clipboardItemFts", using: FTS5()) { t in
+                t.synchronize(withTable: "clipboardItem")
+                t.tokenizer = .unicode61()
+                t.column("plainText")
+                t.column("sourceApp")
+            }
+        }
+
         return migrator
     }
 
