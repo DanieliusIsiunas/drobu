@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import CoreMedia
 import CryptoKit
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 @MainActor
 final class VideoCaptureService {
