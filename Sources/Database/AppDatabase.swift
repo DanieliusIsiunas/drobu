@@ -94,6 +94,23 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3-backfillMediaDisplayText") { db in
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT id, kind, imageData FROM clipboardItem
+                WHERE kind IN ('image', 'gif')
+                """)
+            while let row = try cursor.next() {
+                let id: Int64 = row["id"]
+                let kind: String = row["kind"]
+                guard let imageData = row["imageData"] as? Data else { continue }
+                let displayText = ClipboardRecord.mediaDisplayText(from: imageData, kind: kind)
+                try db.execute(
+                    sql: "UPDATE clipboardItem SET plainText = ? WHERE id = ?",
+                    arguments: [displayText, id]
+                )
+            }
+        }
+
         return migrator
     }
 

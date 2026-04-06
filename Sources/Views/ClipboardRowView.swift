@@ -62,35 +62,15 @@ struct ClipboardRowView: View {
     private var contentView: some View {
         switch item.kind {
         case ClipboardRecord.kindGif:
-            if let data = item.imageData, let nsImage = NSImage(data: data) {
-                let w = Int(nsImage.size.width)
-                let h = Int(nsImage.size.height)
-                let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
-                let durationStr = ClipboardRecord.gifMetadata(from: data).map { String(format: "%.1fs", $0.duration) }
-                let detail = durationStr.map { "\(sizeStr), \($0)" } ?? sizeStr
-                Text("GIF: \(w)×\(h) (\(detail))")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            } else {
-                Text("GIF")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.primary)
-            }
+            Text(item.plainText ?? "GIF")
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
         case ClipboardRecord.kindImage:
-            if let data = item.imageData, let nsImage = NSImage(data: data) {
-                let w = Int(nsImage.size.width)
-                let h = Int(nsImage.size.height)
-                let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
-                Text("Image: \(w)×\(h) (\(sizeStr))")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            } else {
-                Text("Image")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.primary)
-            }
+            Text(item.plainText ?? "Image")
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
         case ClipboardRecord.kindVideo:
             Text(item.plainText ?? "Screen Recording")
                 .font(.system(size: 15))
