@@ -169,30 +169,51 @@ final class FloatingPanel: NSPanel {
         // Matches Maccy's sequence: close → copy → paste
         close()
 
-        // 2. Write to pasteboard (works without any permission)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
+        // 2. For file entries, bail out early if all paths are stale
+        //    (avoids clearing the user's clipboard and firing an empty Cmd+V)
+        if record.kind == ClipboardRecord.kindFile {
+            guard let text = record.plainText else { return }
+            let urls: [NSURL] = text.split(separator: "\n").compactMap { path in
+                let p = String(path)
+                guard FileManager.default.fileExists(atPath: p) else { return nil }
+                return URL(fileURLWithPath: p) as NSURL
+            }
+            guard !urls.isEmpty else {
+                // Clear the suppression token so the next real clipboard change isn't dropped
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.monitor?.suppressChanges(count: 0)
+                }
+                return
+            }
 
-        switch record.kind {
-        case ClipboardRecord.kindText:
-            if let text = record.plainText {
-                pasteboard.setString(text, forType: .string)
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.writeObjects(urls)
+        } else {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+
+            switch record.kind {
+            case ClipboardRecord.kindText:
+                if let text = record.plainText {
+                    pasteboard.setString(text, forType: .string)
+                }
+            case ClipboardRecord.kindGif:
+                if let data = record.imageData {
+                    Self.writeGIFToPasteboard(data, pasteboard: pasteboard)
+                }
+            case ClipboardRecord.kindImage:
+                if let data = record.imageData {
+                    pasteboard.setData(data, forType: .tiff)
+                }
+            case ClipboardRecord.kindVideo:
+                let url = ClipboardRecord.videoPath(for: record.contentHash)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    pasteboard.writeObjects([url as NSURL])
+                }
+            default:
+                break
             }
-        case ClipboardRecord.kindGif:
-            if let data = record.imageData {
-                Self.writeGIFToPasteboard(data, pasteboard: pasteboard)
-            }
-        case ClipboardRecord.kindImage:
-            if let data = record.imageData {
-                pasteboard.setData(data, forType: .tiff)
-            }
-        case ClipboardRecord.kindVideo:
-            let url = ClipboardRecord.videoPath(for: record.contentHash)
-            if FileManager.default.fileExists(atPath: url.path) {
-                pasteboard.writeObjects([url as NSURL])
-            }
-        default:
-            break
         }
 
         Log.debug("FloatingPanel: pasted \(record.kind) (\(record.imageData?.count ?? record.plainText?.utf8.count ?? 0) bytes)")
@@ -212,6 +233,7 @@ final class FloatingPanel: NSPanel {
         case image(Data)
         case gif(Data)
         case video(URL)
+        case file([URL])
     }
 
     func pasteItems(_ records: [ClipboardRecord]) {
@@ -223,15 +245,7 @@ final class FloatingPanel: NSPanel {
             return
         }
 
-        // Calculate how many pasteboard writes we'll make for suppression
-        let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }.count
-        let videoCount = records.filter { $0.kind == ClipboardRecord.kindVideo }.count
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
-        let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount + videoCount
-
-        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-            appDelegate.monitor?.suppressChanges(count: suppressCount)
-        }
 
         // Close panel first (instant)
         close()
@@ -239,6 +253,9 @@ final class FloatingPanel: NSPanel {
         guard AXIsProcessTrusted() else {
             // Without accessibility, concatenate text and put on pasteboard (best effort)
             if !textItems.isEmpty {
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.monitor?.suppressNextChange()
+                }
                 let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
                 let pb = NSPasteboard.general
                 pb.clearContents()
@@ -248,19 +265,31 @@ final class FloatingPanel: NSPanel {
             return
         }
 
-        // Build paste operations: text concatenated first, then images individually
+        // Build paste operations first, then compute suppression from actual ops
+        // (stale file/video entries may be filtered out, so pre-counting by kind over-suppresses)
         var operations: [PasteOperation] = []
 
         if !textItems.isEmpty {
             let combined = textItems.compactMap(\.plainText).joined(separator: "\n")
             operations.append(.text(combined))
         }
-        let mediaItems = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif || $0.kind == ClipboardRecord.kindVideo }
+        let mediaItems = records.filter { [ClipboardRecord.kindImage, ClipboardRecord.kindGif, ClipboardRecord.kindVideo, ClipboardRecord.kindFile].contains($0.kind) }
         for item in mediaItems {
             if item.kind == ClipboardRecord.kindVideo {
                 let url = ClipboardRecord.videoPath(for: item.contentHash)
                 if FileManager.default.fileExists(atPath: url.path) {
                     operations.append(.video(url))
+                }
+            } else if item.kind == ClipboardRecord.kindFile {
+                if let text = item.plainText {
+                    let urls = text.split(separator: "\n").compactMap { path -> URL? in
+                        let p = String(path)
+                        guard FileManager.default.fileExists(atPath: p) else { return nil }
+                        return URL(fileURLWithPath: p)
+                    }
+                    if !urls.isEmpty {
+                        operations.append(.file(urls))
+                    }
                 }
             } else if let data = item.imageData {
                 if item.kind == ClipboardRecord.kindGif {
@@ -269,6 +298,11 @@ final class FloatingPanel: NSPanel {
                     operations.append(.image(data))
                 }
             }
+        }
+
+        // Suppress based on actual operations (not record count — stale entries are filtered out)
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+            appDelegate.monitor?.suppressChanges(count: operations.count)
         }
 
         // Execute sequentially with delay
@@ -296,17 +330,19 @@ final class FloatingPanel: NSPanel {
             Self.writeGIFToPasteboard(data, pasteboard: pb)
         case .video(let url):
             pb.writeObjects([url as NSURL])
+        case .file(let urls):
+            pb.writeObjects(urls.map { $0 as NSURL })
         }
 
         firePaste()
 
         // Schedule next operation after delay.
-        // Image/video pastes need a longer delay — apps need time to
+        // Image/video/file pastes need a longer delay — apps need time to
         // process each file before accepting the next paste.
         if index + 1 < ops.count {
             let nextIsMedia: Bool
             switch ops[index + 1] {
-            case .image, .gif, .video: nextIsMedia = true
+            case .image, .gif, .video, .file: nextIsMedia = true
             default: nextIsMedia = false
             }
             let delay: TimeInterval = nextIsMedia ? 0.6 : 0.1

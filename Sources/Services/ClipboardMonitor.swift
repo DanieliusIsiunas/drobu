@@ -68,7 +68,109 @@ final class ClipboardMonitor {
         }
         let frontApp = NSWorkspace.shared.frontmostApplication
         Log.debug("ClipboardMonitor: change \(lastChangeCount - 1)→\(lastChangeCount) from \(frontApp?.localizedName ?? "unknown") (\(frontApp?.bundleIdentifier ?? "?")), types: [\(items.flatMap { $0.types.map(\.rawValue) }.joined(separator: ", "))]")
+
+        // Pre-scan: detect file URLs across all items (Finder puts one item per file)
+        let fileItems = items.filter { item in
+            guard let urlString = item.string(forType: .fileURL),
+                  let url = URL(string: urlString),
+                  url.scheme == "file",
+                  url.pathExtension.lowercased() != "gif" else { return false }
+            return true
+        }
+
+        // If ALL items are file URLs → create single grouped file record, skip per-item loop
+        if !fileItems.isEmpty && fileItems.count == items.count {
+            // Filter out any items with concealed/transient types (check ALL items, not just first)
+            let safeFileItems = fileItems.filter { item in
+                !item.types.map(\.rawValue).contains(where: { Self.ignoredTypes.contains($0) })
+            }
+            guard !safeFileItems.isEmpty else {
+                Log.debug("ClipboardMonitor: skipped file URLs — concealed type")
+                return
+            }
+
+            let paths = safeFileItems.compactMap { item -> String? in
+                guard let urlString = item.string(forType: .fileURL),
+                      let url = URL(string: urlString) else { return nil }
+                return url.path
+            }.sorted()
+            guard !paths.isEmpty else { return }
+
+            let joined = paths.joined(separator: "\n")
+            let hash = Data(joined.utf8).sha256String
+            let sourceApp = frontApp?.localizedName
+            let sourceBundleId = frontApp?.bundleIdentifier
+
+            let record = ClipboardRecord(
+                kind: ClipboardRecord.kindFile,
+                plainText: joined,
+                imageData: nil,
+                sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId,
+                contentHash: hash,
+                createdAt: Date()
+            )
+
+            Log.debug("ClipboardMonitor: captured file (\(paths.count) path(s), \(joined.utf8.count) bytes) hash=\(hash.prefix(8))")
+            let db = database
+            Task.detached {
+                do {
+                    _ = try await db.pool.write { dbConn in
+                        try ClipboardRecord.upsert(record, in: dbConn)
+                    }
+                } catch {
+                    Log.error("ClipboardMonitor: upsert failed: \(error)")
+                }
+            }
+            return
+        }
+
+        // Mixed pasteboard: capture file-URL items as a file record, then process the rest
+        // Filter out concealed/transient file items (same privacy guard as the per-item loop)
+        let nonConcealedFileItems = fileItems.filter { item in
+            !item.types.map(\.rawValue).contains(where: { Self.ignoredTypes.contains($0) })
+        }
+        let fileItemIds = Set(fileItems.map { ObjectIdentifier($0) })
+        if !nonConcealedFileItems.isEmpty {
+            let paths = nonConcealedFileItems.compactMap { item -> String? in
+                guard let urlString = item.string(forType: .fileURL),
+                      let url = URL(string: urlString) else { return nil }
+                return url.path
+            }.sorted()
+            if !paths.isEmpty {
+                let joined = paths.joined(separator: "\n")
+                let hash = Data(joined.utf8).sha256String
+                let sourceApp = frontApp?.localizedName
+                let sourceBundleId = frontApp?.bundleIdentifier
+                let record = ClipboardRecord(
+                    kind: ClipboardRecord.kindFile,
+                    plainText: joined,
+                    imageData: nil,
+                    sourceApp: sourceApp,
+                    sourceBundleId: sourceBundleId,
+                    contentHash: hash,
+                    createdAt: Date()
+                )
+                Log.debug("ClipboardMonitor: captured file from mixed pasteboard (\(paths.count) path(s)) hash=\(hash.prefix(8))")
+                let db = database
+                Task.detached {
+                    do {
+                        _ = try await db.pool.write { dbConn in
+                            try ClipboardRecord.upsert(record, in: dbConn)
+                        }
+                    } catch {
+                        Log.error("ClipboardMonitor: upsert failed: \(error)")
+                    }
+                }
+            }
+        }
+
         for item in items {
+            // Skip items already captured as file URLs above
+            if fileItemIds.contains(ObjectIdentifier(item)) {
+                continue
+            }
+
             let typeStrings = item.types.map(\.rawValue)
 
             // Skip concealed/transient types (password managers, etc.)

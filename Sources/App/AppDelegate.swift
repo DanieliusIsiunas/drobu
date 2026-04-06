@@ -197,6 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     try ClipboardRecord.cleanup(retentionDays: retentionDays, maxCount: maxCount, in: db)
                 }
 
+                // Cleanup file entries where all referenced files have been deleted
+                try await database.pool.write { db in
+                    try ClipboardRecord.cleanupMissingFiles(in: db)
+                }
+
                 // Orphan scan: remove video files with no matching DB record.
                 // Catches files left behind when retention deletes video records.
                 let knownHashes = try await database.pool.read { db in
