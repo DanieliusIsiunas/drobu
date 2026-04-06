@@ -528,8 +528,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard") {
                 NSWorkspace.shared.open(url)
-            } else {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!)
+            } else if let fallback = URL(string: "x-apple.systempreferences:") {
+                NSWorkspace.shared.open(fallback)
             }
         }
     }

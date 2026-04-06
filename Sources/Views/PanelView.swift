@@ -777,7 +777,7 @@ struct PanelView: View {
         let opts = cmd.options()
         if opts.count == 1 {
             Task {
-                await cmd.execute(option: opts[0])
+                if let opt = opts.first { await cmd.execute(option: opt) }
                 panel?.close()
             }
             return
@@ -874,7 +874,7 @@ struct PanelView: View {
             closeLargePreview()
         } else {
             guard let item = previewItem, let parentPanel = panel else { return }
-            let screen = parentPanel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+            guard let screen = parentPanel.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
             let preview = LargePreviewPanel()
             preview.onNavigationKey = { keyCode in
                 self.handleLargePreviewKey(keyCode)
@@ -1106,7 +1106,7 @@ struct PanelView: View {
         let selected = selectedItems
         guard !selected.isEmpty else { return }
         if selected.count == 1 {
-            panel?.pasteItem(selected[0])
+            if let first = selected.first { panel?.pasteItem(first) }
         } else {
             panel?.pasteItems(selected)
         }

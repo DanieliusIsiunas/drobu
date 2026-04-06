@@ -10,7 +10,8 @@ private let clamshellCallback: IOServiceInterestCallback = { refcon, _, messageT
     guard messageType == kIOPMMessageClamshellStateChange else { return }
     let bits = UInt32(UInt(bitPattern: messageArgument))
     let isClosed = (bits & kClamshellStateBit) != 0
-    let obj = Unmanaged<ClosedLidService>.fromOpaque(refcon!).takeUnretainedValue()
+    guard let refcon else { return }
+    let obj = Unmanaged<ClosedLidService>.fromOpaque(refcon).takeUnretainedValue()
     Task { @MainActor in
         obj.handleClamshellChange(isClosed: isClosed)
     }

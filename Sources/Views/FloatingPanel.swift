@@ -241,7 +241,7 @@ final class FloatingPanel: NSPanel {
 
         // Single item — use existing fast path
         if records.count == 1 {
-            pasteItem(records[0])
+            if let first = records.first { pasteItem(first) }
             return
         }
 

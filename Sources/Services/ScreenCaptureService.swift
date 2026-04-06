@@ -144,7 +144,8 @@ final class ScreenCaptureService {
         // Find the display matching this screen
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         guard let targetDisplay = availableContent.displays.first(where: {
-            displayID != nil ? $0.displayID == displayID! : true
+            if let displayID { return $0.displayID == displayID }
+            return true
         }) else {
             throw CaptureError.displayNotFound
         }
@@ -233,7 +234,7 @@ final class ScreenCaptureService {
             } else if frames.isEmpty {
                 delay = defaultDelay
             } else {
-                delay = frames.last!.delay
+                delay = frames.last?.delay ?? defaultDelay
             }
             frames.append((data: rawFrames[i].data, delay: delay))
         }

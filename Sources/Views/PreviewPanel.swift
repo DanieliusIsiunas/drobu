@@ -220,8 +220,8 @@ struct PreviewPanel: View {
                     .foregroundStyle(.secondary)
             } else if item.kind == ClipboardRecord.kindFile, let text = item.plainText {
                 let paths = text.split(separator: "\n")
-                if paths.count == 1 {
-                    let url = URL(fileURLWithPath: String(paths[0]))
+                if paths.count == 1, let first = paths.first {
+                    let url = URL(fileURLWithPath: String(first))
                     let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
                     let size = attrs?[.size] as? Int64 ?? 0
                     let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
