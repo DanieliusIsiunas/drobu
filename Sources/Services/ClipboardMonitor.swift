@@ -123,13 +123,45 @@ final class ClipboardMonitor {
             return
         }
 
-        // Build set of file-URL items to skip in per-item loop (mixed pasteboard case)
+        // Mixed pasteboard: capture file-URL items as a file record, then process the rest
         let fileItemIds = Set(fileItems.map { ObjectIdentifier($0) })
+        if !fileItems.isEmpty {
+            let paths = fileItems.compactMap { item -> String? in
+                guard let urlString = item.string(forType: .fileURL),
+                      let url = URL(string: urlString) else { return nil }
+                return url.path
+            }.sorted()
+            if !paths.isEmpty {
+                let joined = paths.joined(separator: "\n")
+                let hash = Data(joined.utf8).sha256String
+                let sourceApp = frontApp?.localizedName
+                let sourceBundleId = frontApp?.bundleIdentifier
+                let record = ClipboardRecord(
+                    kind: ClipboardRecord.kindFile,
+                    plainText: joined,
+                    imageData: nil,
+                    sourceApp: sourceApp,
+                    sourceBundleId: sourceBundleId,
+                    contentHash: hash,
+                    createdAt: Date()
+                )
+                Log.debug("ClipboardMonitor: captured file from mixed pasteboard (\(paths.count) path(s)) hash=\(hash.prefix(8))")
+                let db = database
+                Task.detached {
+                    do {
+                        _ = try await db.pool.write { dbConn in
+                            try ClipboardRecord.upsert(record, in: dbConn)
+                        }
+                    } catch {
+                        Log.error("ClipboardMonitor: upsert failed: \(error)")
+                    }
+                }
+            }
+        }
 
         for item in items {
-            // Skip items already handled as file URLs in mixed pasteboard
+            // Skip items already captured as file URLs above
             if fileItemIds.contains(ObjectIdentifier(item)) {
-                Log.debug("ClipboardMonitor: skipping file-URL item in mixed pasteboard")
                 continue
             }
 

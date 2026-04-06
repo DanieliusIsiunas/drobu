@@ -235,16 +235,7 @@ final class FloatingPanel: NSPanel {
             return
         }
 
-        // Calculate how many pasteboard writes we'll make for suppression
-        let imageCount = records.filter { $0.kind == ClipboardRecord.kindImage || $0.kind == ClipboardRecord.kindGif }.count
-        let videoCount = records.filter { $0.kind == ClipboardRecord.kindVideo }.count
-        let fileCount = records.filter { $0.kind == ClipboardRecord.kindFile }.count
         let textItems = records.filter { $0.kind == ClipboardRecord.kindText }
-        let suppressCount = (textItems.isEmpty ? 0 : 1) + imageCount + videoCount + fileCount
-
-        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-            appDelegate.monitor?.suppressChanges(count: suppressCount)
-        }
 
         // Close panel first (instant)
         close()
@@ -261,7 +252,8 @@ final class FloatingPanel: NSPanel {
             return
         }
 
-        // Build paste operations: text concatenated first, then images individually
+        // Build paste operations first, then compute suppression from actual ops
+        // (stale file/video entries may be filtered out, so pre-counting by kind over-suppresses)
         var operations: [PasteOperation] = []
 
         if !textItems.isEmpty {
@@ -293,6 +285,11 @@ final class FloatingPanel: NSPanel {
                     operations.append(.image(data))
                 }
             }
+        }
+
+        // Suppress based on actual operations (not record count — stale entries are filtered out)
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+            appDelegate.monitor?.suppressChanges(count: operations.count)
         }
 
         // Execute sequentially with delay
