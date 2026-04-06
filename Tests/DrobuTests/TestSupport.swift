@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GRDB
 @testable import DrobuCore
@@ -17,6 +18,53 @@ func makeTestDatabase() throws -> AppDatabase {
         .appendingPathExtension("sqlite")
     return try AppDatabase(path: path.path)
 }
+
+// MARK: - MockPasteboardItem
+
+@MainActor
+final class MockPasteboardItem: PasteboardItemReading {
+    var types: [NSPasteboard.PasteboardType]
+    private var dataStore: [NSPasteboard.PasteboardType: Data]
+    private var stringStore: [NSPasteboard.PasteboardType: String]
+
+    init(
+        types: [NSPasteboard.PasteboardType] = [],
+        data: [NSPasteboard.PasteboardType: Data] = [:],
+        strings: [NSPasteboard.PasteboardType: String] = [:]
+    ) {
+        self.types = types
+        self.dataStore = data
+        self.stringStore = strings
+    }
+
+    func data(forType type: NSPasteboard.PasteboardType) -> Data? { dataStore[type] }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { stringStore[type] }
+
+    // MARK: Factories
+
+    static func text(_ string: String) -> MockPasteboardItem {
+        MockPasteboardItem(
+            types: [.string],
+            strings: [.string: string]
+        )
+    }
+
+    static func gif(_ data: Data) -> MockPasteboardItem {
+        MockPasteboardItem(
+            types: [.gif],
+            data: [.gif: data]
+        )
+    }
+
+    static func image(_ data: Data, type: NSPasteboard.PasteboardType = .png) -> MockPasteboardItem {
+        MockPasteboardItem(
+            types: [type],
+            data: [type: data]
+        )
+    }
+}
+
+// MARK: - ClipboardRecord Factory
 
 func makeRecord(
     kind: String = ClipboardRecord.kindText,
