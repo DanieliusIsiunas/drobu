@@ -2,7 +2,7 @@ import AppKit
 import AVKit
 import Carbon.HIToolbox
 import SwiftUI
-import VisionKit
+@preconcurrency import VisionKit
 
 /// A floating panel that shows clipboard content at near-full size.
 /// Attached as a child window to the main FloatingPanel via `addChildWindow`.
