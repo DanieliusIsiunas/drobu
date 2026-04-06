@@ -23,6 +23,8 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 
 **Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it.
 
+**Tests:** `swift test` — runs 24 tests (ClipboardRecord + TerminalTextCleaner) in ~0.05s. Tests use temp-file databases against the real DatabasePool.
+
 ## Architecture
 
 macOS menu bar app (SwiftUI + AppKit hybrid, GRDB for SQLite, HotKey for shortcuts). Runs as `.accessory` (no dock icon).
@@ -31,11 +33,15 @@ macOS menu bar app (SwiftUI + AppKit hybrid, GRDB for SQLite, HotKey for shortcu
 
 ```
 Sources/
-├── App/           # AppDelegate, DrobuApp (entry point)
-├── Database/      # AppDatabase (GRDB pool, migrations)
-├── Models/        # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
-├── Services/      # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
-└── Views/         # PanelView (main UI), FloatingPanel, SettingsView, PreviewPanel, GIF views
+├── DrobuCore/     # Library target (all app logic, importable by tests)
+│   ├── App/       # AppDelegate, Notification.Name extensions
+│   ├── Database/  # AppDatabase (GRDB pool, migrations)
+│   ├── Models/    # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
+│   ├── Services/  # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
+│   └── Views/     # PanelView (main UI), FloatingPanel, SettingsView, PreviewPanel, GIF views
+├── Drobu/         # Executable target (thin @main entry point + SettingsOpenerView)
+Tests/
+└── DrobuTests/    # Test target (@testable import DrobuCore)
 ```
 
 DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
