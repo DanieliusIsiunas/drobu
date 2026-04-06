@@ -111,7 +111,12 @@ final class AppDatabase: Sendable {
                 )
             }
 
-            // Add sourceApp to FTS index so media items remain searchable by app name
+            // Add sourceApp to FTS index so media items remain searchable by app name.
+            // Drop sync triggers first — db.drop(table:) only removes the virtual table,
+            // not the triggers that synchronize(withTable:) created on clipboardItem.
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_ai")
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_ad")
+            try db.execute(sql: "DROP TRIGGER IF EXISTS __clipboardItemFts_au")
             try db.drop(table: "clipboardItemFts")
             try db.create(virtualTable: "clipboardItemFts", using: FTS5()) { t in
                 t.synchronize(withTable: "clipboardItem")
