@@ -19,8 +19,8 @@ struct ChromaSweepBorder: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay { restingBorderView }
-            .overlay { animatedBorderView }
+            .overlay { restingBorderView.accessibilityHidden(true) }
+            .overlay { animatedBorderView.accessibilityHidden(true) }
             .onAppear {
                 if isActive {
                     animationStart = Date()

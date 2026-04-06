@@ -93,11 +93,14 @@ struct PreviewPanel: View {
     private func imagePreview(for item: ClipboardRecord) -> some View {
         Group {
             if let data = item.imageData, let nsImage = NSImage(data: data) {
+                let w = Int(nsImage.size.width)
+                let h = Int(nsImage.size.height)
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(12)
+                    .accessibilityLabel("Image preview, \(w) by \(h) pixels")
             } else {
                 VStack {
                     Image(systemName: "photo")
@@ -128,6 +131,7 @@ struct PreviewPanel: View {
             AnimatedGIFView(data: data)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(12)
+                .accessibilityLabel("Animated GIF preview")
         } else {
             VStack {
                 Image(systemName: "play.rectangle")
@@ -153,6 +157,7 @@ struct PreviewPanel: View {
         } else if FileManager.default.fileExists(atPath: url.path) {
             InlineVideoPlayerView(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Video preview")
         } else if let data = item.imageData, let nsImage = NSImage(data: data) {
             // Fallback: show thumbnail if video file is missing
             Image(nsImage: nsImage)
@@ -261,6 +266,8 @@ struct PreviewPanel: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(selectionCount) items selected. Press Return to paste all")
     }
 
     // MARK: - Empty State
@@ -315,6 +322,8 @@ struct InlineVideoPlayerView: NSViewRepresentable {
         let playerView = AVPlayerView()
         playerView.controlsStyle = .inline
         playerView.showsFullScreenToggleButton = false
+        playerView.setAccessibilityLabel("Video player")
+        playerView.setAccessibilityRole(.group)
 
         let player = AVPlayer(url: url)
         playerView.player = player

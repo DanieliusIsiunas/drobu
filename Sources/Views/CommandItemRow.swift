@@ -37,5 +37,10 @@ struct CommandItemRow: View {
         .background(isCursor ? Color.accentColor.opacity(0.2) : Color.clear)
         .cornerRadius(6)
         .frame(height: Self.rowHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isCursor ? [.isSelected] : [])
+        .accessibilityHint("Press Return to select")
     }
 }

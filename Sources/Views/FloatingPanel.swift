@@ -40,6 +40,7 @@ final class FloatingPanel: NSPanel {
         animationBehavior = .none
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
+        title = "Clipboard History"
 
         contentView = NSHostingView(rootView:
             content()
@@ -432,6 +433,10 @@ final class FloatingPanel: NSPanel {
         }
 
         hud.orderFront(nil)
+
+        // Announce to VoiceOver
+        NSAccessibility.post(element: visual, notification: .announcementRequested,
+                             userInfo: [.announcement: "Copied to clipboard"])
 
         // Auto-dismiss after 1.5 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

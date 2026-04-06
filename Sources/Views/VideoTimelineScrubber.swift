@@ -13,6 +13,11 @@ struct VideoTimelineScrubber: NSViewRepresentable {
         Coordinator(self)
     }
 
+    private static func formatTime(_ t: Double) -> String {
+        let m = Int(t) / 60; let s = Int(t) % 60
+        return String(format: "%d:%02d", m, s)
+    }
+
     func makeNSView(context: Context) -> VideoScrubberNSView {
         let view = VideoScrubberNSView()
         view.coordinator = context.coordinator
@@ -20,6 +25,8 @@ struct VideoTimelineScrubber: NSViewRepresentable {
         view.startTime = startTime
         view.endTime = endTime
         view.currentTime = currentTime
+        view.setAccessibilityRole(.slider)
+        view.setAccessibilityLabel("Video timeline, \(Self.formatTime(startTime)) to \(Self.formatTime(endTime)) of \(Self.formatTime(duration))")
         return view
     }
 
@@ -29,6 +36,7 @@ struct VideoTimelineScrubber: NSViewRepresentable {
         nsView.endTime = endTime
         nsView.currentTime = currentTime
         nsView.needsDisplay = true
+        nsView.setAccessibilityLabel("Video timeline, \(Self.formatTime(startTime)) to \(Self.formatTime(endTime)) of \(Self.formatTime(duration))")
     }
 
     @MainActor

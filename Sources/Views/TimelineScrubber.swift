@@ -21,6 +21,8 @@ struct TimelineScrubber: NSViewRepresentable {
         view.startFrame = startFrame
         view.endFrame = endFrame
         view.currentFrame = currentFrame
+        view.setAccessibilityRole(.slider)
+        view.setAccessibilityLabel("GIF timeline, frames \(startFrame) to \(endFrame) of \(frameCount)")
         return view
     }
 
@@ -30,6 +32,7 @@ struct TimelineScrubber: NSViewRepresentable {
         nsView.endFrame = endFrame
         nsView.currentFrame = currentFrame
         nsView.needsDisplay = true
+        nsView.setAccessibilityLabel("GIF timeline, frames \(startFrame) to \(endFrame) of \(frameCount)")
     }
 
     @MainActor

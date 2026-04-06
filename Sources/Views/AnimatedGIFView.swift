@@ -14,6 +14,8 @@ struct AnimatedGIFView: NSViewRepresentable {
         imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         imageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         imageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        imageView.setAccessibilityLabel("Animated GIF")
+        imageView.setAccessibilityRole(.image)
         if let image = NSImage(data: data) {
             image.size = .zero // Let the view control sizing, not the image
             imageView.image = image

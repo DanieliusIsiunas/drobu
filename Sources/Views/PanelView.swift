@@ -154,16 +154,19 @@ struct PanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: searchIcon)
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 TextField(searchPlaceholder, text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .focused($isSearchFocused)
+                    .accessibilityLabel(panelMode == .clipboard ? "Search clipboard" : "Search commands")
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 14)
@@ -379,6 +382,7 @@ struct PanelView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .padding(.vertical, 4)
+                .accessibilityHidden(true)
         }
     }
 
@@ -406,6 +410,9 @@ struct PanelView: View {
                             anchor = 0
                         }
                     }
+                    .accessibilityLabel("\(filter.label) filter")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAddTraits(index == activeFilter ? [.isSelected] : [])
             }
             Spacer()
         }
@@ -493,6 +500,7 @@ struct PanelView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                         .padding(.vertical, 4)
+                        .accessibilityHidden(true)
                 }
             }
         }
@@ -520,6 +528,9 @@ struct PanelView: View {
                             anchor = 0
                         }
                     }
+                    .accessibilityLabel("\(section) section")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAddTraits(index == activeSection ? [.isSelected] : [])
             }
             Spacer()
         }
@@ -1158,6 +1169,7 @@ struct VisualEffectBackground: NSViewRepresentable {
         view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
+        view.setAccessibilityElement(false)
         return view
     }
 

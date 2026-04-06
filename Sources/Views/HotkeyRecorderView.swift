@@ -34,15 +34,29 @@ enum HotkeyDefaults {
 
 final class HotkeyRecorderNSView: NSView {
     var keyCombo: KeyCombo? {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateAccessibilityValue()
+        }
     }
     var isRecording = false {
         didSet { needsDisplay = true }
     }
     var onChange: ((KeyCombo?) -> Void)?
     var saveAction: (KeyCombo?) -> Void = { HotkeyDefaults.save($0) }
+    var accessibilityLabelText: String = "Hotkey" {
+        didSet { setAccessibilityLabel(accessibilityLabelText) }
+    }
 
     override var acceptsFirstResponder: Bool { true }
+
+    private func updateAccessibilityValue() {
+        if let combo = keyCombo {
+            setAccessibilityValue(combo.description)
+        } else {
+            setAccessibilityValue("None")
+        }
+    }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: 160, height: 24)
@@ -155,6 +169,7 @@ final class HotkeyRecorderNSView: NSView {
 struct HotkeyRecorderView: NSViewRepresentable {
     @Binding var keyCombo: KeyCombo?
     var saveAction: @MainActor (KeyCombo?) -> Void = { HotkeyDefaults.save($0) }
+    var accessibilityLabelText: String = "Hotkey"
 
     func makeNSView(context: Context) -> HotkeyRecorderNSView {
         let view = HotkeyRecorderNSView()
@@ -163,11 +178,15 @@ struct HotkeyRecorderView: NSViewRepresentable {
         view.onChange = { newCombo in
             keyCombo = newCombo
         }
+        view.setAccessibilityRole(.button)
+        view.accessibilityLabelText = accessibilityLabelText
+        view.setAccessibilityHelp("Click to record a new keyboard shortcut")
         return view
     }
 
     func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
         nsView.keyCombo = keyCombo
         nsView.saveAction = saveAction
+        nsView.accessibilityLabelText = accessibilityLabelText
     }
 }

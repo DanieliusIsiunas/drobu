@@ -15,21 +15,21 @@ struct SettingsView: View {
                 HStack {
                     Text("Global Hotkey")
                     Spacer()
-                    HotkeyRecorderView(keyCombo: $hotkeyCombo)
+                    HotkeyRecorderView(keyCombo: $hotkeyCombo, accessibilityLabelText: "Global Hotkey")
                         .frame(width: 160, height: 24)
                 }
 
                 HStack {
                     Text("Capture GIF Hotkey")
                     Spacer()
-                    HotkeyRecorderView(keyCombo: $captureHotkeyCombo, saveAction: CaptureHotkeyDefaults.save)
+                    HotkeyRecorderView(keyCombo: $captureHotkeyCombo, saveAction: CaptureHotkeyDefaults.save, accessibilityLabelText: "Capture GIF Hotkey")
                         .frame(width: 160, height: 24)
                 }
 
                 HStack {
                     Text("Capture Video Hotkey")
                     Spacer()
-                    HotkeyRecorderView(keyCombo: $videoCaptureHotkeyCombo, saveAction: VideoCaptureHotkeyDefaults.save)
+                    HotkeyRecorderView(keyCombo: $videoCaptureHotkeyCombo, saveAction: VideoCaptureHotkeyDefaults.save, accessibilityLabelText: "Capture Video Hotkey")
                         .frame(width: 160, height: 24)
                 }
 
@@ -55,6 +55,7 @@ struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 60)
+                        .accessibilityLabel("Retention days")
                         .onChange(of: retentionDays) { _, newValue in
                             let clamped = max(1, min(365, newValue))
                             if clamped != newValue {
@@ -74,6 +75,7 @@ struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 80)
+                        .accessibilityLabel("Maximum items")
                         .onChange(of: maxItemCount) { _, newValue in
                             let clamped = max(100, min(50000, newValue))
                             if clamped != newValue {
@@ -99,6 +101,8 @@ struct SettingsView: View {
                         .onTapGesture {
                             confirmAndDeleteAll()
                         }
+                        .accessibilityLabel("Delete all clipboard history")
+                        .accessibilityAddTraits(.isButton)
                 }
             }
 
