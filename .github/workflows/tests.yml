@@ -3,8 +3,14 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '*.md', 'website/**', 'Resources/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '*.md', 'website/**', 'Resources/**']
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -12,4 +18,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
       - run: swift test
