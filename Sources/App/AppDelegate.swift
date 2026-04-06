@@ -427,7 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hash = gifData.sha256String
         let record = ClipboardRecord(
             kind: ClipboardRecord.kindGif,
-            plainText: "Screen Capture",
+            plainText: ClipboardRecord.mediaDisplayText(from: gifData, kind: ClipboardRecord.kindGif),
             imageData: gifData,
             sourceApp: "Screen Capture",
             sourceBundleId: Bundle.main.bundleIdentifier,
