@@ -70,6 +70,8 @@ struct EditableTextView: NSViewRepresentable {
         textView.onSave = onSave
         textView.onDiscard = onDiscard
         textView.onCleanup = onCleanup
+        textView.setAccessibilityLabel("Text editor")
+        textView.setAccessibilityHelp("Command Return to save, Escape to discard")
 
         // Set initial text without triggering textDidChange
         context.coordinator.suppressTextChange = true

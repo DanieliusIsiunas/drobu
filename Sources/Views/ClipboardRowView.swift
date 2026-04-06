@@ -30,6 +30,11 @@ struct ClipboardRowView: View {
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .cornerRadius(6)
         .frame(height: Self.rowHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.accessibilityDescription)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint("Press Return to paste")
     }
 
     // MARK: - App Icon

@@ -227,6 +227,56 @@ extension NSPasteboard.PasteboardType {
 }
 
 extension ClipboardRecord {
+    /// Single source of truth for VoiceOver labels.
+    /// Format: "{Kind}: {preview}, from {app}" — omits source when nil.
+    /// Single source of truth for VoiceOver labels.
+    /// Format: "{Kind}: {preview}, from {app}" — omits source when nil.
+    /// Uses pre-computed `plainText` for media items to avoid decoding image/GIF data on the render path.
+    var accessibilityDescription: String {
+        var parts: [String] = []
+
+        switch kind {
+        case Self.kindText:
+            let preview = (plainText ?? "").prefix(80)
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            parts.append(preview.isEmpty ? "Text" : "Text: \(preview)")
+
+        case Self.kindImage:
+            // plainText is pre-computed at capture time, e.g. "Image: 1920×1080 (245 KB)"
+            parts.append(plainText ?? "Image")
+
+        case Self.kindGif:
+            // plainText is pre-computed at capture time, e.g. "GIF: 640×480 (1.5 MB, 3.2s)"
+            parts.append(plainText ?? "GIF")
+
+        case Self.kindVideo:
+            parts.append(plainText?.isEmpty == false ? plainText! : "Video")
+
+        case Self.kindFile:
+            if let text = plainText {
+                let paths = text.split(separator: "\n")
+                if paths.count == 1, let first = paths.first {
+                    let name = URL(fileURLWithPath: String(first)).lastPathComponent
+                    parts.append("File: \(name)")
+                } else {
+                    parts.append("File: \(paths.count) files")
+                }
+            } else {
+                parts.append("File")
+            }
+
+        default:
+            parts.append(plainText?.prefix(80).description ?? "Clipboard item")
+        }
+
+        if let app = sourceApp, !app.isEmpty {
+            parts.append("from \(app)")
+        }
+
+        return parts.joined(separator: ", ")
+    }
+
     static func mediaDisplayText(from data: Data, kind: String) -> String {
         let label = kind == kindGif ? "GIF" : "Image"
         guard let nsImage = NSImage(data: data) else { return label }

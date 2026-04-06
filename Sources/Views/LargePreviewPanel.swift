@@ -26,6 +26,7 @@ final class LargePreviewPanel: NSPanel {
         animationBehavior = .none
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
+        title = "Preview"
     }
 
     /// Called when a navigation key is pressed while this panel is key.
@@ -114,6 +115,8 @@ struct LiveTextImageView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSImageView {
         let imageView = FlexibleImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.setAccessibilityLabel("Image with selectable text")
+        imageView.setAccessibilityRole(.image)
 
         let overlay = ImageAnalysisOverlayView()
         overlay.preferredInteractionTypes = [.textSelection, .dataDetectors]
@@ -213,11 +216,13 @@ struct LargePreviewContent: View {
             if ImageAnalyzer.isSupported {
                 LiveTextImageView(imageData: data, contentHash: item.contentHash)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("Image preview with selectable text")
             } else if let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("Image preview")
             } else {
                 unavailable("photo", "Unable to load image")
             }
@@ -231,6 +236,7 @@ struct LargePreviewContent: View {
         if let data = item.imageData {
             AnimatedGIFView(data: data)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Animated GIF preview")
         } else {
             unavailable("play.rectangle", "Unable to load GIF")
         }
@@ -242,11 +248,13 @@ struct LargePreviewContent: View {
         if FileManager.default.fileExists(atPath: url.path) {
             InlineVideoPlayerView(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Video preview")
         } else if let data = item.imageData, let nsImage = NSImage(data: data) {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Video thumbnail")
         } else {
             unavailable("video.fill", "Video file not found")
         }
@@ -286,6 +294,7 @@ private struct ReadOnlyTextView: NSViewRepresentable {
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.string = text
+        textView.setAccessibilityLabel("Full text content")
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
