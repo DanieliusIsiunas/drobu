@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        menu.addItem(withTitle: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
         if let controller = updaterController {
             let checkForUpdatesItem = NSMenuItem(
                 title: "Check for Updates...",

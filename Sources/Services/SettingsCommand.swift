@@ -8,7 +8,7 @@ final class SettingsCommand: SlashCommand {
     let description = "Open Drobu preferences"
 
     func options() -> [CommandOption] {
-        [CommandOption(id: "open", label: "Open Preferences", icon: "gearshape", isDestructive: false)]
+        [CommandOption(id: "open", label: "Open Settings", icon: "gearshape", isDestructive: false)]
     }
 
     func execute(option: CommandOption) async {
