@@ -169,41 +169,45 @@ final class FloatingPanel: NSPanel {
         // Matches Maccy's sequence: close → copy → paste
         close()
 
-        // 2. Write to pasteboard (works without any permission)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
+        // 2. For file entries, bail out early if all paths are stale
+        //    (avoids clearing the user's clipboard and firing an empty Cmd+V)
+        if record.kind == ClipboardRecord.kindFile {
+            guard let text = record.plainText else { return }
+            let urls: [NSURL] = text.split(separator: "\n").compactMap { path in
+                let p = String(path)
+                guard FileManager.default.fileExists(atPath: p) else { return nil }
+                return URL(fileURLWithPath: p) as NSURL
+            }
+            guard !urls.isEmpty else { return }
 
-        switch record.kind {
-        case ClipboardRecord.kindText:
-            if let text = record.plainText {
-                pasteboard.setString(text, forType: .string)
-            }
-        case ClipboardRecord.kindGif:
-            if let data = record.imageData {
-                Self.writeGIFToPasteboard(data, pasteboard: pasteboard)
-            }
-        case ClipboardRecord.kindImage:
-            if let data = record.imageData {
-                pasteboard.setData(data, forType: .tiff)
-            }
-        case ClipboardRecord.kindVideo:
-            let url = ClipboardRecord.videoPath(for: record.contentHash)
-            if FileManager.default.fileExists(atPath: url.path) {
-                pasteboard.writeObjects([url as NSURL])
-            }
-        case ClipboardRecord.kindFile:
-            if let text = record.plainText {
-                let urls: [NSURL] = text.split(separator: "\n").compactMap { path in
-                    let p = String(path)
-                    guard FileManager.default.fileExists(atPath: p) else { return nil }
-                    return URL(fileURLWithPath: p) as NSURL
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.writeObjects(urls)
+        } else {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+
+            switch record.kind {
+            case ClipboardRecord.kindText:
+                if let text = record.plainText {
+                    pasteboard.setString(text, forType: .string)
                 }
-                if !urls.isEmpty {
-                    pasteboard.writeObjects(urls)
+            case ClipboardRecord.kindGif:
+                if let data = record.imageData {
+                    Self.writeGIFToPasteboard(data, pasteboard: pasteboard)
                 }
+            case ClipboardRecord.kindImage:
+                if let data = record.imageData {
+                    pasteboard.setData(data, forType: .tiff)
+                }
+            case ClipboardRecord.kindVideo:
+                let url = ClipboardRecord.videoPath(for: record.contentHash)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    pasteboard.writeObjects([url as NSURL])
+                }
+            default:
+                break
             }
-        default:
-            break
         }
 
         Log.debug("FloatingPanel: pasted \(record.kind) (\(record.imageData?.count ?? record.plainText?.utf8.count ?? 0) bytes)")

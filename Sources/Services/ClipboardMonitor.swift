@@ -124,9 +124,13 @@ final class ClipboardMonitor {
         }
 
         // Mixed pasteboard: capture file-URL items as a file record, then process the rest
+        // Filter out concealed/transient file items (same privacy guard as the per-item loop)
+        let nonConcealedFileItems = fileItems.filter { item in
+            !item.types.map(\.rawValue).contains(where: { Self.ignoredTypes.contains($0) })
+        }
         let fileItemIds = Set(fileItems.map { ObjectIdentifier($0) })
-        if !fileItems.isEmpty {
-            let paths = fileItems.compactMap { item -> String? in
+        if !nonConcealedFileItems.isEmpty {
+            let paths = nonConcealedFileItems.compactMap { item -> String? in
                 guard let urlString = item.string(forType: .fileURL),
                       let url = URL(string: urlString) else { return nil }
                 return url.path
