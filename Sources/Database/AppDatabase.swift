@@ -95,6 +95,7 @@ final class AppDatabase: Sendable {
         }
 
         migrator.registerMigration("v3-backfillMediaDisplayText") { db in
+            // Backfill plainText for image/GIF records with descriptive display text
             let cursor = try Row.fetchCursor(db, sql: """
                 SELECT id, kind, imageData FROM clipboardItem
                 WHERE kind IN ('image', 'gif')
@@ -108,6 +109,15 @@ final class AppDatabase: Sendable {
                     sql: "UPDATE clipboardItem SET plainText = ? WHERE id = ?",
                     arguments: [displayText, id]
                 )
+            }
+
+            // Add sourceApp to FTS index so media items remain searchable by app name
+            try db.drop(table: "clipboardItemFts")
+            try db.create(virtualTable: "clipboardItemFts", using: FTS5()) { t in
+                t.synchronize(withTable: "clipboardItem")
+                t.tokenizer = .unicode61()
+                t.column("plainText")
+                t.column("sourceApp")
             }
         }
 
