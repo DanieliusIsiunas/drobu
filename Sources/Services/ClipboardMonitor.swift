@@ -80,14 +80,16 @@ final class ClipboardMonitor {
 
         // If ALL items are file URLs → create single grouped file record, skip per-item loop
         if !fileItems.isEmpty && fileItems.count == items.count {
-            // Check concealed types on first item
-            let firstTypes = items[0].types.map(\.rawValue)
-            if firstTypes.contains(where: { Self.ignoredTypes.contains($0) }) {
+            // Filter out any items with concealed/transient types (check ALL items, not just first)
+            let safeFileItems = fileItems.filter { item in
+                !item.types.map(\.rawValue).contains(where: { Self.ignoredTypes.contains($0) })
+            }
+            guard !safeFileItems.isEmpty else {
                 Log.debug("ClipboardMonitor: skipped file URLs — concealed type")
                 return
             }
 
-            let paths = fileItems.compactMap { item -> String? in
+            let paths = safeFileItems.compactMap { item -> String? in
                 guard let urlString = item.string(forType: .fileURL),
                       let url = URL(string: urlString) else { return nil }
                 return url.path
