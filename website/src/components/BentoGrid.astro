@@ -14,59 +14,346 @@ import BentoCard from "./BentoCard.astro";
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      <!-- Row 1: Instant search (large) + Slash commands (medium) -->
+
       <BentoCard
         title="Instant search"
         description="FTS5 full-text search finds anything as you type. Your entire clipboard history, instantly searchable."
         size="large"
       >
-        <Fragment slot="placeholder">Search demo</Fragment>
-      </BentoCard>
-
-      <BentoCard
-        title="Global hotkey"
-        description="Cmd+Shift+V from any app. The panel appears without stealing focus."
-        size="medium"
-      >
-        <Fragment slot="placeholder">
-          <div class="flex items-center gap-1.5">
-            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">&#8984;</kbd>
-            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">&#8679;</kbd>
-            <kbd class="px-2 py-1 rounded bg-white/10 text-text-secondary text-xs font-mono">V</kbd>
+        <!-- Search mockup with results -->
+        <div class="w-full h-full flex flex-col p-3 text-left">
+          <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 mb-2">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted shrink-0">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <span class="text-xs text-text-primary font-mono">api</span>
+            <span class="text-[10px] text-text-muted ml-auto">3 results</span>
           </div>
-        </Fragment>
-      </BentoCard>
-
-      <BentoCard
-        title="Images & GIFs"
-        description="Not just text. Drobu captures images and GIFs with full preview."
-        size="medium"
-      >
-        <Fragment slot="placeholder">Image preview</Fragment>
-      </BentoCard>
-
-      <BentoCard
-        title="Multi-select paste"
-        description="Select multiple items with Shift, paste them all at once."
-        size="small"
-      >
-        <Fragment slot="placeholder">Multi-select demo</Fragment>
+          <div class="space-y-1 flex-1">
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-accent/10">
+              <div class="w-3 h-3 rounded bg-[#8b5cf6] shrink-0"></div>
+              <span class="text-[11px] text-text-primary truncate">const <mark class="bg-accent/30 text-accent px-0.5 rounded">api</mark>Key = process.env.API_KEY</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-[#1a8cff] shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">https://jsonplaceholder.typicode.com/<mark class="bg-accent/30 text-accent px-0.5 rounded">api</mark>/v2</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-[#f59e0b] shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">TODO: migrate <mark class="bg-accent/30 text-accent px-0.5 rounded">API</mark> endpoints to v3</span>
+            </div>
+          </div>
+          <div class="text-[9px] text-text-muted text-right mt-1">< 1ms</div>
+        </div>
       </BentoCard>
 
       <BentoCard
         title="Slash commands"
-        description="Type / for built-in commands. Keep your Mac awake, prevent sleep with lid closed."
-        size="small"
+        description="Type / for built-in commands. Keep your Mac awake, prevent sleep with lid closed, open settings."
+        size="medium"
       >
-        <Fragment slot="placeholder">/sleep</Fragment>
+        <!-- Command palette mockup -->
+        <div class="w-full h-full flex flex-col p-3">
+          <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 mb-2">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0">
+              <polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>
+            </svg>
+            <span class="text-xs text-text-primary font-mono">/sleep</span>
+          </div>
+          <div class="space-y-1 flex-1">
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded bg-accent/10">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>
+              </svg>
+              <div class="flex flex-col">
+                <span class="text-[11px] text-text-primary">Keep Awake</span>
+                <span class="text-[9px] text-text-muted">Prevent your Mac from sleeping</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-secondary shrink-0">
+                <rect x="2" y="4" width="20" height="12" rx="2"/><path d="M6 20h12"/>
+              </svg>
+              <div class="flex flex-col">
+                <span class="text-[11px] text-text-secondary">Closed Lid</span>
+                <span class="text-[9px] text-text-muted">Keep running with lid closed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </BentoCard>
+
+      <!-- Row 2: Images & GIFs + Video capture + GIF capture -->
+
+      <BentoCard
+        title="Images & GIFs"
+        description="Not just text. Drobu captures images and GIFs with full preview and metadata."
+        size="medium"
+      >
+        <!-- Image preview mockup -->
+        <div class="w-full h-full flex flex-col p-3">
+          <div class="flex-1 rounded-lg bg-gradient-to-br from-[#1a8cff]/20 via-[#8b5cf6]/20 to-[#d4715e]/20 flex items-center justify-center relative overflow-hidden">
+            <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_48%,rgba(255,255,255,0.03)_48%,rgba(255,255,255,0.03)_52%,transparent_52%)] bg-[length:8px_8px]"></div>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-text-muted">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="m21 15-5-5L5 21"/>
+            </svg>
+          </div>
+          <div class="flex items-center justify-between mt-2">
+            <span class="text-[10px] text-text-muted">1920 &times; 1080 &middot; PNG</span>
+            <span class="text-[10px] text-text-muted">245 KB</span>
+          </div>
+        </div>
+      </BentoCard>
+
+      <BentoCard
+        title="Video screen capture"
+        description="Record any region of your screen as MP4. Up to 5 minutes, with a built-in trim editor."
+        size="medium"
+      >
+        <!-- Video recording mockup -->
+        <div class="w-full h-full flex flex-col items-center justify-center gap-3 p-3">
+          <div class="w-full flex-1 rounded-lg bg-bg-primary border border-white/5 relative overflow-hidden flex items-center justify-center">
+            <!-- Fake screen content -->
+            <div class="absolute inset-0 p-2 opacity-30">
+              <div class="w-full h-2 rounded bg-white/10 mb-1.5"></div>
+              <div class="w-3/4 h-2 rounded bg-white/10 mb-1.5"></div>
+              <div class="w-1/2 h-2 rounded bg-white/10"></div>
+            </div>
+            <!-- Region selection overlay -->
+            <div class="relative border-2 border-accent border-dashed rounded px-6 py-4 bg-accent/5">
+              <div class="flex items-center gap-2">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
+                <span class="text-xs font-mono text-text-primary">02:34</span>
+              </div>
+            </div>
+          </div>
+          <!-- Trim timeline -->
+          <div class="w-full flex items-center gap-1.5">
+            <div class="h-1 flex-1 rounded-full bg-white/10 relative overflow-hidden">
+              <div class="absolute left-[10%] right-[30%] top-0 bottom-0 bg-accent/40 rounded-full"></div>
+            </div>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" class="text-text-muted"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </div>
+        </div>
       </BentoCard>
 
       <BentoCard
         title="GIF screen capture"
-        description="Record any region of your screen as a GIF. Drag to select, trim, and save to clipboard."
+        description="Record any region of your screen as a GIF. Drag to select, trim frame-by-frame, and save to clipboard."
         size="medium"
       >
-        <Fragment slot="placeholder">Screen capture demo</Fragment>
+        <!-- GIF capture mockup -->
+        <div class="w-full h-full flex flex-col items-center justify-center gap-2 p-3">
+          <div class="w-full flex-1 rounded-lg bg-bg-primary border border-white/5 relative flex items-center justify-center overflow-hidden">
+            <!-- Crosshair region select -->
+            <div class="absolute inset-3 border border-accent/50 rounded">
+              <div class="absolute -top-1 -left-1 w-2 h-2 border-t-2 border-l-2 border-accent"></div>
+              <div class="absolute -top-1 -right-1 w-2 h-2 border-t-2 border-r-2 border-accent"></div>
+              <div class="absolute -bottom-1 -left-1 w-2 h-2 border-b-2 border-l-2 border-accent"></div>
+              <div class="absolute -bottom-1 -right-1 w-2 h-2 border-b-2 border-r-2 border-accent"></div>
+            </div>
+            <div class="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-card/90 border border-white/5">
+              <div class="w-2 h-2 rounded-full bg-red-500"></div>
+              <span class="text-[10px] font-mono text-text-primary">GIF &middot; 10fps</span>
+            </div>
+          </div>
+          <!-- Frame strip -->
+          <div class="w-full flex gap-0.5">
+            <div class="h-3 flex-1 rounded-sm bg-accent/30"></div>
+            <div class="h-3 flex-1 rounded-sm bg-accent/30"></div>
+            <div class="h-3 flex-1 rounded-sm bg-accent/30"></div>
+            <div class="h-3 flex-1 rounded-sm bg-accent/30"></div>
+            <div class="h-3 flex-1 rounded-sm bg-accent/30"></div>
+            <div class="h-3 flex-1 rounded-sm bg-white/5"></div>
+            <div class="h-3 flex-1 rounded-sm bg-white/5"></div>
+            <div class="h-3 flex-1 rounded-sm bg-white/5"></div>
+          </div>
+        </div>
       </BentoCard>
+
+      <!-- Row 3: Keyboard-first (large, 2-col) + Content filtering (medium, 1-col) -->
+
+      <BentoCard
+        title="Keyboard-first"
+        description="Cmd+Shift+V from any app — the panel appears without stealing focus. Every action has a shortcut."
+        size="large"
+      >
+        <!-- Keyboard shortcut cheat sheet -->
+        <div class="w-full h-full grid grid-cols-2 gap-x-6 gap-y-4 p-5 content-center">
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-accent/15 text-accent font-mono border border-accent/20 shadow-[0_1px_0_0_rgba(212,113,94,0.1)]">&#8984;</kbd>
+              <kbd class="text-xs px-2 py-1 rounded-md bg-accent/15 text-accent font-mono border border-accent/20 shadow-[0_1px_0_0_rgba(212,113,94,0.1)]">&#8679;</kbd>
+              <kbd class="text-xs px-2 py-1 rounded-md bg-accent/15 text-accent font-mono border border-accent/20 shadow-[0_1px_0_0_rgba(212,113,94,0.1)]">V</kbd>
+            </div>
+            <span class="text-sm text-accent">Open Drobu</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8984;</kbd>
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">1-9</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Quick paste</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8593;&#8595;</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Browse history</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8679;</kbd>
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8593;&#8595;</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Multi-select</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#9166;</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Paste selected</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8679;</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Large preview</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">/</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Slash commands</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8984;</kbd>
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">&#8594;</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Edit text</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1">
+              <kbd class="text-xs px-2 py-1 rounded-md bg-white/10 text-text-secondary font-mono border border-white/5 shadow-[0_1px_0_0_rgba(255,255,255,0.05)]">esc</kbd>
+            </div>
+            <span class="text-sm text-text-muted">Dismiss</span>
+          </div>
+        </div>
+      </BentoCard>
+
+      <BentoCard
+        title="Content filtering"
+        description="Filter your history by type — text, images, GIFs, videos, or files. Find what you need, fast."
+        size="medium"
+      >
+        <!-- Filter tabs mockup -->
+        <div class="w-full h-full flex flex-col p-3">
+          <div class="flex items-center gap-1 mb-2 flex-wrap">
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-text-muted">All</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-text-muted">Text</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-accent/20 text-accent font-medium">Image</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-text-muted">GIF</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-text-muted">Video</span>
+          </div>
+          <div class="space-y-1 flex-1">
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-5 h-5 rounded bg-gradient-to-br from-blue-500/30 to-purple-500/30 shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">Screenshot 2026-04-11</span>
+              <span class="text-[9px] text-text-muted ml-auto">1.2 MB</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-5 h-5 rounded bg-gradient-to-br from-green-500/30 to-teal-500/30 shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">diagram-v2.png</span>
+              <span class="text-[9px] text-text-muted ml-auto">456 KB</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-5 h-5 rounded bg-gradient-to-br from-orange-500/30 to-red-500/30 shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">profile-photo.jpg</span>
+              <span class="text-[9px] text-text-muted ml-auto">89 KB</span>
+            </div>
+          </div>
+        </div>
+      </BentoCard>
+
+      <!-- Row 4: Multi-select + Source tracking -->
+
+      <BentoCard
+        title="Multi-select paste"
+        description="Select multiple items with Shift, paste them all at once. Combine text clips in one action."
+        size="medium"
+      >
+        <!-- Multi-select mockup -->
+        <div class="w-full h-full flex flex-col p-3 gap-2">
+          <div class="space-y-0.5 flex-1">
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-white/10 shrink-0"></div>
+              <span class="text-[11px] text-text-muted truncate">import Foundation</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-accent/15 border-l-2 border-accent">
+              <div class="w-3 h-3 rounded bg-accent/30 shrink-0"></div>
+              <span class="text-[11px] text-text-primary truncate">struct User: Codable &#123; &hellip; &#125;</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-accent/15 border-l-2 border-accent">
+              <div class="w-3 h-3 rounded bg-accent/30 shrink-0"></div>
+              <span class="text-[11px] text-text-primary truncate">enum Role: String &#123; &hellip; &#125;</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-white/10 shrink-0"></div>
+              <span class="text-[11px] text-text-muted truncate">let decoder = JSONDecoder()</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-center gap-1.5 py-1 rounded bg-accent/10">
+            <span class="text-[10px] text-accent font-medium">2 items selected</span>
+            <span class="text-[10px] text-text-muted">&middot; &#9166; to paste</span>
+          </div>
+        </div>
+      </BentoCard>
+
+      <BentoCard
+        title="Source app tracking"
+        description="Every clip shows which app it came from. Icons and names at a glance — know where everything originated."
+        size="medium"
+      >
+        <!-- Source app tracking mockup -->
+        <div class="w-full h-full flex flex-col p-3">
+          <div class="space-y-1 flex-1">
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-4 h-4 rounded bg-[#1a8cff] shrink-0 flex items-center justify-center">
+                <span class="text-[7px] text-white font-bold">S</span>
+              </div>
+              <span class="text-[11px] text-text-secondary truncate flex-1">https://github.com/&hellip;</span>
+              <span class="text-[9px] text-accent">Safari</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-4 h-4 rounded bg-[#8b5cf6] shrink-0 flex items-center justify-center">
+                <span class="text-[7px] text-white font-bold">C</span>
+              </div>
+              <span class="text-[11px] text-text-secondary truncate flex-1">func viewDidLoad() {</span>
+              <span class="text-[9px] text-accent">Xcode</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-4 h-4 rounded bg-[#22c55e] shrink-0 flex items-center justify-center">
+                <span class="text-[7px] text-white font-bold">N</span>
+              </div>
+              <span class="text-[11px] text-text-secondary truncate flex-1">Meeting notes — Q2</span>
+              <span class="text-[9px] text-accent">Notes</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5">
+              <div class="w-4 h-4 rounded bg-[#f59e0b] shrink-0 flex items-center justify-center">
+                <span class="text-[7px] text-white font-bold">S</span>
+              </div>
+              <span class="text-[11px] text-text-secondary truncate flex-1">Hey, can you review&hellip;</span>
+              <span class="text-[9px] text-accent">Slack</span>
+            </div>
+          </div>
+        </div>
+      </BentoCard>
+
     </div>
   </div>
 </section>

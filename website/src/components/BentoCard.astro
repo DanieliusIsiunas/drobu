@@ -2,14 +2,13 @@
 interface Props {
   title: string;
   description: string;
-  size?: "small" | "medium" | "large";
+  size?: "medium" | "large";
   class?: string;
 }
 
 const { title, description, size = "medium", class: className = "" } = Astro.props;
 
 const sizeClasses = {
-  small: "md:col-span-1",
   medium: "md:col-span-1",
   large: "md:col-span-2",
 };
@@ -22,12 +21,9 @@ const sizeClasses = {
   sizeClasses[size],
   className,
 ]}>
-  <!-- Placeholder for future video/image -->
+  <!-- Visual mockup area -->
   <div class="aspect-video rounded-lg bg-bg-elevated mb-5 flex items-center justify-center overflow-hidden">
     <slot />
-    <div class="text-text-muted text-xs">
-      <slot name="placeholder">Preview</slot>
-    </div>
   </div>
 
   <h3 class="text-lg font-semibold text-text-primary mb-1">{title}</h3>

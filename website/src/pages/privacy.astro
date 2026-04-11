@@ -9,50 +9,36 @@ import Landing from "../layouts/Landing.astro";
     <h1 class="text-3xl font-bold text-text-primary mb-8">Privacy Policy</h1>
 
     <div class="prose prose-invert prose-sm max-w-none space-y-6 text-text-secondary leading-relaxed">
-      <p><strong class="text-text-primary">Last updated:</strong> March 2026</p>
+      <p><strong class="text-text-primary">Last updated:</strong> April 2026</p>
 
-      <h2 class="text-lg font-semibold text-text-primary mt-8">Local-first by design</h2>
+      <h2 class="text-lg font-semibold text-text-primary mt-8">The short version</h2>
       <p>
-        Drobu stores all clipboard data locally on your Mac. Your clipboard history never leaves your device. There is no cloud sync, no remote storage, and no telemetry. We cannot access your clipboard data.
+        Drobu stores everything locally on your Mac. Your clipboard history never leaves your device. We have no servers, no accounts, no telemetry, and no way to see your data.
       </p>
 
-      <h2 class="text-lg font-semibold text-text-primary mt-8">What we collect</h2>
+      <h2 class="text-lg font-semibold text-text-primary mt-8">What Stripe collects</h2>
       <p>
-        Drobu the application collects no data. However, when you subscribe through our website, our payment processor (Stripe) collects:
+        When you subscribe, <a href="https://stripe.com" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Stripe</a> collects your email, payment info, and IP address to process the payment. We receive your email and subscription status — never your card details. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Stripe's privacy policy</a> for details.
       </p>
-      <ul class="list-disc list-inside space-y-1">
-        <li>Email address</li>
-        <li>Payment information (credit card details)</li>
-        <li>Billing address (if required by your payment method)</li>
-        <li>IP address and browser information (for fraud prevention)</li>
-      </ul>
+
+      <h2 class="text-lg font-semibold text-text-primary mt-8">Update checks</h2>
       <p>
-        This data is processed by Stripe in accordance with their <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">privacy policy</a>. We do not store your payment details on our servers.
+        Drobu periodically checks for updates by fetching a file from GitHub Pages. The request includes your macOS and app version in the User-Agent header. No personal data is sent.
+      </p>
+
+      <h2 class="text-lg font-semibold text-text-primary mt-8">macOS permissions</h2>
+      <p>
+        Drobu asks for <strong class="text-text-primary">Accessibility</strong> (to simulate Cmd+V for pasting) and <strong class="text-text-primary">Screen Recording</strong> (for GIF/video capture). Neither is used to monitor your activity or collect data. Password manager entries (1Password, etc.) are automatically ignored and never stored.
       </p>
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">No tracking</h2>
       <p>
-        The Drobu website does not use analytics, cookies, or third-party tracking scripts. We do not track your browsing behavior.
-      </p>
-
-      <h2 class="text-lg font-semibold text-text-primary mt-8">No account system</h2>
-      <p>
-        Drobu does not require an account. There is no user database, no login system, and no profile data stored on our servers.
-      </p>
-
-      <h2 class="text-lg font-semibold text-text-primary mt-8">Password manager compatibility</h2>
-      <p>
-        Drobu automatically ignores concealed items from password managers like 1Password. Transient clipboard entries and auto-generated passwords are never stored in your clipboard history.
-      </p>
-
-      <h2 class="text-lg font-semibold text-text-primary mt-8">Data retention</h2>
-      <p>
-        Clipboard history retention is configurable within the app. You control how long items are kept and can delete individual items or clear your entire history at any time. All data is stored in a local SQLite database on your Mac.
+        This website has no analytics, no cookies, and no tracking scripts.
       </p>
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">Contact</h2>
       <p>
-        For privacy questions, email <a href="mailto:support@drobu.app" class="text-accent hover:underline">support@drobu.app</a>.
+        Privacy questions? <a href="mailto:support@drobu.app" class="text-accent hover:underline">support@drobu.app</a>
       </p>
     </div>
   </main>
