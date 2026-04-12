@@ -6,7 +6,7 @@ import BentoCard from "./BentoCard.astro";
   <div class="max-w-6xl mx-auto">
     <div class="text-center mb-16">
       <h2 class="text-3xl md:text-4xl font-bold text-text-primary">
-        Every content type. One workflow.
+        Every content type. Zero friction.
       </h2>
       <p class="mt-4 text-text-secondary text-lg max-w-xl mx-auto">
         Text, images, GIFs, videos, files — captured, edited, and pasted without breaking your flow.
@@ -29,7 +29,7 @@ import BentoCard from "./BentoCard.astro";
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
             </svg>
             <span class="text-xs text-text-primary font-mono">api</span>
-            <span class="text-[10px] text-text-muted ml-auto">3 results</span>
+            <span class="text-[10px] text-text-muted ml-auto">6 results</span>
           </div>
           <div class="space-y-1 flex-1">
             <div class="flex items-center gap-2 px-2 py-1 rounded bg-accent/10">
@@ -43,6 +43,18 @@ import BentoCard from "./BentoCard.astro";
             <div class="flex items-center gap-2 px-2 py-1 rounded">
               <div class="w-3 h-3 rounded bg-[#f59e0b] shrink-0"></div>
               <span class="text-[11px] text-text-secondary truncate">TODO: migrate <mark class="bg-accent/30 text-accent px-0.5 rounded">API</mark> endpoints to v3</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-[#22c55e] shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">fetch("/v2/<mark class="bg-accent/30 text-accent px-0.5 rounded">api</mark>/users", headers)</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-[#ef4444] shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">curl -X POST https://<mark class="bg-accent/30 text-accent px-0.5 rounded">api</mark>.stripe.com/v1</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1 rounded">
+              <div class="w-3 h-3 rounded bg-[#06b6d4] shrink-0"></div>
+              <span class="text-[11px] text-text-secondary truncate">// <mark class="bg-accent/30 text-accent px-0.5 rounded">API</mark> rate limit: 100 req/min</span>
             </div>
           </div>
           <div class="text-[9px] text-text-muted text-right mt-1">< 1ms</div>
@@ -285,7 +297,7 @@ import BentoCard from "./BentoCard.astro";
       <BentoCard
         title="Combine and paste"
         description="Select multiple clips with Shift and paste them together. Assemble content from different sources without opening a text editor."
-        size="medium"
+        size="large"
       >
         <!-- Multi-select mockup -->
         <div class="w-full h-full flex flex-col p-3 gap-2">
