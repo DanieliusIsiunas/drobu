@@ -270,11 +270,23 @@ final class ClipboardMonitor {
             }
 
             // Strip ANSI escape sequences (terminal color codes, cursor control, OSC)
-            let cleaned = TerminalTextCleaner.stripANSI(trimmed)
-            guard !cleaned.isEmpty else {
+            let stripped = TerminalTextCleaner.stripANSI(trimmed)
+            guard !stripped.isEmpty else {
                 Log.debug("ClipboardMonitor: empty after ANSI strip")
                 return nil
             }
+
+            // Auto-unwrap hard-wrapped prose (e.g. CLI output) when the text
+            // doesn't look like code, YAML, or shell. Skipped content can
+            // still be cleaned manually via the edit-mode hotkey.
+            let cleaned: String
+            if TerminalTextCleaner.shouldAutoClean(stripped) {
+                cleaned = TerminalTextCleaner.clean(stripped)
+                Log.debug("ClipboardMonitor: auto-cleaned wrapped text from \(sourceApp ?? "unknown")")
+            } else {
+                cleaned = stripped
+            }
+
             guard cleaned.utf8.count <= 1_000_000 else {
                 Log.debug("ClipboardMonitor: text too large (\(cleaned.utf8.count / 1000)KB)")
                 return nil
