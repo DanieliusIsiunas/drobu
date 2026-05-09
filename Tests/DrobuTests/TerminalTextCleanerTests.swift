@@ -40,6 +40,119 @@ struct TerminalTextCleanerTests {
         #expect(result == input)
     }
 
+    // MARK: - shouldAutoClean()
+
+    @Test func shouldAutoCleanAcceptsWrappedProse() {
+        let input = "This is a long line of CLI output\n  that wraps onto the next line\n  and continues here"
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
+    @Test func shouldAutoCleanSkipsAlreadyClean() {
+        #expect(TerminalTextCleaner.shouldAutoClean("Already clean text without continuations.") == false)
+    }
+
+    @Test(
+        "Inputs that only need whitespace stripping are not auto-cleaned",
+        arguments: [
+            // Single indented line — no continuation to unwrap.
+            "    return value",
+            // Trailing whitespace only.
+            "hello world   ",
+            // Two indented lines separated by a blank — no continuation crosses the gap.
+            "    line one\n\n    line two",
+        ]
+    )
+    func shouldAutoCleanSkipsWhenNoContinuation(input: String) {
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == false)
+    }
+
+    @Test(
+        "Code-shaped content is rejected",
+        arguments: [
+            // Brace-block code (Swift / JS / C / CSS)
+            "func foo() {\n    return 1\n}",
+            "{\n  \"key\": \"value\"\n}",
+            ".foo {\n  color: red\n}",
+            // Indentation-significant declarations
+            "def my_func():\n    return 1",
+            "class Foo:\n    pass",
+            "import Foundation\n  more text",
+            "const x = 5\n  continuation",
+            "function bar()\n  body",
+            // Block-closer continuation lines
+            "doSomething\n})",
+            "doSomething\n};",
+        ]
+    )
+    func shouldAutoCleanRejectsCode(input: String) {
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == false)
+    }
+
+    @Test(
+        "YAML nested maps are rejected",
+        arguments: [
+            "metadata:\n  name: foo",
+            "spec:\n  containers:\n    - name: app",
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: bar\n  namespace: default",
+        ]
+    )
+    func shouldAutoCleanRejectsYAML(input: String) {
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == false)
+    }
+
+    @Test(
+        "Basic shell control-flow blocks are rejected",
+        arguments: [
+            "if [ -f \"$file\" ]; then\n  echo hi\nfi",
+            "for x in *; do\n  echo $x\ndone",
+            "while true; do\n  sleep 1\ndone",
+        ]
+    )
+    func shouldAutoCleanRejectsShellControl(input: String) {
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == false)
+    }
+
+    @Test func shouldAutoCleanAcceptsProseWithSectionHeader() {
+        // A prose section header like `Note:` looks syntactically like a YAML
+        // key, but the indented continuation is plain prose, not a `key: value`
+        // pair. Must still be cleaned.
+        let input = "Note:\n  this paragraph wraps onto the next line\n  and continues here."
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
+    @Test func shouldAutoCleanAcceptsProseMentioningCodeChars() {
+        // Prose discussing code by literal characters should still clean —
+        // `{`, `}`, and `;` appearing inside prose are not structural code.
+        let input = """
+        - shouldAutoClean(_:) — heuristic that returns true only when text has \
+        unwrappable continuations AND no {, }, ;, and no line starts with code \
+        keywords (def, class, func, etc.).
+        - extractRecord — runs clean() automatically when the heuristic passes;
+          logs auto-cleaned wrapped text from <app> so you can verify.
+        """
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
+    @Test func shouldAutoCleanAcceptsProseWrappedAtCodeMention() {
+        // A continuation line that happens to begin with `}` because the
+        // sentence wrapped at a code mention is NOT a block closer.
+        let input = """
+        We support the characters {, }, and ; inside prose, plus mentions of
+          }, or ; inside prose no longer trigger a skip.
+        """
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
+    @Test func shouldAutoCleanAcceptsSemicolonInProse() {
+        let input = "The build passes; it then ships to production\n  with no further intervention."
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
+    @Test func shouldAutoCleanAcceptsCLIOutputWithBullets() {
+        let input = "Here is the result of running your command\n  with some wrapped explanation\n\n- item one\n- item two"
+        #expect(TerminalTextCleaner.shouldAutoClean(input) == true)
+    }
+
     // MARK: - stripANSI()
 
     @Test func stripANSIRemovesCSIColorCodes() {
