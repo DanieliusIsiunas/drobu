@@ -31,6 +31,11 @@ sparkle_private_key*
 # Debug artifacts from Claude/MCP sessions
 .playwright-mcp/
 
+# Environment files (keep .env.example committed as a template)
+.env
+.env.local
+.env.*.local
+
 # Stray screenshots at repo root (legitimate images live under
 # Resources/ and website/public/, which are not affected by this rule)
 /*.png
