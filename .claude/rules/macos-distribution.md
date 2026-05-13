@@ -40,6 +40,32 @@ Switch the `<enclosure type>` from `application/octet-stream` (used for `.zip`) 
 
 Optional for self-signed dev workflows; required for Apple Developer ID distribution. The signed `.app` inside the DMG is what matters for Gatekeeper; the outer DMG is signed only to prevent in-transit tampering of the container.
 
+## Gatekeeper bypass UX changed in macOS 15+ — "right-click → Open" is dead
+
+For years the workaround for unsigned apps on macOS was: **right-click the app, choose Open, then click "Open" in the dialog**. This still appears in countless tutorials and ships in plenty of indie-app onboarding docs (including Drobu's own thank-you page before this fix).
+
+**It doesn't work on macOS 15 (Sequoia) or macOS 26 (Tahoe).** Apple removed the right-click bypass UI for apps that lack Developer ID notarization. The blocking dialog now shows only "Move to Trash" and "Done" — no "Open" button anywhere.
+
+**The new bypass flow:**
+
+1. User tries to open the app → Gatekeeper blocks → dialog shows "Apple could not verify…" with Move to Trash / Done.
+2. Close the dialog (click Done).
+3. Open **System Settings → Privacy & Security**.
+4. Scroll to the **Security** section. A message says *"<App> was blocked because it is not from an identified developer"* with an **Open Anyway** button.
+5. Click **Open Anyway** → authenticate (Touch ID / password).
+6. Launch the app again → a different dialog appears with an actual **Open** button. Click it.
+7. The app now launches and is allowlisted on this Mac for future launches.
+
+Shell-level alternative (for technical users): `xattr -d com.apple.quarantine /Applications/<App>.app` strips the quarantine flag entirely.
+
+**Action for any user-facing install docs:**
+
+- Never write *"right-click and choose Open"* unless you're targeting macOS 14 or older.
+- Set expectations before the click: include the bypass instruction near the download CTA so the user finds it when they hit the wall (not buried in a chevron or a help page they have to navigate to).
+- Use the exact button names that appear in System Settings: **Privacy & Security**, the **Security** section header, **Open Anyway**. Generic language ("change security settings") is significantly less helpful.
+
+**The real fix is notarization.** Apple Developer Program ($99/year), Developer ID Application certificate, `xcrun notarytool submit` on every release, `xcrun stapler staple` to attach the notarization ticket to the DMG. Once stapled, Gatekeeper recognizes the signature chain → no warning, smooth install. The `build.sh --notarize` stub is already wired for this; just needs the Apple Developer ID cert.
+
 ## Don't use `cp -r` for `.app` bundles
 
 `Drobu.app/Contents/Frameworks/Sparkle.framework/Versions/Current` is a symlink to `Versions/B`. `cp -r` doesn't preserve symlinks correctly on macOS — the result is two directories instead of a directory + symlink, which breaks code signing and runtime framework lookup.
