@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Lock scroll to the vertical axis only. Prevents the macOS trackpad
+   rubber-band bounce on horizontal swipe — there is no horizontal content
+   to navigate to, and the bounce reads as jankiness. */
+html,
+body {
+  overscroll-behavior-x: none;
+  overflow-x: hidden;
+}
+
 /* Geist Variable font — self-hosted via fontsource */
 @font-face {
   font-family: "Geist Variable";
