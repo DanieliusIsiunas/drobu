@@ -5,7 +5,7 @@ import react from "@astrojs/react";
 
 export default defineConfig({
   site: "https://danieliusisiunas.github.io",
-  base: "/clipboard-history",
+  base: "/drobu",
   integrations: [react()],
   devToolbar: { enabled: false },
   vite: {

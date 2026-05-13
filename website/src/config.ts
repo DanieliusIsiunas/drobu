@@ -15,4 +15,4 @@ export const STRIPE_CHECKOUT_URL =
 /** GitHub Releases "latest" download URL — kept stable so the website never
  *  needs to be re-deployed when a new release is cut. */
 export const DOWNLOAD_URL =
-  "https://github.com/DanieliusIsiunas/clipboard-history/releases/latest/download/Drobu.zip";
+  "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.zip";

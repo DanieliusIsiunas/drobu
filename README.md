@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://danieliusisiunas.github.io/clipboard-history/">Website</a> ·
-  <a href="https://github.com/DanieliusIsiunas/clipboard-history/releases/latest/download/Drobu.zip">Download</a> ·
+  <a href="https://danieliusisiunas.github.io/drobu/">Website</a> ·
+  <a href="https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.zip">Download</a> ·
   <a href="LICENSE">License</a>
 </p>
 
@@ -26,7 +26,7 @@ Drobu lives in the menu bar and takes care of everything between "I copied this"
 - **Screen → GIF** — select a region, record, trim, paste the GIF anywhere
 - **Slash commands** for system actions (e.g. `/sleep` to keep the Mac awake while presenting)
 
-Everything stays on your machine. No accounts, no servers, no telemetry. See the [privacy page](https://danieliusisiunas.github.io/clipboard-history/privacy/) for the full statement.
+Everything stays on your machine. No accounts, no servers, no telemetry. See the [privacy page](https://danieliusisiunas.github.io/drobu/privacy/) for the full statement.
 
 ## Architecture
 

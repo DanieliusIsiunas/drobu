@@ -19,7 +19,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-REPO="DanieliusIsiunas/clipboard-history"
+REPO="DanieliusIsiunas/drobu"
 SIGN_UPDATE=".build/artifacts/sparkle/Sparkle/bin/sign_update"
 PLIST="Sources/DrobuCore/Info.plist"
 APPCAST="website/public/appcast.xml"
@@ -203,7 +203,7 @@ echo
 green "✓ Released $TAG"
 echo
 echo "  Download URL: $DOWNLOAD_URL"
-echo "  Appcast URL:  https://danieliusisiunas.github.io/clipboard-history/appcast.xml"
+echo "  Appcast URL:  https://danieliusisiunas.github.io/drobu/appcast.xml"
 echo "  GH release:   https://github.com/$REPO/releases/tag/$TAG"
 echo
 echo "GitHub Pages deploy takes ~1-2 min. Once live, an installed Drobu"

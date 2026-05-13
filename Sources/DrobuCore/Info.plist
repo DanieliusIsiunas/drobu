@@ -23,7 +23,7 @@
     <key>NSAppleEventsUsageDescription</key>
     <string>Drobu needs to run privileged commands for sleep prevention features.</string>
     <key>SUFeedURL</key>
-    <string>https://danieliusisiunas.github.io/clipboard-history/appcast.xml</string>
+    <string>https://danieliusisiunas.github.io/drobu/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>XmiKqgGJ6dSmGbT3ehj6B9IUkn87vRhKbe16rTWGP54=</string>
     <key>SUEnableAutomaticChecks</key>
