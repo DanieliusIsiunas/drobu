@@ -28,6 +28,9 @@ build/
 # Sparkle EdDSA private key (NEVER commit)
 sparkle_private_key*
 
+# Per-customer license issuance audit log
+tools/license-log.csv
+
 # Debug artifacts from Claude/MCP sessions
 .playwright-mcp/
 

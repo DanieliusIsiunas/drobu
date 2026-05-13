@@ -24,6 +24,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var badgeDotView: NSView?
     private var signalSources: [DispatchSourceSignal] = []
     private var updaterController: SPUStandardUpdaterController?
+    public private(set) var licenseManager: LicenseManager?
+    private var licenseRefreshTimer: Timer?
+    private var activationPanel: ActivationPanel?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -35,6 +38,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         Log.info("AppDelegate: launch — pid \(ProcessInfo.processInfo.processIdentifier)")
+
+        // License + trial state. Shared with SettingsView (which cannot
+        // reach this delegate because Settings runs under .regular
+        // activation policy). The static initializer fatalErrors if the
+        // public key is missing — a build defect we want surfaced loudly.
+        let mgr = LicenseManager.shared
+        mgr.recordFirstLaunchIfNeeded()
+        licenseManager = mgr
+        // Hourly refresh so a session left running across the trial
+        // boundary transitions to .trialExpired without user input.
+        licenseRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+            MainActor.assumeIsolated { LicenseManager.shared.refresh() }
+        }
 
         guard let db = database else { return }
 
@@ -174,6 +190,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPanel() {
         guard let database else { return }
+
+        // Hard gate: when the trial has expired and no license is active,
+        // route to the activation panel instead of the clipboard panel.
+        // The clipboard monitor keeps running in the background so when
+        // the user activates, their captured data is intact.
+        if let mgr = licenseManager, mgr.status == .trialExpired {
+            showActivationPanel(licenseManager: mgr)
+            return
+        }
+
         panel?.close()
         let sleepCommand = SleepCommand(caffeinateService: caffeinateService, closedLidService: closedLidService)
         let settingsCommand = SettingsCommand()
@@ -184,6 +210,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         panel?.showCentered()
+    }
+
+    private func showActivationPanel(licenseManager: LicenseManager) {
+        activationPanel?.close()
+        activationPanel = ActivationPanel(licenseManager: licenseManager)
+        activationPanel?.showCentered()
     }
 
     private func runCleanup() {

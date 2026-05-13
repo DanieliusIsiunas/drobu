@@ -9,6 +9,12 @@ public struct SettingsView: View {
     @State private var videoCaptureHotkeyCombo: KeyCombo? = VideoCaptureHotkeyDefaults.load()
     @State private var retentionDays = RetentionDefaults.loadRetentionDays()
     @State private var maxItemCount = RetentionDefaults.loadMaxItemCount()
+    @ObservedObject private var licenseManager = LicenseManager.shared
+    @State private var licenseKeyInput: String = ""
+    @State private var licenseErrorMessage: String?
+    @State private var licenseSuccessVisible: Bool = false
+
+    private static let stripeURL = URL(string: "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01")!
 
     public init() {}
 
@@ -109,6 +115,38 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("License") {
+                licenseStatusRow
+
+                if !isActivated {
+                    HStack {
+                        Text("Buy Drobu — $14.99")
+                            .foregroundStyle(Color.accentColor)
+                            .onTapGesture {
+                                NSWorkspace.shared.open(Self.stripeURL)
+                            }
+                            .accessibilityLabel("Buy Drobu for $14.99")
+                            .accessibilityAddTraits(.isButton)
+                        Spacer()
+                    }
+                    licenseKeyRow
+                } else {
+                    HStack {
+                        Text("Deactivate (for testing)")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                            .onTapGesture {
+                                licenseManager.deactivate()
+                                licenseKeyInput = ""
+                                licenseErrorMessage = nil
+                            }
+                            .accessibilityLabel("Deactivate license — for testing")
+                            .accessibilityAddTraits(.isButton)
+                        Spacer()
+                    }
+                }
+            }
+
             Section("About") {
                 Text("Drobu v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                     .foregroundStyle(.secondary)
@@ -121,6 +159,111 @@ public struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
+        }
+    }
+
+    // MARK: - License section helpers
+
+    private var isActivated: Bool {
+        if case .activated = licenseManager.status { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var licenseStatusRow: some View {
+        switch licenseManager.status {
+        case .trialActive(let daysRemaining):
+            HStack {
+                Text("Free trial")
+                Spacer()
+                Text("\(daysRemaining) day\(daysRemaining == 1 ? "" : "s") remaining")
+                    .foregroundStyle(.secondary)
+            }
+        case .trialExpired:
+            HStack {
+                Text("Free trial")
+                Spacer()
+                Text("Expired")
+                    .foregroundStyle(.red)
+            }
+        case .activated:
+            HStack {
+                Text("Status")
+                Spacer()
+                Text("Activated ✓")
+                    .foregroundStyle(.green)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var licenseKeyRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Multi-line input so the full ~110-char key is visible —
+            // single-line truncates and the user can't tell if the
+            // paste was complete.
+            TextField("Paste license key (DROBU-…)", text: $licenseKeyInput, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(3, reservesSpace: true)
+                .onChange(of: licenseKeyInput) { _, _ in licenseErrorMessage = nil }
+                .onSubmit(tryActivate)
+
+            if licenseSuccessVisible {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Activated — welcome to Drobu")
+                        .foregroundStyle(.green)
+                }
+                .font(.caption)
+            } else if let licenseErrorMessage {
+                Text(licenseErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Text("Activate")
+                    .font(.caption)
+                    .foregroundStyle(licenseKeyInput.isEmpty ? Color.secondary : Color.accentColor)
+                    .onTapGesture {
+                        guard !licenseKeyInput.isEmpty else { return }
+                        tryActivate()
+                    }
+                    .accessibilityLabel("Activate license key")
+                    .accessibilityAddTraits(.isButton)
+            }
+        }
+    }
+
+    private func tryActivate() {
+        let trimmed = licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try licenseManager.activate(keyString: trimmed)
+            licenseKeyInput = ""
+            licenseErrorMessage = nil
+            // Inline success confirmation. The Section re-renders to the
+            // "Activated" variant automatically because licenseManager.status
+            // changed, but we hold the success message for a beat so the
+            // user sees what just happened.
+            licenseSuccessVisible = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                licenseSuccessVisible = false
+            }
+        } catch let error as LicenseError {
+            switch error {
+            case .malformed:
+                licenseErrorMessage = "That doesn't look like a valid license key."
+            case .badSignature:
+                licenseErrorMessage = "License key rejected. Contact support if you need help."
+            case .publicKeyMissing:
+                licenseErrorMessage = "Drobu is misconfigured — contact support."
+            }
+        } catch {
+            licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
         }
     }
 
