@@ -2,13 +2,5 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
         <title>Drobu Updates</title>
-        <item>
-            <title>Version 1.2</title>
-            <pubDate>Wed, 13 May 2026 13:54:14 +0000</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/DanieliusIsiunas/drobu/releases/download/v1.2/Drobu.zip" length="4324241" type="application/octet-stream" sparkle:edSignature="JdsDceXxbZ4yQUHJ3lPTDOXYMxknF4bU4AZhUy9ODGBCFbTSUjl8ddiu7dz8vRVsvlUuEEFxrzkoCjICot37AQ=="/>
-        </item>
     </channel>
 </rss>
