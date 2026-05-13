@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://danieliusisiunas.github.io/drobu/">Website</a> ·
-  <a href="https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.zip">Download</a> ·
+  <a href="https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg">Download</a> ·
   <a href="LICENSE">License</a>
 </p>
 

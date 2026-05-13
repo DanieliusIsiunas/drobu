@@ -108,13 +108,6 @@ for arg in "$@"; do
             ditto "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
             echo "Installed: /Applications/${APP_NAME}.app"
             ;;
-        --dmg)
-            DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
-            rm -f "$DMG_PATH"
-            hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" \
-                -ov -format UDZO "$DMG_PATH"
-            echo "Created: $DMG_PATH"
-            ;;
         --notarize)
             # Requires Apple Developer ID certificate ($99/yr).
             # One-time setup: xcrun notarytool store-credentials "notary-profile"

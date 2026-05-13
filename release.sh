@@ -2,10 +2,11 @@
 # Cuts a Drobu release end-to-end:
 #   1. Reads version from Info.plist
 #   2. Builds and code-signs the app
-#   3. Zips Drobu.app (preserving framework symlinks via ditto)
-#   4. Signs the zip with Sparkle (reads private key from Keychain)
+#   3. Packages Drobu.app into a Drobu.dmg with create-dmg
+#      (drag-to-Applications window layout, "Drobu" volume name)
+#   4. Signs the DMG with Sparkle (reads private key from Keychain)
 #   5. Tags the commit and pushes
-#   6. Creates a GitHub Release with the zip attached
+#   6. Creates a GitHub Release with the DMG attached
 #   7. Updates website/public/appcast.xml with the new <item>
 #   8. Commits + pushes the appcast (GH Pages picks it up automatically)
 #
@@ -13,7 +14,7 @@
 # and commit that on main before running this script.
 #
 # Reversible if any step fails: tag/release/appcast commits can be deleted
-# manually; the local zip is removed at the end either way.
+# manually; the local DMG is removed at the end either way.
 
 set -euo pipefail
 
@@ -32,8 +33,9 @@ step()   { printf '\033[36m→ %s\033[0m\n' "$*"; }
 # --- Pre-flight ---------------------------------------------------------------
 
 [[ -x $SIGN_UPDATE ]] || { red "sign_update not at $SIGN_UPDATE — run ./build.sh once to fetch Sparkle artifacts."; exit 1; }
-command -v gh    >/dev/null || { red "gh CLI not installed."; exit 1; }
-command -v plutil >/dev/null || { red "plutil not on PATH."; exit 1; }
+command -v gh         >/dev/null || { red "gh CLI not installed."; exit 1; }
+command -v plutil     >/dev/null || { red "plutil not on PATH."; exit 1; }
+command -v create-dmg >/dev/null || { red "create-dmg not installed — run 'brew install create-dmg'."; exit 1; }
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $BRANCH == "main" ]] || { red "Not on main (on $BRANCH)."; exit 1; }
@@ -91,17 +93,25 @@ APP=".build/Drobu.app"
 
 # --- Package + sign -----------------------------------------------------------
 
-step "Packaging zip (ditto preserves Sparkle framework symlinks)"
+step "Packaging DMG (create-dmg lays out the magical drag-to-Applications window)"
 # Unversioned filename so the stable
-#   https://github.com/<repo>/releases/latest/download/Drobu.zip
+#   https://github.com/<repo>/releases/latest/download/Drobu.dmg
 # redirect resolves to the newest release without rewriting the website.
-ZIP="Drobu.zip"
-rm -f "$ZIP"
-(cd .build && ditto -c -k --keepParent Drobu.app "../$ZIP")
+DMG="Drobu.dmg"
+rm -f "$DMG"
+create-dmg \
+    --volname "Drobu" \
+    --window-size 540 380 \
+    --icon-size 100 \
+    --icon "Drobu.app" 130 180 \
+    --app-drop-link 410 180 \
+    --hide-extension "Drobu.app" \
+    "$DMG" \
+    ".build/Drobu.app"
 
-step "Signing with Sparkle (Keychain prompt may appear)"
+step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout
-SIG_LINE=$("$SIGN_UPDATE" "$ZIP")
+SIG_LINE=$("$SIGN_UPDATE" "$DMG")
 ED_SIG=$(printf '%s\n' "$SIG_LINE" | sed -nE 's/.*sparkle:edSignature="([^"]+)".*/\1/p')
 LENGTH=$(printf '%s\n' "$SIG_LINE" | sed -nE 's/.*length="([^"]+)".*/\1/p')
 
@@ -146,7 +156,7 @@ fi
 
 step "Creating GitHub release"
 RELEASE_BODY=$(printf "%s\n\n%s\n" "$NOTES_HEADER" "$NOTES")
-gh release create "$TAG" "$ZIP" \
+gh release create "$TAG" "$DMG" \
     --repo "$REPO" \
     --title "Drobu $VERSION" \
     --notes "$RELEASE_BODY"
@@ -155,7 +165,7 @@ gh release create "$TAG" "$ZIP" \
 # tag/release surgery, so drop the tag-cleanup trap.
 trap - ERR
 
-DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$ZIP"
+DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$DMG"
 echo "  Download URL: $DOWNLOAD_URL"
 
 # --- Appcast update -----------------------------------------------------------
@@ -170,7 +180,7 @@ NEW_ITEM=$(cat <<EOF
             <sparkle:version>$BUILD</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="$DOWNLOAD_URL" length="$LENGTH" type="application/octet-stream" sparkle:edSignature="$ED_SIG"/>
+            <enclosure url="$DOWNLOAD_URL" length="$LENGTH" type="application/x-apple-diskimage" sparkle:edSignature="$ED_SIG"/>
         </item>
 EOF
 )
@@ -210,7 +220,7 @@ git push
 
 # --- Cleanup ------------------------------------------------------------------
 
-rm -f "$ZIP"
+rm -f "$DMG"
 
 echo
 green "✓ Released $TAG"
