@@ -1,5 +1,5 @@
 ---
-import { STRIPE_CHECKOUT_URL } from "../config";
+import { DOWNLOAD_URL } from "../config";
 ---
 
 <section id="download" class="py-24 px-6">
@@ -13,15 +13,16 @@ import { STRIPE_CHECKOUT_URL } from "../config";
 
     <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
       <a
-        href={STRIPE_CHECKOUT_URL}
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
         class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
       >
-        Start free trial
+        Download Free Trial
       </a>
     </div>
 
     <div class="text-sm text-text-muted">
-      <p>Requires macOS 14 (Sonoma) or later &middot; Version 1.2</p>
+      <p>Free for 14 days, then $14.99 one-time &middot; macOS 14+ &middot; Version 1.2</p>
     </div>
   </div>
 </section>

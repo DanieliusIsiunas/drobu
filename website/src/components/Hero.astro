@@ -1,6 +1,6 @@
 ---
 import MacWindow from "./MacWindow.astro";
-import { STRIPE_CHECKOUT_URL } from "../config";
+import { DOWNLOAD_URL } from "../config";
 ---
 
 <section class="relative pt-32 pb-20 px-6">
@@ -22,16 +22,17 @@ import { STRIPE_CHECKOUT_URL } from "../config";
 
       <div class="mt-10 flex flex-col sm:flex-row items-center gap-4">
         <a
-          href={STRIPE_CHECKOUT_URL}
+          href={DOWNLOAD_URL}
+          download="Drobu.dmg"
           class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-base"
           id="download-cta"
         >
-          <span class="download-label">Start free trial</span>
+          <span class="download-label">Download Free Trial</span>
         </a>
       </div>
 
       <p class="mt-4 text-sm text-text-muted">
-        $14.99 one-time &middot; 14-day free trial &middot; macOS 14+
+        Free for 14 days, then $14.99 one-time &middot; macOS 14+
       </p>
     </div>
 
