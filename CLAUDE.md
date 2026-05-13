@@ -8,6 +8,18 @@
 
 When you discover a reusable gotcha or workaround during a session, **proactively append it** to `.claude/rules/<topic>.md` (create the file if needed). Choose a descriptive topic name (e.g., `swiftui-macos-gotchas.md`, `grdb-sqlite.md`). Keep each file focused on one topic.
 
+### When to capture a learning (concrete triggers)
+
+The proactive-append discipline only works if it fires on specific moments. Capture a rules entry **as soon as any of these fire** — not at end of session:
+
+- You just fixed a CI/build failure that wasn't a typo (cache invalidation, signing drift, missing toolchain, path issue)
+- A tool silently fell back to a degraded mode (build script ad-hoc signing, openssl wrong algorithm, hdiutil flat DMG, swift test cache miss)
+- You hit a macOS / Keychain / framework quirk that took more than ~10 minutes to diagnose
+- You catch yourself thinking *"I keep forgetting this"* or *"that's surprising"* or *"why is this even like this"*
+- A multi-round thread (5+ iterations of a single problem) yielded a meta-lesson worth a future-self note
+
+Cost of capture: ~5 minutes. Cost of skipping: re-discovery on the next iteration, every future similar event.
+
 ## Build & Run Commands
 
 ```bash
@@ -21,9 +33,11 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 - App log: `cat ~/Library/Application\ Support/ClipboardHistory/app.log`
 - `log show` does NOT work for this app — always use the file-based log above
 
-**Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it.
+**Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it. **Watch for trust drift** — the cert can be present in Keychain but lose `Always Trust` status (`security find-identity -v -p codesigning` returns 0 valid identities even though the cert exists). Details in `.claude/rules/sparkle-macos-gotchas.md`.
 
-**Tests:** `swift test` — runs 45 tests across 4 suites in ~0.25s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
+**Release pipeline:** `./release.sh` produces a signed `Drobu.dmg` with the drag-to-Applications window layout (via `create-dmg` Homebrew package — `brew install create-dmg` once per dev machine), signs it with the Sparkle EdDSA key from Keychain, tags + pushes, creates the GitHub Release, and updates `website/public/appcast.xml`. Bump version in `Sources/DrobuCore/Info.plist` first.
+
+**Tests:** `swift test` — runs ~73 tests across 5 suites in ~0.2s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
 
 ## Testing
 
@@ -56,20 +70,44 @@ macOS menu bar app (SwiftUI + AppKit hybrid, GRDB for SQLite, HotKey for shortcu
 
 **Core flow:** AppDelegate → ClipboardMonitor (polls pasteboard 0.5s) → AppDatabase (SQLite + FTS5) → FloatingPanel (PanelView)
 
+**License gate:** AppDelegate also instantiates `LicenseManager.shared` on launch. When the user invokes the hotkey, `showPanel()` checks the manager's status — if `.trialExpired` (and no valid license key), `ActivationPanel` opens instead of `FloatingPanel`. ClipboardMonitor keeps running regardless, so the user's history is preserved across the gate.
+
 ```
 Sources/
 ├── DrobuCore/     # Library target (all app logic, importable by tests)
 │   ├── App/       # AppDelegate, Notification.Name extensions
 │   ├── Database/  # AppDatabase (GRDB pool, migrations)
 │   ├── Models/    # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
-│   ├── Services/  # ClipboardMonitor, SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
-│   └── Views/     # PanelView (main UI), FloatingPanel, SettingsView, PreviewPanel, GIF views
+│   ├── Services/  # ClipboardMonitor, LicenseManager (+ LicenseError), SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
+│   └── Views/     # PanelView (main UI), FloatingPanel, ActivationPanel, ActivationView, SettingsView, PreviewPanel, GIF views
 ├── Drobu/         # Executable target (thin @main entry point + SettingsOpenerView)
 Tests/
 └── DrobuTests/    # Test target (@testable import DrobuCore)
 ```
 
 DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
+
+## Commercial model & Licensing
+
+**Pricing:** $14.99 one-time purchase, **14-day in-app free trial** (no payment method required upfront). After day 14 without a license key, the floating clipboard panel is hard-gated by `ActivationPanel`; clipboard monitoring continues so user data is preserved.
+
+**Funnel (trial-first):** website CTAs link directly to the latest signed DMG download — no Stripe in the pre-trial path. Stripe is only reached from inside Drobu (ActivationPanel Buy button or Settings → License) and on the post-payment `/thank-you/` page.
+
+**License keys:** Ed25519 cryptographic signatures, verified offline via `CryptoKit.Curve25519.Signing`. Format: `DROBU-<base64url(32-byte payload)>.<base64url(64-byte signature)>`.
+
+**Public key:** baked into `Sources/DrobuCore/Info.plist` as `DrobuLicensePublicKey` (base64-encoded 32 bytes). Re-generate via `./tools/generate-license-keypair.sh` (destructive — invalidates every previously-issued key).
+
+**Private key:** developer's login Keychain (account `drobu-license-ed25519`, service `com.danielius.ClipboardHistory.license-signing`). Never enters the repo, never enters CI. Back up via Keychain Access → File → Export.
+
+**Customer state:** stored in user's Keychain (service `com.danielius.ClipboardHistory.license`, accounts `trial-start` and `active-license`). Survives `defaults delete`. Wipe with `security delete-generic-password -s "com.danielius.ClipboardHistory.license" -a <account>`.
+
+**Issuing keys (manual workflow for early customers):**
+```bash
+./tools/issue-license-key.sh customer@example.com
+```
+Prints the key. Email it. The script appends to `tools/license-log.csv` (gitignored) for audit trail. The Stripe webhook automation that replaces this manual step is out of scope until traffic justifies it.
+
+**Operational runbook:** `docs/licensing.md` covers threat model, refund/revocation, key rotation, and the future webhook plan.
 
 ## Debugging
 
