@@ -21,11 +21,6 @@
 
 Drobu lives in the menu bar and takes care of everything between "I copied this" and "I pasted this":
 
-- **History with full-text search** — every text, image, GIF, and file you copy, indexed via SQLite FTS5
-- **Inline editing** — fix indentation, run regex tweaks, auto-unwrap hard-wrapped CLI output, then paste the cleaned result
-- **Screen → GIF** — select a region, record, trim, paste the GIF anywhere
-- **Slash commands** for system actions (e.g. `/sleep` to keep the Mac awake while presenting)
-
 Everything stays on your machine. No accounts, no servers, no telemetry. See the [privacy page](https://danieliusisiunas.github.io/drobu/privacy/) for the full statement.
 
 ## Architecture
