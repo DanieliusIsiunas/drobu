@@ -23,7 +23,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
-          restore-keys: ${{ runner.os }}-spm-
+          # Cache key includes the repo name because the SPM artifacts
+          # directory bakes absolute workspace paths into its metadata.
+          # When the repo was renamed (clipboard-history → drobu) the
+          # cached `.build/artifacts/sparkle/...` Info.plist references
+          # the old path and `swift test` fails to find Sparkle.xcframework.
+          # Including ${{ github.event.repository.name }} forces a fresh
+          # cache after any rename without forcing one on every PR.
+          key: ${{ runner.os }}-spm-${{ github.event.repository.name }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-${{ github.event.repository.name }}-
 
       - run: swift test
