@@ -14,7 +14,3 @@ export const STRIPE_CHECKOUT_URL =
   import.meta.env.PUBLIC_STRIPE_CHECKOUT_URL ??
   "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01";
 
-/** GitHub Releases "latest" download URL — kept stable so the website never
- *  needs to be re-deployed when a new release is cut. */
-export const DOWNLOAD_URL =
-  "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.zip";

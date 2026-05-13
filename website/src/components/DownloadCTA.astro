@@ -1,5 +1,5 @@
 ---
-import { STRIPE_CHECKOUT_URL, DOWNLOAD_URL } from "../config";
+import { STRIPE_CHECKOUT_URL } from "../config";
 ---
 
 <section id="download" class="py-24 px-6">
@@ -13,14 +13,8 @@ import { STRIPE_CHECKOUT_URL, DOWNLOAD_URL } from "../config";
 
     <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
       <a
-        href={DOWNLOAD_URL}
-        class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
-      >
-        Download for macOS
-      </a>
-      <a
         href={STRIPE_CHECKOUT_URL}
-        class="inline-flex items-center gap-2 px-8 py-4 border border-white/10 hover:bg-white/5 text-text-primary font-semibold rounded-xl transition-colors duration-200 text-lg"
+        class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
       >
         Start free trial
       </a>
