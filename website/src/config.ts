@@ -7,10 +7,12 @@
  * so the site builds without any env config (using test/placeholder URLs).
  */
 
-/** Stripe Checkout / Payment Link URL used by all "Start free trial" CTAs. */
+/** Stripe Payment Link URL used by all "Start free trial" CTAs.
+ *  Defaults to the production link; set PUBLIC_STRIPE_CHECKOUT_URL in
+ *  .env for local dev / staging to point at the test-mode link instead. */
 export const STRIPE_CHECKOUT_URL =
   import.meta.env.PUBLIC_STRIPE_CHECKOUT_URL ??
-  "https://buy.stripe.com/test_3cI3cu1YJ8tDeRMbOCcwg00";
+  "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01";
 
 /** GitHub Releases "latest" download URL — kept stable so the website never
  *  needs to be re-deployed when a new release is cut. */
