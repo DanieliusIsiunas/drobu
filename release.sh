@@ -24,9 +24,10 @@ SIGN_UPDATE=".build/artifacts/sparkle/Sparkle/bin/sign_update"
 PLIST="Sources/DrobuCore/Info.plist"
 APPCAST="website/public/appcast.xml"
 
-red()   { printf '\033[31m%s\033[0m\n' "$*"; }
-green() { printf '\033[32m%s\033[0m\n' "$*"; }
-step()  { printf '\033[36m→ %s\033[0m\n' "$*"; }
+red()    { printf '\033[31m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
+green()  { printf '\033[32m%s\033[0m\n' "$*"; }
+step()   { printf '\033[36m→ %s\033[0m\n' "$*"; }
 
 # --- Pre-flight ---------------------------------------------------------------
 
@@ -36,7 +37,19 @@ command -v plutil >/dev/null || { red "plutil not on PATH."; exit 1; }
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $BRANCH == "main" ]] || { red "Not on main (on $BRANCH)."; exit 1; }
-[[ -z $(git status --porcelain) ]] || { red "Working tree not clean — commit or stash first."; exit 1; }
+
+# Only tracked-file changes block a release. Untracked files (debug scratch,
+# in-progress docs, etc.) don't affect what gets built or published, so they
+# get a note rather than a hard stop.
+if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+    red "Tracked files have uncommitted changes — commit or stash first:"
+    git status --porcelain --untracked-files=no
+    exit 1
+fi
+UNTRACKED_COUNT=$(git ls-files --others --exclude-standard | wc -l | tr -d ' ')
+if [[ $UNTRACKED_COUNT -gt 0 ]]; then
+    yellow "Note: $UNTRACKED_COUNT untracked file(s) present — not affecting the release."
+fi
 
 git pull --ff-only
 
