@@ -39,17 +39,22 @@ struct VideoTrimPlayerView: NSViewRepresentable {
         context.coordinator.player = player
         context.coordinator.playerView = playerView
 
-        // Periodic time observer at 30Hz for smooth playhead
+        // Periodic time observer at 30Hz for smooth playhead.
+        // The observer closure is @Sendable but fires on queue: .main; Coordinator
+        // is @MainActor (so it's Sendable and legal to capture here), and the body
+        // runs under MainActor.assumeIsolated since we know the callback is on main.
         let interval = CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600)
         let coord = context.coordinator
         let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak coord] time in
-            guard let coord else { return }
-            let secs = time.seconds
-            coord.currentTimeBinding?.wrappedValue = secs
+            MainActor.assumeIsolated {
+                guard let coord else { return }
+                let secs = time.seconds
+                coord.currentTimeBinding?.wrappedValue = secs
 
-            // Loop within range
-            if secs >= coord.endTime {
-                player.seek(to: CMTime(seconds: coord.startTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                // Loop within range
+                if secs >= coord.endTime {
+                    player.seek(to: CMTime(seconds: coord.startTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                }
             }
         }
         coord.timeObserver = observer
@@ -98,6 +103,7 @@ struct VideoTrimPlayerView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator {
         var player: AVPlayer?
         var playerView: AVPlayerView?
