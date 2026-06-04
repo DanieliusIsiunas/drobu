@@ -23,7 +23,7 @@ synthetic event delivery works.
    Privacy & Security > Screen Recording).
 4. **Accessibility permission** for your terminal app (it posts the synthetic
    keystrokes) — System Settings > Privacy & Security > Accessibility.
-5. `sqlite3` and `bc` on `PATH` (both ship with macOS).
+5. `sqlite3` on `PATH` (ships with macOS).
 
 ## Usage
 

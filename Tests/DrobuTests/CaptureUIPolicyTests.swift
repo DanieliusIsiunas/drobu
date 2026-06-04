@@ -35,35 +35,40 @@ struct CaptureUIPolicyTests {
         #expect(!CaptureUIPolicy.escClaimActive(gif: .idle, video: .finalizing))
     }
 
-    @Test func escClaimMatrixIsExhaustive() {
-        // Explicit truth table over all 16 state combinations:
-        // the claim is active iff either service is actively recording.
-        let expectations: [(ScreenCaptureService.State, VideoCaptureService.State, Bool)] = [
-            (.idle, .idle, false),
-            (.idle, .selecting, false),
-            (.idle, .recording, true),
-            (.idle, .finalizing, false),
-            (.selecting, .idle, false),
-            (.selecting, .selecting, false),
-            (.selecting, .recording, true),
-            (.selecting, .finalizing, false),
-            (.recording, .idle, true),
-            (.recording, .selecting, true),
-            (.recording, .recording, true),
-            (.recording, .finalizing, true),
-            (.encoding, .idle, false),
-            (.encoding, .selecting, false),
-            (.encoding, .recording, true),
-            (.encoding, .finalizing, false),
-        ]
-        #expect(expectations.count == Self.allGifStates.count * Self.allVideoStates.count)
+    // Explicit truth table over all 16 state combinations: the claim is active
+    // iff either service is actively recording. Driven by allGifStates ×
+    // allVideoStates so a new enum case omitted from the state arrays fails the
+    // count guard below rather than silently escaping coverage.
+    static let escClaimMatrix: [(ScreenCaptureService.State, VideoCaptureService.State, Bool)] = [
+        (.idle, .idle, false),
+        (.idle, .selecting, false),
+        (.idle, .recording, true),
+        (.idle, .finalizing, false),
+        (.selecting, .idle, false),
+        (.selecting, .selecting, false),
+        (.selecting, .recording, true),
+        (.selecting, .finalizing, false),
+        (.recording, .idle, true),
+        (.recording, .selecting, true),
+        (.recording, .recording, true),
+        (.recording, .finalizing, true),
+        (.encoding, .idle, false),
+        (.encoding, .selecting, false),
+        (.encoding, .recording, true),
+        (.encoding, .finalizing, false),
+    ]
 
-        for (gif, video, expected) in expectations {
-            #expect(
-                CaptureUIPolicy.escClaimActive(gif: gif, video: video) == expected,
-                "escClaimActive(gif: .\(gif), video: .\(video)) should be \(expected)"
-            )
-        }
+    @Test func escClaimMatrixCoversEveryStateCombination() {
+        #expect(Self.escClaimMatrix.count == Self.allGifStates.count * Self.allVideoStates.count)
+    }
+
+    @Test(arguments: escClaimMatrix)
+    func escClaimActiveMatchesTruthTable(
+        gif: ScreenCaptureService.State,
+        video: VideoCaptureService.State,
+        expected: Bool
+    ) {
+        #expect(CaptureUIPolicy.escClaimActive(gif: gif, video: video) == expected)
     }
 
     // MARK: - Panel toggle gate
@@ -90,34 +95,37 @@ struct CaptureUIPolicyTests {
         #expect(!CaptureUIPolicy.panelToggleAllowed(gif: .idle, video: .finalizing))
     }
 
-    @Test func panelToggleMatrixIsExhaustive() {
-        // Explicit truth table over all 16 state combinations:
-        // allowed iff both services are in { idle, recording }.
-        let expectations: [(ScreenCaptureService.State, VideoCaptureService.State, Bool)] = [
-            (.idle, .idle, true),
-            (.idle, .selecting, false),
-            (.idle, .recording, true),
-            (.idle, .finalizing, false),
-            (.selecting, .idle, false),
-            (.selecting, .selecting, false),
-            (.selecting, .recording, false),
-            (.selecting, .finalizing, false),
-            (.recording, .idle, true),
-            (.recording, .selecting, false),
-            (.recording, .recording, true),
-            (.recording, .finalizing, false),
-            (.encoding, .idle, false),
-            (.encoding, .selecting, false),
-            (.encoding, .recording, false),
-            (.encoding, .finalizing, false),
-        ]
-        #expect(expectations.count == Self.allGifStates.count * Self.allVideoStates.count)
+    // Explicit truth table over all 16 state combinations:
+    // allowed iff both services are in { idle, recording }.
+    static let panelToggleMatrix: [(ScreenCaptureService.State, VideoCaptureService.State, Bool)] = [
+        (.idle, .idle, true),
+        (.idle, .selecting, false),
+        (.idle, .recording, true),
+        (.idle, .finalizing, false),
+        (.selecting, .idle, false),
+        (.selecting, .selecting, false),
+        (.selecting, .recording, false),
+        (.selecting, .finalizing, false),
+        (.recording, .idle, true),
+        (.recording, .selecting, false),
+        (.recording, .recording, true),
+        (.recording, .finalizing, false),
+        (.encoding, .idle, false),
+        (.encoding, .selecting, false),
+        (.encoding, .recording, false),
+        (.encoding, .finalizing, false),
+    ]
 
-        for (gif, video, expected) in expectations {
-            #expect(
-                CaptureUIPolicy.panelToggleAllowed(gif: gif, video: video) == expected,
-                "panelToggleAllowed(gif: .\(gif), video: .\(video)) should be \(expected)"
-            )
-        }
+    @Test func panelToggleMatrixCoversEveryStateCombination() {
+        #expect(Self.panelToggleMatrix.count == Self.allGifStates.count * Self.allVideoStates.count)
+    }
+
+    @Test(arguments: panelToggleMatrix)
+    func panelToggleAllowedMatchesTruthTable(
+        gif: ScreenCaptureService.State,
+        video: VideoCaptureService.State,
+        expected: Bool
+    ) {
+        #expect(CaptureUIPolicy.panelToggleAllowed(gif: gif, video: video) == expected)
     }
 }

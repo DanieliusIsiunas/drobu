@@ -58,10 +58,14 @@ check_prereqs() {
   info "Assuming Drobu holds Screen Recording permission (grant it manually if a recording never starts)."
 
   # Abort if a recording is already in progress (would corrupt the scenario).
-  if tail -5 "$LOG" 2>/dev/null | grep -q "Esc stop hotkey claimed"; then
-    if ! tail -5 "$LOG" 2>/dev/null | grep -q "Esc stop hotkey released"; then
-      fail "A recording appears to be in progress (Esc claim active). Stop it before running the harness."
-    fi
+  # Compare the last claim vs the last release across the WHOLE log, not a fixed
+  # tail window — a recording that has logged many lines since the claim would
+  # be missed by a narrow tail.
+  local last_claim last_release
+  last_claim=$(grep -n "Esc stop hotkey claimed" "$LOG" 2>/dev/null | tail -1 | cut -d: -f1)
+  last_release=$(grep -n "Esc stop hotkey released" "$LOG" 2>/dev/null | tail -1 | cut -d: -f1)
+  if [ -n "$last_claim" ] && { [ -z "$last_release" ] || [ "$last_claim" -gt "$last_release" ]; }; then
+    fail "A recording appears to be in progress (Esc claim active, not yet released). Stop it before running the harness."
   fi
 
   echo "Prerequisites OK."
@@ -71,31 +75,31 @@ check_prereqs() {
 
 send_key() { osascript -e "tell application \"System Events\" to $1"; }
 
-# Count records of a given kind created after the given epoch seconds.
-count_records_since() {
-  local kind="$1" since_epoch="$2"
-  # Drobu stores createdAt as a Foundation Date (seconds since 2001-01-01 ref date).
-  # Convert the unix epoch threshold to that reference epoch.
-  local ref_threshold
-  ref_threshold=$(echo "$since_epoch - 978307200" | bc)
-  sqlite3 "$DB" "SELECT COUNT(*) FROM clipboardItem WHERE kind='$kind' AND createdAt > $ref_threshold;" 2>/dev/null || echo 0
+# Total records of a given kind. createdAt is stored by GRDB as a TEXT datetime
+# ("yyyy-MM-dd HH:mm:ss.SSS"), so a numeric-epoch comparison would be wrong
+# (SQLite sorts every TEXT value after every number, making `createdAt > <num>`
+# always true). We avoid date math entirely: snapshot the count before a
+# scenario and poll for it to increase.
+count_records() {
+  local kind="$1"
+  sqlite3 "$DB" "SELECT COUNT(*) FROM clipboardItem WHERE kind='$kind';" 2>/dev/null || echo 0
 }
 
-# Poll until a record of the given kind appears, or timeout. Echoes elapsed seconds, or -1.
-poll_for_record() {
-  local kind="$1" since_epoch="$2" timeout="$3" start now elapsed cnt
-  start=$(date +%s)
+# Poll until the record count for a kind exceeds the given baseline, or timeout.
+# Echoes elapsed seconds measured from the passed scenario-start epoch (so the
+# GIF discriminator can compare against the recording timeline), or -1 on timeout.
+poll_for_new_record() {
+  local kind="$1" baseline="$2" scenario_start="$3" timeout="$4" now elapsed cnt
   while :; do
-    cnt=$(count_records_since "$kind" "$since_epoch")
-    now=$(date +%s); elapsed=$((now - start))
-    if [ "${cnt:-0}" -gt 0 ]; then echo "$elapsed"; return 0; fi
+    cnt=$(count_records "$kind")
+    now=$(date +%s); elapsed=$((now - scenario_start))
+    if [ "${cnt:-0}" -gt "$baseline" ]; then echo "$elapsed"; return 0; fi
     if [ "$elapsed" -ge "$timeout" ]; then echo "-1"; return 1; fi
     sleep 1
   done
 }
 
 drobu_window_count() {
-  local pid; pid=$(pgrep -x Drobu | head -1)
   osascript -e "tell application \"System Events\" to count windows of process \"Drobu\"" 2>/dev/null || echo 0
 }
 
@@ -104,41 +108,49 @@ drobu_window_count() {
 scenario_video_esc() {
   echo "Scenario (a): video recording stopped by Esc"
   local t0; t0=$(date +%s)
+  local baseline; baseline=$(count_records "video")
   info "Starting video capture; select a small region when the overlay appears."
   send_key "$VIDEO_KEYSTROKE"
   sleep 5   # allow region selection + recording start (interactive on first run)
   info "Recording ~3s, then pressing Esc."
   sleep 3
   send_key "$ESC_KEYSTROKE"
-  local elapsed; elapsed=$(poll_for_record "video" "$t0" "$POLL_TIMEOUT")
-  [ "$elapsed" -ge 0 ] || fail "(a) no video record appeared within ${POLL_TIMEOUT}s"
-  info "PASS (a): video record saved after ${elapsed}s"
+  local elapsed; elapsed=$(poll_for_new_record "video" "$baseline" "$t0" "$POLL_TIMEOUT")
+  [ "$elapsed" -ge 0 ] || fail "(a) no new video record appeared within ${POLL_TIMEOUT}s"
+  info "PASS (a): video record saved ${elapsed}s after scenario start"
 }
 
 scenario_gif_esc() {
   echo "Scenario (b): GIF recording stopped by Esc (timing-discriminated)"
   local t0; t0=$(date +%s)
+  local baseline; baseline=$(count_records "gif")
   info "Starting GIF capture; select a small region when the overlay appears."
   send_key "$GIF_KEYSTROKE"
-  sleep 5
+  sleep 5   # ~5s interactive region selection
   info "Recording ~3s, then pressing Esc."
-  sleep 3
+  sleep 3   # ~3s recording -> Esc at ~8s after scenario start
   send_key "$ESC_KEYSTROKE"
-  local elapsed; elapsed=$(poll_for_record "gif" "$t0" "$POLL_TIMEOUT")
-  [ "$elapsed" -ge 0 ] || fail "(b) no gif record appeared within ${POLL_TIMEOUT}s"
-  # Discriminator: a record from the 15s auto-stop would land much later than Esc.
+  # elapsed is measured from scenario start (t0), so it spans selection +
+  # recording + encode. Esc-stop path: ~8s recording + a few s encode ~= 10s.
+  # If Esc silently fails, the 15s auto-stop fires -> ~5s selection + 15s
+  # recording + encode ~= 21s. GIF_ESC_DEADLINE=12 cleanly separates them.
+  local elapsed; elapsed=$(poll_for_new_record "gif" "$baseline" "$t0" "$POLL_TIMEOUT")
+  [ "$elapsed" -ge 0 ] || fail "(b) no new gif record appeared within ${POLL_TIMEOUT}s"
   if [ "$elapsed" -ge "$GIF_ESC_DEADLINE" ]; then
-    fail "(b) gif record appeared after ${elapsed}s (>= ${GIF_ESC_DEADLINE}s) — likely the auto-stop fired, not Esc. Esc-stop NOT proven."
+    fail "(b) gif record appeared ${elapsed}s after start (>= ${GIF_ESC_DEADLINE}s) — past the Esc window, so the 15s auto-stop likely fired, not Esc. Esc-stop NOT proven."
   fi
-  info "PASS (b): gif record saved after ${elapsed}s (< ${GIF_ESC_DEADLINE}s auto-stop boundary — Esc stopped it)"
+  info "PASS (b): gif record saved ${elapsed}s after start (< ${GIF_ESC_DEADLINE}s — inside the Esc window, before the 15s auto-stop)"
 }
 
 scenario_panel_during_recording() {
   echo "Scenario (c): panel toggles during a video recording"
   local t0; t0=$(date +%s)
+  local baseline; baseline=$(count_records "video")
   info "Starting video capture; select a small region when the overlay appears."
   send_key "$VIDEO_KEYSTROKE"
   sleep 5
+  # The recording indicator window is present throughout, so it cancels out of
+  # the before/during/after delta; only the clipboard panel changes the count.
   local before; before=$(drobu_window_count)
   info "Opening panel via hotkey (windows before: $before)."
   send_key "$PANEL_KEYSTROKE"
@@ -152,9 +164,9 @@ scenario_panel_during_recording() {
   [ "$after" -le "$before" ] || fail "(c) panel did not close (windows $before -> $during -> $after)"
   info "Stopping recording with Esc."
   send_key "$ESC_KEYSTROKE"
-  local elapsed; elapsed=$(poll_for_record "video" "$t0" "$POLL_TIMEOUT")
-  [ "$elapsed" -ge 0 ] || fail "(c) no video record saved after panel toggle + Esc"
-  info "PASS (c): panel opened ($before->$during) and closed (->$after); recording saved after ${elapsed}s"
+  local elapsed; elapsed=$(poll_for_new_record "video" "$baseline" "$t0" "$POLL_TIMEOUT")
+  [ "$elapsed" -ge 0 ] || fail "(c) no new video record saved after panel toggle + Esc"
+  info "PASS (c): panel opened ($before->$during) and closed (->$after); recording saved ${elapsed}s after start"
 }
 
 # --- Main ---
