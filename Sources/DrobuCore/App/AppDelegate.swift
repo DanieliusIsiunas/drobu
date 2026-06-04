@@ -180,9 +180,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func togglePanel() {
-        // Ignore panel toggle while any capture is active
-        if captureService?.state != .idle { return }
-        if videoCaptureService?.state != .idle { return }
+        // Panel may toggle while idle or while a recording is running (so
+        // Drobu can record its own UI); blocked during region selection and
+        // encoding/finalizing. Toggling never touches the capture services.
+        guard CaptureUIPolicy.panelToggleAllowed(
+            gif: captureService?.state ?? .idle,
+            video: videoCaptureService?.state ?? .idle
+        ) else { return }
 
         if let panel = panel, panel.isVisible {
             panel.close()
