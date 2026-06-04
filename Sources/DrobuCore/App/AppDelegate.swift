@@ -217,6 +217,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         panel?.showCentered()
+        Log.info("AppDelegate: panel shown")
     }
 
     private func showActivationPanel(licenseManager: LicenseManager) {
@@ -473,8 +474,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.stopActiveRecording()
             }
             escStopHotKey = hotKey
-        } else {
+            Log.info("AppDelegate: Esc stop hotkey claimed")
+        } else if escStopHotKey != nil {
             escStopHotKey = nil
+            Log.info("AppDelegate: Esc stop hotkey released")
         }
     }
 
