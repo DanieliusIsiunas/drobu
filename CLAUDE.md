@@ -153,18 +153,19 @@ The log truncates on every app launch — it only contains the current session. 
 
 ## Versioning
 
-Semver (`MAJOR.MINOR`). Bump version when merging significant changes to main.
+Semver (`MAJOR.MINOR.PATCH`). Bump version when merging changes worth shipping to main.
 
-- **Patch (not used):** App is pre-1.0 maturity; small fixes just ship without bumping.
-- **Minor (1.0 → 1.1):** New feature that doesn't break existing functionality (e.g., video capture, new slash command).
+- **Patch (1.3 → 1.3.1):** Small enhancements, refinements to an existing feature, or bug fixes worth a release (e.g., Esc-to-stop recording, panel behavior tweaks). The patch tier is first-class — prefer it over a minor bump when the change extends or polishes something users already have rather than giving them a distinctly new capability.
+- **Minor (1.3 → 1.4):** A distinctly new user-facing capability (e.g., video capture, a new slash command, file-copy support).
 - **Major (1.x → 2.0):** Breaking changes (schema migration that drops data, removed features, fundamentally different UX).
 
-**Version is hardcoded in 4 places — update all four:**
-1. `Sources/Info.plist` — `CFBundleShortVersionString` (display version) and `CFBundleVersion` (build number, incrementing integer for Sparkle)
-2. `Sources/Views/SettingsView.swift` — `Text("Drobu v1.1")` in the About section
-3. `website/src/components/DownloadCTA.astro` — `Version 1.1` in the download CTA
-4. `website/src/components/Footer.astro` — `v1.1` in the footer
+Truly trivial changes (docs, internal refactors, CI) don't need a bump — they just ride the next release.
 
-`CFBundleVersion` must be strictly increasing for Sparkle update comparison. Bump it as an integer (2, 3, 4...) each release. `CFBundleShortVersionString` is the human-readable semver shown to users.
+`CFBundleShortVersionString` is the human-readable `MAJOR.MINOR.PATCH` string shown to users. `CFBundleVersion` is a **separate, strictly-increasing integer** build number for Sparkle's update comparison — increment it by one every release (2, 3, 4, 5...) regardless of which semver component changed.
 
-When a feature is significant enough for a bump (new capability, not just a bug fix), update all 4 files in the same commit.
+**Version is set in 3 places — update all of them in the same commit as the change:**
+1. `Sources/DrobuCore/Info.plist` — `CFBundleShortVersionString` (display version) and `CFBundleVersion` (build number)
+2. `website/src/components/DownloadCTA.astro` — `Version X.Y.Z` in the download CTA
+3. `website/src/components/Footer.astro` — `vX.Y.Z` in the footer
+
+The Settings "About" text reads `CFBundleShortVersionString` at runtime (`SettingsView.swift`), so it updates automatically — no edit needed there.
