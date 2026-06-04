@@ -52,12 +52,19 @@ final class RecordingIndicatorWindow: NSWindow {
         container.addSubview(timerLabel)
 
         // Stop hint
-        let hintLabel = NSTextField(labelWithString: "Press hotkey to stop")
+        let hintLabel = NSTextField(labelWithString: "Esc or hotkey to stop")
         hintLabel.font = .systemFont(ofSize: 11)
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.sizeToFit()
         hintLabel.frame.origin = NSPoint(x: 72, y: (30 - hintLabel.frame.height) / 2)
         container.addSubview(hintLabel)
+
+        // Size the container AND the window frame to fit the hint text —
+        // show(relativeTo:on:) centers and clamps using frame.width at call
+        // time, so the NSWindow frame itself must be correct before show().
+        let fittedWidth = hintLabel.frame.maxX + 10
+        container.frame = NSRect(x: 0, y: 0, width: fittedWidth, height: 30)
+        setContentSize(NSSize(width: fittedWidth, height: 30))
 
         contentView = container
     }

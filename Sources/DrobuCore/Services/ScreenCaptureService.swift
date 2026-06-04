@@ -72,6 +72,8 @@ final class ScreenCaptureService {
 
     func stopRecording() {
         guard state == .recording else { return }
+        setState(.encoding) // Must be first — prevents re-entrancy from the Esc stop hotkey (mirrors VideoCaptureService)
+
         autoStopTimer?.invalidate()
         autoStopTimer = nil
         indicatorWindow?.dismiss()
@@ -205,8 +207,7 @@ final class ScreenCaptureService {
     // MARK: - Encoding
 
     private func encodeCapture() async {
-        setState(.encoding)
-
+        // State is already .encoding — stopRecording() transitions synchronously.
         guard let output = frameOutput else {
             Log.error("ScreenCaptureService: encodeCapture with no frameOutput")
             setState(.idle)

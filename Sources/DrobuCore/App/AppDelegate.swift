@@ -18,6 +18,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var videoCaptureHotkeyObserver: Any?
     private var videoCaptureService: VideoCaptureService?
     private var stopCaptureHotKey: HotKey?
+    private var escStopHotKey: HotKey?
     private let caffeinateService = CaffeinateService()
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
@@ -88,6 +89,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+        service.onStateChange = { [weak self] _ in
+            self?.refreshEscStopHotkey()
+        }
         captureService = service
         registerCaptureHotkey(CaptureHotkeyDefaults.load())
 
@@ -114,6 +118,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+        videoService.onStateChange = { [weak self] _ in
+            self?.refreshEscStopHotkey()
+        }
         videoCaptureService = videoService
         registerVideoCaptureHotkey(VideoCaptureHotkeyDefaults.load())
 
@@ -130,11 +137,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Cmd+Esc to stop any active recording (GIF or video)
         stopCaptureHotKey = HotKey(keyCombo: KeyCombo(key: .escape, modifiers: .command))
         stopCaptureHotKey?.keyDownHandler = { [weak self] in
-            if self?.captureService?.state == .recording {
-                self?.captureService?.stopRecording()
-            } else if self?.videoCaptureService?.state == .recording {
-                self?.videoCaptureService?.stopRecording()
-            }
+            self?.stopActiveRecording()
         }
 
         // Start Sparkle auto-update checks
@@ -177,9 +180,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func togglePanel() {
-        // Ignore panel toggle while any capture is active
-        if captureService?.state != .idle { return }
-        if videoCaptureService?.state != .idle { return }
+        // Panel may toggle while idle or while a recording is running (so
+        // Drobu can record its own UI); blocked during region selection and
+        // encoding/finalizing. Toggling never touches the capture services.
+        guard CaptureUIPolicy.panelToggleAllowed(
+            gif: captureService?.state ?? .idle,
+            video: videoCaptureService?.state ?? .idle
+        ) else { return }
 
         if let panel = panel, panel.isVisible {
             panel.close()
@@ -210,6 +217,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         panel?.showCentered()
+        Log.info("AppDelegate: panel shown")
     }
 
     private func showActivationPanel(licenseManager: LicenseManager) {
@@ -350,6 +358,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
+        // Defensive: release the recording-scoped Esc claim even if a capture
+        // was mid-flight — a leaked global Esc hotkey would be a system-wide
+        // Esc blackhole (process exit unregisters anyway; this is explicit).
+        escStopHotKey = nil
         caffeinateService.cleanup()
         closedLidService.cleanup()
     }
@@ -433,6 +445,50 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         videoCaptureHotKey = HotKey(keyCombo: combo)
         videoCaptureHotKey?.keyDownHandler = { [weak self] in
             self?.handleVideoCaptureHotkey()
+        }
+    }
+
+    // MARK: - Recording-Scoped Esc Stop Hotkey
+
+    /// Claims plain Esc as a global stop hotkey only while a recording is
+    /// active. Carbon hotkeys are system-wide and consume the keypress, so
+    /// the claim must exist only during recording — never while idle,
+    /// selecting (the selection panel handles Esc locally), or
+    /// encoding/finalizing.
+    ///
+    /// State-derived, not transition-derived: both services' onStateChange
+    /// callbacks funnel here, and the claim is recomputed from current state
+    /// each time — idempotent and order-independent, so callback interleaving
+    /// and async transitions cannot leak a stale claim.
+    private func refreshEscStopHotkey() {
+        let active = CaptureUIPolicy.escClaimActive(
+            gif: captureService?.state ?? .idle,
+            video: videoCaptureService?.state ?? .idle
+        )
+        if active {
+            guard escStopHotKey == nil else { return }
+            let hotKey = HotKey(keyCombo: KeyCombo(key: .escape, modifiers: []))
+            hotKey.keyDownHandler = { [weak self] in
+                // Stop only — teardown happens via the state callback the stop
+                // flow triggers. Never touch escStopHotKey from this handler.
+                self?.stopActiveRecording()
+            }
+            escStopHotKey = hotKey
+            Log.info("AppDelegate: Esc stop hotkey claimed")
+        } else if escStopHotKey != nil {
+            escStopHotKey = nil
+            Log.info("AppDelegate: Esc stop hotkey released")
+        }
+    }
+
+    /// Stops whichever capture service is actively recording (shared by the
+    /// always-on Cmd+Esc hotkey and the recording-scoped plain-Esc hotkey).
+    /// stopRecording()'s `guard state == .recording` makes double-fire a no-op.
+    private func stopActiveRecording() {
+        if captureService?.state == .recording {
+            captureService?.stopRecording()
+        } else if videoCaptureService?.state == .recording {
+            videoCaptureService?.stopRecording()
         }
     }
 
