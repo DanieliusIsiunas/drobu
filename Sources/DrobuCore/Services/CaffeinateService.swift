@@ -77,6 +77,17 @@ final class CaffeinateService {
         state = .idle
     }
 
+    /// Extends the active session by `interval` seconds without prompting.
+    /// Composes start(duration:) — the running caffeinate process is replaced
+    /// with one covering remaining + interval. No-op when idle or expired;
+    /// the menu only offers Extend on an active session, so the guard is
+    /// defensive.
+    func extend(by interval: TimeInterval) {
+        guard isActive, let remaining = remainingTime else { return }
+        Log.info("CaffeinateService: extending by \(Int(interval))s (remaining \(Int(remaining))s)")
+        start(duration: remaining + interval)
+    }
+
     /// Called by AppDelegate on quit.
     func cleanup() {
         if let proc = process, proc.isRunning {

@@ -81,4 +81,54 @@ struct CaffeinateServiceTests {
         #expect(firedStates.count == 1)
         #expect(firedStates.first == .idle)
     }
+
+    @Test func extendWhileActiveAddsToRemaining() {
+        let service = CaffeinateService()
+        defer { service.cleanup() }
+
+        service.start(duration: 600)
+        service.extend(by: 3600)
+        #expect(service.isActive)
+        // Lower-bound assertion only — wall clock elapses during the test.
+        #expect(service.remainingTime! > 4100)
+    }
+
+    @Test func extendWhenIdleIsNoOp() {
+        let service = CaffeinateService()
+        defer { service.cleanup() }
+
+        service.extend(by: 3600)
+        #expect(!service.isActive)
+        #expect(service.state == .idle)
+    }
+
+    @Test func extendAfterExpiryIsNoOp() {
+        let service = CaffeinateService()
+        defer { service.cleanup() }
+
+        // Duration 0 has already elapsed by wall-clock math → isActive false
+        service.start(duration: 0)
+        service.extend(by: 3600)
+        #expect(!service.isActive)
+    }
+
+    @Test func onStateChangeFiresOnExtend() {
+        let service = CaffeinateService()
+        defer { service.cleanup() }
+
+        service.start(duration: 60)
+
+        var firedStates: [CaffeinateService.State] = []
+        service.onStateChange = { state in
+            firedStates.append(state)
+        }
+
+        service.extend(by: 3600)
+        #expect(firedStates.count == 1)
+        if case .active = firedStates.first {
+            // correct
+        } else {
+            Issue.record("Expected .active state, got \(String(describing: firedStates.first))")
+        }
+    }
 }

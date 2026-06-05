@@ -185,4 +185,16 @@ final class SleepCommand: SlashCommand {
         }
         return String(format: "%d:%02d", m, s)
     }
+
+    /// Human phrasing for the menu bar status line, including the trailing
+    /// "left" (e.g. "23 min left", "1 hr 5 min left"). Floors to whole minutes.
+    static func formatRemaining(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds) / 60
+        if totalMinutes < 1 { return "< 1 min left" }
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        if h == 0 { return "\(m) min left" }
+        if m == 0 { return "\(h) hr left" }
+        return "\(h) hr \(m) min left"
+    }
 }

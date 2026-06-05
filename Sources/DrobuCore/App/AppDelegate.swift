@@ -4,7 +4,7 @@ import HotKey
 import Sparkle
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
@@ -23,6 +23,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
+    private var sleepStatusItems: [NSMenuItem] = []
+    private var keepAwakeStatusItem: NSMenuItem?
+    private var closedLidStatusItem: NSMenuItem?
+    private var sleepStatusTimer: Timer?
+    private var isMenuOpen = false
     private var signalSources: [DispatchSourceSignal] = []
     private var updaterController: SPUStandardUpdaterController?
     public private(set) var licenseManager: LicenseManager?
@@ -151,12 +156,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up menu bar status item with custom icon
         setupStatusItem()
 
-        // Badge: update menu bar dot when either sleep service changes state
+        // Badge + status menu items: update when either sleep service changes state
         caffeinateService.onStateChange = { [weak self] _ in
             self?.refreshMenuBarBadge()
+            self?.refreshSleepStatusItems()
         }
         closedLidService.onStateChange = { [weak self] _ in
             self?.refreshMenuBarBadge()
+            self?.refreshSleepStatusItems()
         }
 
         // Check Accessibility permission on launch
@@ -290,6 +297,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
+        // Dynamic sleep status items need menuWillOpen/menuDidClose
+        menu.delegate = self
         menu.addItem(withTitle: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
         if let controller = updaterController {
             let checkForUpdatesItem = NSMenuItem(
@@ -347,6 +356,182 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             button.addSubview(dot)
             badgeDotView = dot
         }
+    }
+
+    // MARK: - Sleep Status Menu Items
+
+    /// Gate on isActive AND remaining > 0: CaffeinateService.isActive
+    /// short-circuits on expiry, but ClosedLidService.isActive is just
+    /// `state != .idle` and stays true for up to 30s after expiry
+    /// (reconciliation lag) — without the remaining check the menu would
+    /// show a stale "< 1 min left" line.
+    private var keepAwakeShowable: Bool {
+        caffeinateService.isActive && (caffeinateService.remainingTime ?? 0) > 0
+    }
+
+    private var closedLidShowable: Bool {
+        closedLidService.isActive && (closedLidService.remainingTime ?? 0) > 0
+    }
+
+    /// State-derived rebuild of the status section at the top of the menu —
+    /// recomputed from current service state on every call, mirroring
+    /// refreshMenuBarBadge(). Skipped while the menu is tracking: structural
+    /// mutation of an open NSMenu is an AppKit glitch vector, so the open-menu
+    /// timer updates titles only and the rebuild happens on close.
+    private func refreshSleepStatusItems() {
+        guard !isMenuOpen, let menu = statusItem?.menu else { return }
+
+        for item in sleepStatusItems where item.menu === menu {
+            menu.removeItem(item)
+        }
+        sleepStatusItems.removeAll()
+        keepAwakeStatusItem = nil
+        closedLidStatusItem = nil
+
+        var items: [NSMenuItem] = []
+        // Closed Lid first — matches badge-dot precedence
+        if closedLidShowable {
+            let item = makeSleepStatusItem(
+                name: "Closed Lid",
+                remaining: closedLidService.remainingTime ?? 0,
+                stopAction: #selector(stopClosedLidFromMenu),
+                includeExtend: false
+            )
+            closedLidStatusItem = item
+            items.append(item)
+        }
+        if keepAwakeShowable {
+            let item = makeSleepStatusItem(
+                name: "Keep Awake",
+                remaining: caffeinateService.remainingTime ?? 0,
+                stopAction: #selector(stopKeepAwakeFromMenu),
+                includeExtend: true
+            )
+            keepAwakeStatusItem = item
+            items.append(item)
+        }
+
+        guard !items.isEmpty else { return }
+        items.append(.separator())
+        for (index, item) in items.enumerated() {
+            menu.insertItem(item, at: index)
+        }
+        sleepStatusItems = items
+    }
+
+    private func sleepStatusTitle(name: String, remaining: TimeInterval) -> String {
+        "\(name) — \(SleepCommand.formatRemaining(remaining))"
+    }
+
+    private func makeSleepStatusItem(
+        name: String,
+        remaining: TimeInterval,
+        stopAction: Selector,
+        includeExtend: Bool
+    ) -> NSMenuItem {
+        // Parent carries no action — clicking it only opens the submenu
+        // (misclick safety). The title doubles as the VoiceOver label.
+        let item = NSMenuItem(
+            title: sleepStatusTitle(name: name, remaining: remaining),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu()
+        let stop = NSMenuItem(title: "Stop", action: stopAction, keyEquivalent: "")
+        stop.target = self
+        submenu.addItem(stop)
+        if includeExtend {
+            let extend = NSMenuItem(
+                title: "Extend 1h",
+                action: #selector(extendKeepAwakeFromMenu),
+                keyEquivalent: ""
+            )
+            extend.target = self
+            submenu.addItem(extend)
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    /// Called by the 1s timer while the menu is open. Titles only — no
+    /// structural add/remove during tracking. A mode that expires mid-display
+    /// loses its submenu, which auto-disables the item (no action, no
+    /// submenu); removal happens at the next closed-state refresh.
+    private func updateSleepStatusTitles() {
+        updateSleepStatusTitle(
+            keepAwakeStatusItem,
+            name: "Keep Awake",
+            showable: keepAwakeShowable,
+            remaining: caffeinateService.remainingTime
+        )
+        updateSleepStatusTitle(
+            closedLidStatusItem,
+            name: "Closed Lid",
+            showable: closedLidShowable,
+            remaining: closedLidService.remainingTime
+        )
+    }
+
+    private func updateSleepStatusTitle(
+        _ item: NSMenuItem?,
+        name: String,
+        showable: Bool,
+        remaining: TimeInterval?
+    ) {
+        guard let item else { return }
+        if showable, let remaining {
+            item.title = sleepStatusTitle(name: name, remaining: remaining)
+        } else if item.submenu != nil {
+            item.submenu = nil
+            item.title = "\(name) — ended"
+        }
+    }
+
+    @objc private func stopKeepAwakeFromMenu() {
+        Log.info("AppDelegate: menu Stop Keep Awake")
+        caffeinateService.stop()
+    }
+
+    @objc private func stopClosedLidFromMenu() {
+        Log.info("AppDelegate: menu Stop Closed Lid")
+        closedLidService.stop()
+    }
+
+    @objc private func extendKeepAwakeFromMenu() {
+        Log.info("AppDelegate: menu Extend Keep Awake 1h")
+        caffeinateService.extend(by: 3600)
+    }
+
+    // MARK: - NSMenuDelegate
+
+    public func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusItem?.menu else { return }
+        // Rebuild while still safe (isMenuOpen not yet set), so the menu
+        // opens with current state even if a change arrived while closed.
+        refreshSleepStatusItems()
+        isMenuOpen = true
+        guard !sleepStatusItems.isEmpty else { return }
+
+        sleepStatusTimer?.invalidate()
+        // Registered in .common mode — default-mode timers do not fire while
+        // NSMenu tracking runs the loop in .eventTracking (idiom from
+        // ClipboardMonitor).
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateSleepStatusTitles()
+            }
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        sleepStatusTimer = timer
+    }
+
+    public func menuDidClose(_ menu: NSMenu) {
+        guard menu === statusItem?.menu else { return }
+        sleepStatusTimer?.invalidate()
+        sleepStatusTimer = nil
+        isMenuOpen = false
+        // Apply any state changes that arrived while the menu was open
+        refreshSleepStatusItems()
     }
 
     @objc private func openPreferences() {
