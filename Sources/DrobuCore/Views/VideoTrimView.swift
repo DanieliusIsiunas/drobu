@@ -86,6 +86,7 @@ struct VideoTrimView: View {
                     Text("\u{2318}\u{21A9} save  esc discard")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
                 }
 
                 Spacer()
@@ -121,8 +122,14 @@ struct VideoTrimView: View {
             let dur = try? await durationLoad.seconds
             // The video track's natural (pixel) size seeds the crop geometry.
             var naturalSize: CGSize = .zero
-            if let track = try? await tracksLoad.first {
-                naturalSize = (try? await track.load(.naturalSize)) ?? .zero
+            do {
+                if let track = try await tracksLoad.first {
+                    naturalSize = try await track.load(.naturalSize)
+                } else {
+                    Log.error("VideoTrimView: no video track — crop disabled for this asset")
+                }
+            } catch {
+                Log.error("VideoTrimView: failed to load track natural size: \(error)")
             }
             await MainActor.run {
                 duration = dur ?? 0
@@ -150,7 +157,12 @@ struct VideoTrimView: View {
         // Clear any prior error — Cmd+Return after a failure is a retry.
         errorMessage = nil
 
-        let cropped = !cropGeometry.isFullFrame && cropGeometry.contentWidth > 0
+        // Branch decision delegated to the exporter's tested pure function; the
+        // contentWidth guard keeps a failed asset load (0×0 geometry) on passthrough.
+        let cropped = cropGeometry.contentWidth > 0 && VideoCropExporter.needsReencode(
+            cropRect: cropGeometry.isFullFrame ? nil : cropGeometry.evenRoundedCropRect,
+            contentSize: CGSize(width: cropGeometry.contentWidth, height: cropGeometry.contentHeight)
+        )
         let trimmed = (endTime - startTime) < duration - 0.1
 
         // Untouched crop + untouched trim → save behaves exactly as today (no-op).

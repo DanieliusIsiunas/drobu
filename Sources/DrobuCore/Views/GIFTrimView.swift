@@ -122,6 +122,14 @@ struct GIFTrimView: View {
 
     private func saveTrimmedGIF() {
         guard !frames.isEmpty, startFrame <= endFrame, !isSaving else { return }
+
+        // Untouched trim + untouched crop → no-op save, mirroring VideoTrimView and
+        // ImageCropView: discard instead of re-encoding and moving the record to top.
+        let trimmed = startFrame > 0 || endFrame < frames.count - 1
+        if !trimmed && cropGeometry.isFullFrame {
+            onDiscard()
+            return
+        }
         let selectedFrames = Array(frames[startFrame...endFrame])
         let cropRect = cropGeometry.cropRect
         let isFullFrame = cropGeometry.isFullFrame

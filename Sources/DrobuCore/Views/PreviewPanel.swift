@@ -229,10 +229,13 @@ struct PreviewPanel: View {
                 Text("\(w)x\(h) (\(sizeStr))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if !isEditing {
+                // Hint gated on the same predicate as the Cmd+Right entry gate so it
+                // never advertises a shortcut that would do nothing.
+                if !isEditing, ImageCrop.isBitmapData(data) {
                     Text("\u{2318}\u{2192} to crop")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
                 }
             } else if item.kind == ClipboardRecord.kindFile, let text = item.plainText {
                 let paths = text.split(separator: "\n")

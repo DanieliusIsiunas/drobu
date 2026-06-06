@@ -49,6 +49,12 @@ struct GIFFrameEngineTests {
         return extracted.isEmpty ? nil : extracted
     }
 
+    /// Encoded GIF bytes for the given frame delays — shared with other suites that
+    /// need real GIF data (e.g., ClipboardRecordTests' updateGifData tests).
+    static func makeGIFData(delays: [Double]) -> Data? {
+        GIFFrameEngine.encodeFrames(makeFrames(delays: delays))
+    }
+
     // MARK: - AE5: trim slice → crop → encode → re-extract
 
     @Test func trimSliceThenCropPreservesDelaysAndDimensions() throws {

@@ -182,13 +182,17 @@ struct CropGeometryTests {
 
     @Test func evenRoundingFloorsOddDimensions() {
         var geo = CropGeometry(contentWidth: 1000, contentHeight: 1000)
-        geo.drag(edge: .right, toContentPoint: CGPoint(x: 641, y: 0))
+        geo.drag(edge: .left, toContentPoint: CGPoint(x: 13, y: 0))
+        geo.drag(edge: .right, toContentPoint: CGPoint(x: 654, y: 0))
         geo.drag(edge: .bottom, toContentPoint: CGPoint(x: 0, y: 479))
         #expect(geo.cropRect.width == 641)
         #expect(geo.cropRect.height == 479)
         let even = geo.evenRoundedCropRect
         #expect(even.width == 640)
         #expect(even.height == 478)
+        // Origin passes through unchanged (already integral from drag rounding).
+        #expect(even.origin == geo.cropRect.origin)
+        #expect(even.origin == CGPoint(x: 13, y: 0))
     }
 
     @Test func evenRoundingLeavesEvenDimensionsAlone() {

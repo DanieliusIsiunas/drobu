@@ -954,8 +954,11 @@ struct PanelView: View {
     private func saveEdit() {
         guard isEditing else { return }
 
-        // For GIF/image items, save is handled by saveGifTrim / saveImageCrop
-        // (called from onGifSave / onImageSave) — never the editingText path.
+        // INVARIANT — keep in sync with the Cmd+Right entry gate: every media kind
+        // that can enter edit mode must be listed here so the editingText path never
+        // clobbers it. kindGif/kindImage save via onGifSave/onImageSave; kindVideo is
+        // deliberately absent because VideoTrimView fires onVideoSave directly and
+        // never routes through saveEdit.
         if let item = items.first(where: { $0.id == editingItemId }),
            item.kind == ClipboardRecord.kindGif || item.kind == ClipboardRecord.kindImage {
             discardEdit()
@@ -1032,7 +1035,14 @@ struct PanelView: View {
     }
 
     private func saveVideoTrim(url trimmedURL: URL) {
-        guard isEditing else { return }
+        // The export runs detached and can complete after edit mode ended (panel
+        // closed mid-export). Discarding the save is correct, but the exported temp
+        // file must not leak in NSTemporaryDirectory.
+        guard isEditing else {
+            do { try FileManager.default.removeItem(at: trimmedURL) }
+            catch { Log.debug("PanelView: cleanup orphaned export failed: \(error)") }
+            return
+        }
         isEditing = false
         let savedItemId = editingItemId
         editingItemId = nil

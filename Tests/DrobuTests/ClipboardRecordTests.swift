@@ -295,6 +295,81 @@ struct ClipboardRecordTests {
         }
     }
 
+    // The image tests above exercise the shared updateMediaData body; these pin the
+    // kindGif branch (GIF-specific mediaDisplayText with duration label) so the GIF
+    // path can't silently regress behind the shared refactor.
+
+    @Test func updateGifDataRecalculatesHashAndRefreshesDisplayText() throws {
+        let db = try makeTestDatabase()
+        let oldDate = Date(timeIntervalSinceNow: -3600)
+        let originalData = try #require(GIFFrameEngineTests.makeGIFData(delays: [0.1, 0.2]))
+        let newData = try #require(GIFFrameEngineTests.makeGIFData(delays: [0.3]))
+
+        let original = try db.pool.write { conn in
+            try ClipboardRecord.upsert(
+                makeRecord(
+                    kind: ClipboardRecord.kindGif,
+                    plainText: "GIF: old",
+                    imageData: originalData,
+                    contentHash: originalData.sha256String,
+                    createdAt: oldDate
+                ),
+                in: conn
+            )
+        }
+
+        try db.pool.write { conn in
+            try ClipboardRecord.updateGifData(id: original.id!, newData: newData, in: conn)
+        }
+
+        let updated = try db.pool.read { conn in
+            try ClipboardRecord.fetchRecent(in: conn)
+        }
+
+        #expect(updated.count == 1)
+        #expect(updated[0].imageData == newData)
+        #expect(updated[0].contentHash == newData.sha256String)
+        #expect(updated[0].createdAt > oldDate)
+        // GIF-specific label includes the duration suffix from gifMetadata.
+        #expect(updated[0].plainText?.hasPrefix("GIF:") == true)
+        #expect(updated[0].plainText?.contains("s)") == true)
+    }
+
+    @Test func updateGifDataDeduplicates() throws {
+        let db = try makeTestDatabase()
+        let newData = try #require(GIFFrameEngineTests.makeGIFData(delays: [0.3]))
+        let newHash = newData.sha256String
+
+        try db.pool.write { conn in
+            // Pre-insert a row whose hash equals the NEW data's hash.
+            try ClipboardRecord.upsert(
+                makeRecord(
+                    kind: ClipboardRecord.kindGif,
+                    plainText: "GIF: duplicate",
+                    imageData: newData,
+                    contentHash: newHash
+                ),
+                in: conn
+            )
+            let toUpdate = try ClipboardRecord.upsert(
+                makeRecord(
+                    kind: ClipboardRecord.kindGif,
+                    plainText: "GIF: original",
+                    imageData: GIFFrameEngineTests.makeGIFData(delays: [0.1, 0.2]),
+                    contentHash: "gif-original-hash"
+                ),
+                in: conn
+            )
+
+            try ClipboardRecord.updateGifData(id: toUpdate.id!, newData: newData, in: conn)
+
+            let all = try ClipboardRecord.fetchRecent(in: conn)
+            #expect(all.count == 1)
+            #expect(all[0].id == toUpdate.id)
+            #expect(all[0].contentHash == newHash)
+        }
+    }
+
     // MARK: - Cleanup
 
     @Test func cleanupDeletesOldRecords() throws {

@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 import Foundation
 import CoreGraphics
@@ -68,6 +69,14 @@ struct ImageCropTests {
         #expect(!ImageCrop.isBitmapData(Data()))
     }
 
+    @Test func isBitmapDataAcceptsRealTIFF() throws {
+        // TIFF is the other pasteboard type ClipboardMonitor captures as kindImage.
+        let png = Self.makePNG(width: 32, height: 24)
+        let cgImage = try #require(ImageCrop.decodeBitmap(from: png))
+        let tiff = try #require(NSBitmapImageRep(cgImage: cgImage).tiffRepresentation)
+        #expect(ImageCrop.isBitmapData(tiff))
+    }
+
     // MARK: - Crop round-trip
 
     @Test func cropRoundTripProducesExactCropDimensions() {
@@ -78,5 +87,12 @@ struct ImageCropTests {
         let dims = Self.pixelDimensions(of: cropped!)
         #expect(dims?.width == 40)
         #expect(dims?.height == 30)
+    }
+
+    @Test func cropAndEncodePNGReturnsNilForOutOfBoundsRect() {
+        // Mirrors GIFFrameEngine's fully-outside nil contract.
+        let png = Self.makePNG(width: 100, height: 80)
+        let result = ImageCrop.cropAndEncodePNG(png, to: CGRect(x: 200, y: 200, width: 40, height: 30))
+        #expect(result == nil)
     }
 }

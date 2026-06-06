@@ -90,7 +90,10 @@ enum VideoCropExporter {
         await session.export()
 
         guard session.status == .completed else {
-            throw ExportError.exportFailed(session.error?.localizedDescription ?? "Unknown error")
+            let reason = session.status == .cancelled
+                ? "Export cancelled by system"
+                : (session.error?.localizedDescription ?? "Unknown error")
+            throw ExportError.exportFailed(reason)
         }
     }
 
@@ -108,8 +111,8 @@ enum VideoCropExporter {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw ExportError.noVideoTrack
         }
-        let (_, preferredTransform, nominalFrameRate) = try await track.load(
-            .naturalSize, .preferredTransform, .nominalFrameRate
+        let (preferredTransform, nominalFrameRate) = try await track.load(
+            .preferredTransform, .nominalFrameRate
         )
         let assetDuration = try await asset.load(.duration)
 
@@ -159,7 +162,10 @@ enum VideoCropExporter {
         await session.export()
 
         guard session.status == .completed else {
-            throw ExportError.exportFailed(session.error?.localizedDescription ?? "Unknown error")
+            let reason = session.status == .cancelled
+                ? "Export cancelled by system"
+                : (session.error?.localizedDescription ?? "Unknown error")
+            throw ExportError.exportFailed(reason)
         }
     }
 }
