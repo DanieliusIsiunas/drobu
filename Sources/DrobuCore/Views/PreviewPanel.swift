@@ -10,6 +10,7 @@ struct PreviewPanel: View {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onGifSave: ((Data) -> Void)?
+    var onImageSave: ((Data) -> Void)?
     var onVideoSave: ((URL) -> Void)?
     var onCleanup: (() -> Void)?
 
@@ -90,28 +91,33 @@ struct PreviewPanel: View {
         }
     }
 
+    @ViewBuilder
     private func imagePreview(for item: ClipboardRecord) -> some View {
-        Group {
-            if let data = item.imageData, let nsImage = NSImage(data: data) {
-                let w = Int(nsImage.size.width)
-                let h = Int(nsImage.size.height)
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(12)
-                    .accessibilityLabel("Image preview, \(w) by \(h) pixels")
-            } else {
-                VStack {
-                    Image(systemName: "photo")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.quaternary)
-                    Text("Unable to load image")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        if isEditing, let data = item.imageData {
+            ImageCropView(
+                data: data,
+                onSave: { croppedData in onImageSave?(croppedData) },
+                onDiscard: { onDiscard?() }
+            )
+        } else if let data = item.imageData, let nsImage = NSImage(data: data) {
+            let w = Int(nsImage.size.width)
+            let h = Int(nsImage.size.height)
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(12)
+                .accessibilityLabel("Image preview, \(w) by \(h) pixels")
+        } else {
+            VStack {
+                Image(systemName: "photo")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.quaternary)
+                Text("Unable to load image")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -223,6 +229,14 @@ struct PreviewPanel: View {
                 Text("\(w)x\(h) (\(sizeStr))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // Hint gated on the same predicate as the Cmd+Right entry gate so it
+                // never advertises a shortcut that would do nothing.
+                if !isEditing, ImageCrop.isBitmapData(data) {
+                    Text("\u{2318}\u{2192} to crop")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
             } else if item.kind == ClipboardRecord.kindFile, let text = item.plainText {
                 let paths = text.split(separator: "\n")
                 if paths.count == 1, let first = paths.first {

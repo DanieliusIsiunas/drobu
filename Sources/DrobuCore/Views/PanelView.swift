@@ -315,6 +315,7 @@ struct PanelView: View {
                 onSave: { saveEdit() },
                 onDiscard: { discardEdit() },
                 onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+                onImageSave: { croppedData in saveImageCrop(data: croppedData) },
                 onVideoSave: { trimmedURL in saveVideoTrim(url: trimmedURL) },
                 onCleanup: { cleanupText() }
             )
@@ -620,6 +621,12 @@ struct PanelView: View {
                     return .handled
                 }
                 if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
+                    enterEditMode()
+                    return .handled
+                }
+                if item.kind == ClipboardRecord.kindImage,
+                   let data = item.imageData,
+                   ImageCrop.isBitmapData(data) {
                     enterEditMode()
                     return .handled
                 }
@@ -947,9 +954,13 @@ struct PanelView: View {
     private func saveEdit() {
         guard isEditing else { return }
 
-        // For GIF items, save is handled by saveGifTrim (called from onGifSave)
+        // INVARIANT — keep in sync with the Cmd+Right entry gate: every media kind
+        // that can enter edit mode must be listed here so the editingText path never
+        // clobbers it. kindGif/kindImage save via onGifSave/onImageSave; kindVideo is
+        // deliberately absent because VideoTrimView fires onVideoSave directly and
+        // never routes through saveEdit.
         if let item = items.first(where: { $0.id == editingItemId }),
-           item.kind == ClipboardRecord.kindGif {
+           item.kind == ClipboardRecord.kindGif || item.kind == ClipboardRecord.kindImage {
             discardEdit()
             return
         }
@@ -985,6 +996,21 @@ struct PanelView: View {
     }
 
     private func saveGifTrim(data: Data) {
+        commitMediaEdit(logTag: "saveGifTrim") { db, itemId in
+            try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
+        }
+    }
+
+    private func saveImageCrop(data: Data) {
+        commitMediaEdit(logTag: "saveImageCrop") { db, itemId in
+            try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+        }
+    }
+
+    /// Shared close-edit-mode + detached-DB-write boilerplate for in-place media
+    /// edits (GIF trim/crop, image crop). The video path stays separate — it has
+    /// its own file-move/hash/thumbnail flow in `saveVideoTrim`.
+    private func commitMediaEdit(logTag: String, update: @escaping @Sendable (Database, Int64) throws -> Void) {
         guard isEditing else { return }
         isEditing = false
         let savedItemId = editingItemId
@@ -996,10 +1022,10 @@ struct PanelView: View {
         Task.detached {
             do {
                 try await database.pool.write { db in
-                    try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
+                    try update(db, itemId)
                 }
             } catch {
-                Log.error("PanelView: saveGifTrim failed: \(error)")
+                Log.error("PanelView: \(logTag) failed: \(error)")
             }
         }
 
@@ -1009,7 +1035,14 @@ struct PanelView: View {
     }
 
     private func saveVideoTrim(url trimmedURL: URL) {
-        guard isEditing else { return }
+        // The export runs detached and can complete after edit mode ended (panel
+        // closed mid-export). Discarding the save is correct, but the exported temp
+        // file must not leak in NSTemporaryDirectory.
+        guard isEditing else {
+            do { try FileManager.default.removeItem(at: trimmedURL) }
+            catch { Log.debug("PanelView: cleanup orphaned export failed: \(error)") }
+            return
+        }
         isEditing = false
         let savedItemId = editingItemId
         editingItemId = nil

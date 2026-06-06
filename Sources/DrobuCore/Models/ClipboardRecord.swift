@@ -133,6 +133,20 @@ extension ClipboardRecord {
 
     /// Update GIF data, recalculate hash, and move to top of list.
     static func updateGifData(id: Int64, newData: Data, in db: Database) throws {
+        try updateMediaData(id: id, newData: newData, kind: kindGif, in: db)
+    }
+
+    /// Update image data, recalculate hash, and move to top of list.
+    static func updateImageData(id: Int64, newData: Data, in db: Database) throws {
+        try updateMediaData(id: id, newData: newData, kind: kindImage, in: db)
+    }
+
+    /// Shared destructive media update: recalculate hash, dedup any other row with
+    /// the same hash, and rewrite the row in place with a fresh `createdAt` (moves to
+    /// top) and a refreshed `plainText` label. Both statements run inside the
+    /// caller's single `pool.write` so they commit atomically; an UPDATE against a
+    /// deleted row is a silent, harmless no-op.
+    private static func updateMediaData(id: Int64, newData: Data, kind: String, in db: Database) throws {
         let newHash = newData.sha256String
 
         // Delete any other item with the same hash (dedup)
@@ -142,7 +156,7 @@ extension ClipboardRecord {
         )
 
         // Update the record in place
-        let displayText = mediaDisplayText(from: newData, kind: kindGif)
+        let displayText = mediaDisplayText(from: newData, kind: kind)
         try db.execute(
             sql: """
                 UPDATE clipboardItem
