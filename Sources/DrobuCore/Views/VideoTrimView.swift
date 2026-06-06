@@ -114,34 +114,25 @@ struct VideoTrimView: View {
 
     private func loadDuration() {
         Task {
-            let asset = AVURLAsset(url: url)
-            // Duration and track list are independent reads — load them in parallel
-            // so the "Loading video…" spinner lasts one round-trip, not two.
-            async let durationLoad = asset.load(.duration)
-            async let tracksLoad = asset.loadTracks(withMediaType: .video)
-            let dur = try? await durationLoad.seconds
-            // The video track's natural (pixel) size seeds the crop geometry.
-            var naturalSize: CGSize = .zero
             do {
-                if let track = try await tracksLoad.first {
-                    naturalSize = try await track.load(.naturalSize)
+                // Loaded in one nonisolated region inside the exporter — AVAssetTrack
+                // is not Sendable, so only the Sendable results cross back here.
+                let metadata = try await VideoCropExporter.loadEditorMetadata(from: url)
+                duration = metadata.duration
+                endTime = duration
+                if let size = metadata.naturalSize, size.width > 0, size.height > 0 {
+                    cropGeometry = CropGeometry(
+                        contentWidth: Int(size.width.rounded()),
+                        contentHeight: Int(size.height.rounded())
+                    )
                 } else {
-                    Log.error("VideoTrimView: no video track — crop disabled for this asset")
+                    Log.error("VideoTrimView: no usable video track size — crop disabled for this asset")
                 }
             } catch {
-                Log.error("VideoTrimView: failed to load track natural size: \(error)")
+                Log.error("VideoTrimView: failed to load video metadata: \(error)")
+                duration = 0
             }
-            await MainActor.run {
-                duration = dur ?? 0
-                endTime = duration
-                if naturalSize.width > 0, naturalSize.height > 0 {
-                    cropGeometry = CropGeometry(
-                        contentWidth: Int(naturalSize.width.rounded()),
-                        contentHeight: Int(naturalSize.height.rounded())
-                    )
-                }
-                isLoaded = true
-            }
+            isLoaded = true
         }
     }
 

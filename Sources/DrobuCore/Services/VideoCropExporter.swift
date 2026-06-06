@@ -44,6 +44,24 @@ enum VideoCropExporter {
         return true
     }
 
+    /// Sendable-only metadata load for the editor UI: duration plus the video
+    /// track's natural pixel size (nil when the asset has no video track).
+    ///
+    /// Lives here (nonisolated) rather than in the view because `AVAssetTrack` is
+    /// not Sendable: loading tracks via `async let` inside a `@MainActor` task fails
+    /// to compile on older SDKs (macOS 15.x headers lack `sending` results). Keeping
+    /// the whole load in one nonisolated region means only Sendable values
+    /// (`Double`, `CGSize`) ever cross back to the main actor.
+    static func loadEditorMetadata(from url: URL) async throws -> (duration: Double, naturalSize: CGSize?) {
+        let asset = AVURLAsset(url: url)
+        let duration = try await asset.load(.duration).seconds
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            return (duration, nil)
+        }
+        let naturalSize = try await track.load(.naturalSize)
+        return (duration, naturalSize)
+    }
+
     /// Single export entry point.
     ///
     /// - Parameters:

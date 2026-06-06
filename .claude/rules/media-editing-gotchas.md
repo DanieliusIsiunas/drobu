@@ -55,6 +55,20 @@ host editor's key view (`EditorKeyNSView`).
 (`GIFFrame`) is not implicitly Sendable — add the one-word conformance to cross
 `Task.detached`. Never `@unchecked Sendable` (the contents are genuinely sendable).
 
+## AVFoundation Sendable annotations differ by SDK — CI compiles stricter than local
+
+A newer local SDK (macOS 26.x) carries `sending`/Sendable annotations that older
+CI SDKs (Xcode 16.4 / macOS 15.5) lack. Concretely: `async let tracks =
+asset.loadTracks(...)` inside a `@MainActor` task compiles locally but fails on CI
+with *"non-sendable result type `[AVAssetTrack]` cannot be sent from nonisolated
+context"*. A green local `swift build` does NOT prove CI compiles.
+
+**Pattern:** never let non-Sendable AVFoundation types (`AVAssetTrack`,
+`AVMutable*`) cross an actor boundary. Do the whole load/composition in one
+nonisolated function (e.g. `VideoCropExporter.loadEditorMetadata`) and return only
+Sendable values (`Double`, `CGSize`) to the view. Plain sequential `await` inside
+the nonisolated region is fine; `async let` from actor context is the trap.
+
 ## Detached saves outlive the edit session
 
 `Task.detached` exports/encodes are not cancelled when the panel closes. Save

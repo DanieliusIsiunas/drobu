@@ -278,6 +278,23 @@ struct VideoCropExporterTests {
 
     // MARK: - Error path
 
+    @Test func loadEditorMetadataReturnsDurationAndPixelSize() async throws {
+        let source = try await Self.makeQuadrantClip()
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let metadata = try await VideoCropExporter.loadEditorMetadata(from: source)
+        // 8 frames at 10 fps ≈ 0.8s.
+        #expect(abs(metadata.duration - 0.8) < 0.3)
+        #expect(metadata.naturalSize == CGSize(width: 320, height: 240))
+    }
+
+    @Test func loadEditorMetadataFromMissingSourceThrows() async {
+        let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).mp4")
+        await #expect(throws: (any Error).self) {
+            _ = try await VideoCropExporter.loadEditorMetadata(from: missing)
+        }
+    }
+
     @Test func exportFromMissingSourceThrows() async throws {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("does-not-exist-\(UUID().uuidString).mp4")
