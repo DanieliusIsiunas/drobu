@@ -2,7 +2,13 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-struct GIFFrame {
+/// A single decoded GIF frame plus its on-screen duration.
+///
+/// `CGImage` carries the SDK's `Sendable` conformance, but the wrapper struct is not
+/// implicitly `Sendable` under Swift 6 — the explicit one-word conformance lets
+/// `[GIFFrame]` cross into `Task.detached` for off-main-actor crop+encode. (The
+/// contents are genuinely Sendable, so never `@unchecked Sendable` here.)
+struct GIFFrame: Sendable {
     let image: CGImage
     let delay: Double  // seconds
 }
@@ -64,6 +70,31 @@ enum GIFFrameEngine {
 
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
+    }
+
+    /// Crop every frame to `rect` (content pixels, top-left origin), preserving each
+    /// frame's delay. The rect is integral-clamped to each frame's own pixel bounds
+    /// before cropping — `CGImage.cropping(to:)` clamps internally too, but we clamp
+    /// explicitly so the result is predictable. The cropped images are lazy no-copy
+    /// views into the originals, which is fine because they flow straight into encode.
+    ///
+    /// Returns nil if the clamped rect is empty/outside any frame, or any frame fails
+    /// to crop — so the caller can keep the user in edit mode rather than emit a
+    /// corrupt GIF.
+    static func cropFrames(_ frames: [GIFFrame], to rect: CGRect) -> [GIFFrame]? {
+        guard !frames.isEmpty else { return nil }
+
+        var cropped: [GIFFrame] = []
+        cropped.reserveCapacity(frames.count)
+
+        for frame in frames {
+            let bounds = CGRect(x: 0, y: 0, width: frame.image.width, height: frame.image.height)
+            let clamped = rect.integral.intersection(bounds)
+            guard !clamped.isNull, clamped.width >= 1, clamped.height >= 1 else { return nil }
+            guard let croppedImage = frame.image.cropping(to: clamped) else { return nil }
+            cropped.append(GIFFrame(image: croppedImage, delay: frame.delay))
+        }
+        return cropped
     }
 
     /// Encode GIF from compressed frame data (JPEG) with per-frame delays.
