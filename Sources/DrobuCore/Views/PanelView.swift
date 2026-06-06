@@ -315,6 +315,7 @@ struct PanelView: View {
                 onSave: { saveEdit() },
                 onDiscard: { discardEdit() },
                 onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
+                onImageSave: { croppedData in saveImageCrop(data: croppedData) },
                 onVideoSave: { trimmedURL in saveVideoTrim(url: trimmedURL) },
                 onCleanup: { cleanupText() }
             )
@@ -620,6 +621,12 @@ struct PanelView: View {
                     return .handled
                 }
                 if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
+                    enterEditMode()
+                    return .handled
+                }
+                if item.kind == ClipboardRecord.kindImage,
+                   let data = item.imageData,
+                   ImageCrop.decodeBitmap(from: data) != nil {
                     enterEditMode()
                     return .handled
                 }
@@ -947,9 +954,10 @@ struct PanelView: View {
     private func saveEdit() {
         guard isEditing else { return }
 
-        // For GIF items, save is handled by saveGifTrim (called from onGifSave)
+        // For GIF/image items, save is handled by saveGifTrim / saveImageCrop
+        // (called from onGifSave / onImageSave) — never the editingText path.
         if let item = items.first(where: { $0.id == editingItemId }),
-           item.kind == ClipboardRecord.kindGif {
+           item.kind == ClipboardRecord.kindGif || item.kind == ClipboardRecord.kindImage {
             discardEdit()
             return
         }
@@ -1000,6 +1008,30 @@ struct PanelView: View {
                 }
             } catch {
                 Log.error("PanelView: saveGifTrim failed: \(error)")
+            }
+        }
+
+        // Item moves to top when ValueObservation fires
+        anchor = 0
+        cursor = 0
+    }
+
+    private func saveImageCrop(data: Data) {
+        guard isEditing else { return }
+        isEditing = false
+        let savedItemId = editingItemId
+        editingItemId = nil
+        isSearchFocused = true
+
+        guard let itemId = savedItemId else { return }
+
+        Task.detached {
+            do {
+                try await database.pool.write { db in
+                    try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+                }
+            } catch {
+                Log.error("PanelView: saveImageCrop failed: \(error)")
             }
         }
 

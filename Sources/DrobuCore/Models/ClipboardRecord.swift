@@ -153,6 +153,28 @@ extension ClipboardRecord {
         )
     }
 
+    /// Update image data, recalculate hash, and move to top of list.
+    static func updateImageData(id: Int64, newData: Data, in db: Database) throws {
+        let newHash = newData.sha256String
+
+        // Delete any other item with the same hash (dedup)
+        try db.execute(
+            sql: "DELETE FROM clipboardItem WHERE contentHash = ? AND id != ?",
+            arguments: [newHash, id]
+        )
+
+        // Update the record in place
+        let displayText = mediaDisplayText(from: newData, kind: kindImage)
+        try db.execute(
+            sql: """
+                UPDATE clipboardItem
+                SET imageData = ?, contentHash = ?, plainText = ?, createdAt = ?
+                WHERE id = ?
+                """,
+            arguments: [newData, newHash, displayText, Date(), id]
+        )
+    }
+
     /// Extract frame count and total duration from GIF data using CGImageSource.
     static func gifMetadata(from data: Data) -> (frameCount: Int, duration: Double)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
