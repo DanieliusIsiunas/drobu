@@ -1,7 +1,7 @@
 ---
 title: "feat: Spatial crop in the capture editing suite"
 type: feat
-status: active
+status: completed
 date: 2026-06-06
 deepened: 2026-06-06
 origin: docs/brainstorms/2026-06-06-capture-crop-editing-requirements.md
