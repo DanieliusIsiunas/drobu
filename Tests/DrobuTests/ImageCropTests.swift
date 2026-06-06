@@ -55,6 +55,19 @@ struct ImageCropTests {
         #expect(ImageCrop.decodeBitmap(from: text) == nil)
     }
 
+    // MARK: - isBitmapData (header-only hot-path gate)
+
+    @Test func isBitmapDataAcceptsRealPNG() {
+        let png = Self.makePNG(width: 64, height: 48)
+        #expect(ImageCrop.isBitmapData(png))
+    }
+
+    @Test func isBitmapDataRejectsArbitraryData() {
+        let text = Data("this is not an image".utf8)
+        #expect(!ImageCrop.isBitmapData(text))
+        #expect(!ImageCrop.isBitmapData(Data()))
+    }
+
     // MARK: - Crop round-trip
 
     @Test func cropRoundTripProducesExactCropDimensions() {

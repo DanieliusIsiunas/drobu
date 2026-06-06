@@ -59,48 +59,45 @@ struct GIFTrimView: View {
         }
     }
 
+    // Only reached from body's `isLoaded && !frames.isEmpty` branch.
     private var trimInfoBar: some View {
-        Group {
-            if !frames.isEmpty {
-                HStack {
-                    if isSaving {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Saving…")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    } else if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                        Spacer()
-                    } else {
-                        let selectedCount = endFrame - startFrame + 1
-                        let originalDuration = frames.reduce(0.0) { $0 + $1.delay }
-                        let trimmedDuration = frames[startFrame...endFrame].reduce(0.0) { $0 + $1.delay }
+        HStack {
+            if isSaving {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Saving…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                Spacer()
+            } else {
+                let selectedCount = endFrame - startFrame + 1
+                let originalDuration = frames.reduce(0.0) { $0 + $1.delay }
+                let trimmedDuration = frames[startFrame...endFrame].reduce(0.0) { $0 + $1.delay }
 
-                        Text("\(selectedCount) of \(frames.count) frames")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                Text("\(selectedCount) of \(frames.count) frames")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
 
-                        Spacer()
+                Spacer()
 
-                        if selectedCount < frames.count {
-                            Text(String(format: "%.1fs (was %.1fs)", trimmedDuration, originalDuration))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(String(format: "%.1fs", originalDuration))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                if selectedCount < frames.count {
+                    Text(String(format: "%.1fs (was %.1fs)", trimmedDuration, originalDuration))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(String(format: "%.1fs", originalDuration))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
     }
 
     private func loadFrames() {

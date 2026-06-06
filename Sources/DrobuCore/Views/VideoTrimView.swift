@@ -38,8 +38,8 @@ struct VideoTrimView: View {
                         currentTime: $currentTime,
                         // Cmd+Return / Esc are swallowed while exporting (no-op). Otherwise
                         // save runs (or retries after an error) and discard exits.
-                        onSave: { guard !isExporting else { return }; save() },
-                        onDiscard: { guard !isExporting else { return }; onDiscard() }
+                        onSave: { save() },
+                        onDiscard: { discard() }
                     )
                     CropOverlayView(geometry: $cropGeometry, isInteractionEnabled: !isExporting)
                 }
@@ -114,10 +114,14 @@ struct VideoTrimView: View {
     private func loadDuration() {
         Task {
             let asset = AVURLAsset(url: url)
-            let dur = try? await asset.load(.duration).seconds
-            // Load the video track's natural (pixel) size to seed the crop geometry.
+            // Duration and track list are independent reads — load them in parallel
+            // so the "Loading video…" spinner lasts one round-trip, not two.
+            async let durationLoad = asset.load(.duration)
+            async let tracksLoad = asset.loadTracks(withMediaType: .video)
+            let dur = try? await durationLoad.seconds
+            // The video track's natural (pixel) size seeds the crop geometry.
             var naturalSize: CGSize = .zero
-            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+            if let track = try? await tracksLoad.first {
                 naturalSize = (try? await track.load(.naturalSize)) ?? .zero
             }
             await MainActor.run {
@@ -132,6 +136,11 @@ struct VideoTrimView: View {
                 isLoaded = true
             }
         }
+    }
+
+    private func discard() {
+        guard !isExporting else { return }
+        onDiscard()
     }
 
     /// Save path: decide passthrough vs re-encode, then export off the main actor.
@@ -183,7 +192,7 @@ struct VideoTrimView: View {
                 try? FileManager.default.removeItem(at: tempURL)
                 await MainActor.run {
                     isExporting = false
-                    errorMessage = "Export failed — try again"
+                    errorMessage = "Save failed — try again"
                 }
             }
         }

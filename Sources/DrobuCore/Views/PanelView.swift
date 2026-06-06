@@ -626,7 +626,7 @@ struct PanelView: View {
                 }
                 if item.kind == ClipboardRecord.kindImage,
                    let data = item.imageData,
-                   ImageCrop.decodeBitmap(from: data) != nil {
+                   ImageCrop.isBitmapData(data) {
                     enterEditMode()
                     return .handled
                 }
@@ -993,30 +993,21 @@ struct PanelView: View {
     }
 
     private func saveGifTrim(data: Data) {
-        guard isEditing else { return }
-        isEditing = false
-        let savedItemId = editingItemId
-        editingItemId = nil
-        isSearchFocused = true
-
-        guard let itemId = savedItemId else { return }
-
-        Task.detached {
-            do {
-                try await database.pool.write { db in
-                    try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
-                }
-            } catch {
-                Log.error("PanelView: saveGifTrim failed: \(error)")
-            }
+        commitMediaEdit(logTag: "saveGifTrim") { db, itemId in
+            try ClipboardRecord.updateGifData(id: itemId, newData: data, in: db)
         }
-
-        // Item moves to top when ValueObservation fires
-        anchor = 0
-        cursor = 0
     }
 
     private func saveImageCrop(data: Data) {
+        commitMediaEdit(logTag: "saveImageCrop") { db, itemId in
+            try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+        }
+    }
+
+    /// Shared close-edit-mode + detached-DB-write boilerplate for in-place media
+    /// edits (GIF trim/crop, image crop). The video path stays separate — it has
+    /// its own file-move/hash/thumbnail flow in `saveVideoTrim`.
+    private func commitMediaEdit(logTag: String, update: @escaping @Sendable (Database, Int64) throws -> Void) {
         guard isEditing else { return }
         isEditing = false
         let savedItemId = editingItemId
@@ -1028,10 +1019,10 @@ struct PanelView: View {
         Task.detached {
             do {
                 try await database.pool.write { db in
-                    try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+                    try update(db, itemId)
                 }
             } catch {
-                Log.error("PanelView: saveImageCrop failed: \(error)")
+                Log.error("PanelView: \(logTag) failed: \(error)")
             }
         }
 

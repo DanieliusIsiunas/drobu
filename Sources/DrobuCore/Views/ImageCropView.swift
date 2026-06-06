@@ -7,12 +7,22 @@ import UniformTypeIdentifiers
 /// pipeline is directly testable. `ImageCropView` uses these and adds only UI.
 enum ImageCrop {
     /// Decode the first bitmap frame of `data` to a `CGImage`.
-    /// Returns nil for non-bitmap payloads (text, PDF-backed pasteboard data, etc.) —
-    /// this is the edit-mode gate: only decodable bitmaps may be cropped.
+    /// Returns nil for non-bitmap payloads (text, PDF-backed pasteboard data, etc.).
     static func decodeBitmap(from data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         guard CGImageSourceGetCount(source) > 0 else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// Header-only check that `data` is a decodable bitmap — the edit-mode gate.
+    /// Runs on the Cmd+Right hot path, so it must never decode pixels
+    /// (`decodeBitmap` allocates the full bitmap — megabytes for a Retina
+    /// screenshot); reading container properties is enough to reject non-bitmap
+    /// payloads, and `ImageCropView` handles a late decode failure gracefully.
+    static func isBitmapData(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        guard CGImageSourceGetCount(source) > 0 else { return false }
+        return CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
     }
 
     /// Decode `data`, crop to `rect` (top-left origin, content pixels — the
@@ -97,7 +107,7 @@ struct ImageCropView: View {
             if isSaving {
                 ProgressView()
                     .controlSize(.small)
-                Text("Saving\u{2026}")
+                Text("Saving…")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else if let errorMessage {
@@ -161,15 +171,15 @@ struct ImageCropView: View {
 
 // MARK: - Invisible key handler
 
-/// Transparent first-responder NSView owning Esc (keyCode 53) and Cmd+Return
-/// (keyCode 36 + .command), mirroring `GIFPlayerNSView`. Placed in the ZStack
-/// background so it never intercepts crop-edge clicks.
+/// Transparent first-responder view hosting the shared `EditorKeyNSView` (Esc /
+/// Cmd+Return contract). Placed in the ZStack background so it never intercepts
+/// crop-edge clicks.
 struct ImageCropKeyView: NSViewRepresentable {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
 
-    func makeNSView(context: Context) -> ImageCropKeyNSView {
-        let view = ImageCropKeyNSView()
+    func makeNSView(context: Context) -> EditorKeyNSView {
+        let view = EditorKeyNSView()
         view.onSave = onSave
         view.onDiscard = onDiscard
         // Invisible utility view — not an accessibility element.
@@ -183,33 +193,8 @@ struct ImageCropKeyView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: ImageCropKeyNSView, context: Context) {
+    func updateNSView(_ nsView: EditorKeyNSView, context: Context) {
         nsView.onSave = onSave
         nsView.onDiscard = onDiscard
-    }
-}
-
-final class ImageCropKeyNSView: NSView {
-    var onSave: (() -> Void)?
-    var onDiscard: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        // Cmd+Return → save
-        if event.keyCode == 36 && flags.contains(.command) {
-            onSave?()
-            return
-        }
-
-        // Escape → discard
-        if event.keyCode == 53 {
-            onDiscard?()
-            return
-        }
-
-        super.keyDown(with: event)
     }
 }

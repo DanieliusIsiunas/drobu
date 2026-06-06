@@ -114,29 +114,6 @@ struct VideoTrimPlayerView: NSViewRepresentable {
     }
 }
 
-// MARK: - Custom NSView for keyboard handling
+// MARK: - Player container NSView (key handling inherited from EditorKeyNSView)
 
-final class VideoTrimNSView: NSView {
-    var onSave: (() -> Void)?
-    var onDiscard: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        // Cmd+Return → save
-        if event.keyCode == 36 && flags.contains(.command) {
-            onSave?()
-            return
-        }
-
-        // Escape → discard
-        if event.keyCode == 53 {
-            onDiscard?()
-            return
-        }
-
-        super.keyDown(with: event)
-    }
-}
+final class VideoTrimNSView: EditorKeyNSView {}

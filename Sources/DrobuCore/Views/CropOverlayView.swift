@@ -40,9 +40,11 @@ struct CropOverlayView: NSViewRepresentable {
 
     func updateNSView(_ nsView: CropOverlayNSView, context: Context) {
         context.coordinator.parent = self
+        // Accessibility value updates live in the NSView's geometry didSet (guarded by
+        // != oldValue) — updateNSView fires at playback rate (30Hz video, 10Hz GIF)
+        // and an unconditional setAccessibilityValue here would churn VoiceOver.
         nsView.geometry = geometry
         nsView.isInteractionEnabled = isInteractionEnabled
-        nsView.setAccessibilityValue(geometry.readoutText)
     }
 
     @MainActor
@@ -63,6 +65,7 @@ final class CropOverlayNSView: NSView {
             guard geometry != oldValue else { return }
             needsDisplay = true
             window?.invalidateCursorRects(for: self)
+            setAccessibilityValue(geometry.readoutText)
         }
     }
     var onGeometryChange: ((CropGeometry) -> Void)?

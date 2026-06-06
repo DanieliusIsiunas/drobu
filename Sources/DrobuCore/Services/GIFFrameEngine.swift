@@ -84,12 +84,13 @@ enum GIFFrameEngine {
     static func cropFrames(_ frames: [GIFFrame], to rect: CGRect) -> [GIFFrame]? {
         guard !frames.isEmpty else { return nil }
 
+        let integralRect = rect.integral
         var cropped: [GIFFrame] = []
         cropped.reserveCapacity(frames.count)
 
         for frame in frames {
             let bounds = CGRect(x: 0, y: 0, width: frame.image.width, height: frame.image.height)
-            let clamped = rect.integral.intersection(bounds)
+            let clamped = integralRect.intersection(bounds)
             guard !clamped.isNull, clamped.width >= 1, clamped.height >= 1 else { return nil }
             guard let croppedImage = frame.image.cropping(to: clamped) else { return nil }
             cropped.append(GIFFrame(image: croppedImage, delay: frame.delay))
