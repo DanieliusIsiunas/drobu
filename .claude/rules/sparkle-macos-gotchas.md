@@ -1,5 +1,20 @@
 # Sparkle macOS Gotchas
 
+## Repo rename strands installed clients on a dead appcast URL
+
+`SUFeedURL` is baked into each shipped app's Info.plist. When the repo was renamed `clipboard-history` → `drobu` (commit `a3c2bd3`), the GitHub Pages URL changed with it — and **GitHub Pages does NOT redirect after a rename** (git remotes and `releases/download/...` URLs do; Pages 404s). Every install whose baked-in feed URL predates the rename silently stops seeing updates: Sparkle's background check treats an appcast load failure as "no update available" — no error UI, `SULastCheckTime` keeps advancing as if everything works.
+
+Affected here: v1.2 (build 3) was the only release shipped with the old `/clipboard-history/appcast.xml` URL; v1.3+ already pointed at `/drobu/appcast.xml`.
+
+**Diagnose:** compare the installed app's feed against the live appcast:
+```bash
+plutil -extract SUFeedURL raw /Applications/Drobu.app/Contents/Info.plist
+curl -sL -o /dev/null -w '%{http_code}\n' "$(plutil -extract SUFeedURL raw /Applications/Drobu.app/Contents/Info.plist)"
+```
+A 404 means that install can never auto-update — it needs a manual reinstall (or a forwarding appcast resurrected at the old URL, e.g. a stub repo with the old name serving only `appcast.xml`).
+
+**Rule:** treat `SUFeedURL` as a permanent public contract. Never rename the repo/Pages path that hosts the appcast without first standing up a permanent forward at the old URL. Prefer a custom domain you control over a `github.io/<repo-name>/` path for the feed.
+
 ## Self-signed cert requires `disable-library-validation`
 
 Even when re-signing all Sparkle.framework components with `--force --sign "$CERT_NAME"` (inside-out), a self-signed certificate (like `ClipboardHistoryDev`) still fails hardened runtime's Library Validation. The `com.apple.security.cs.disable-library-validation` entitlement is required.

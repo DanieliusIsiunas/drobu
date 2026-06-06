@@ -31,6 +31,12 @@ Day-to-day this caches normally (PRs and pushes hit the same key); a future rena
 
 ## Path-ignore filters on multi-purpose repos
 
-`paths-ignore: ['website/**']` on the tests workflow means Dependabot PRs that bump npm deps (which only touch `website/`) don't run tests. That's intentional — there's no Swift code to test in those PRs — but it also means there's no CI signal on those PRs. Don't rely on CI status as the merge gate; let mergeable + clean be enough for those bumps.
+`paths-ignore: ['website/**']` on the tests workflow means Dependabot PRs that bump npm deps (which only touch `website/`) don't run tests. That's intentional — there's no Swift code to test in those PRs — but it also means there's no CI signal on those PRs.
+
+Since 2026-06-07 the `protect-main` ruleset makes the `test` check **required**, so these website-only PRs sit at "Expected — waiting for status" forever. They are NOT broken — merge them via the admin-bypass merge option ("Merge without waiting for requirements"). Repository admin is on the ruleset's bypass list precisely for this and for `release.sh`'s direct appcast push to main.
 
 If you ever add a Swift dep that lives outside `website/`, the path filter is correct; Dependabot PRs touching `Package.resolved` will trigger CI normally.
+
+## main is governed by a ruleset, not classic branch protection
+
+Repo ruleset `protect-main` (id 17358659): require PR (0 approvals), required check `test`, block force-push, block deletion; bypass = repository admin (always). Inspect with `gh api repos/DanieliusIsiunas/drobu/rulesets/17358659`. Note `gh api .../branches/main/protection` returns 404 — that endpoint only sees classic branch protection, not rulesets; don't read the 404 as "unprotected".
