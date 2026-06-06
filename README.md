@@ -64,24 +64,6 @@ swift test
 
 CI enforces this on every PR. Test targets live in `Tests/DrobuTests/` using Swift Testing (`@Test`, `@Suite`).
 
-## Releasing
-
-`release.sh` runs the full Sparkle release flow: build → package as a signed `Drobu.dmg` with drag-to-Applications layout → sign the DMG with the Sparkle EdDSA key (read from Keychain) → tag → create a GitHub release → update `website/public/appcast.xml` → push. Bump the version in `Sources/DrobuCore/Info.plist` (both `CFBundleShortVersionString` and `CFBundleVersion`) first, then:
-
-```bash
-./release.sh
-```
-
-## Licensing
-
-Drobu is a $14.99 one-time purchase with a 14-day in-app free trial. Activation uses cryptographic offline license keys (Ed25519). The matching public key is baked into `Info.plist`; the private key never leaves the developer's Keychain. To issue a key for a paying customer:
-
-```bash
-./tools/issue-license-key.sh customer@example.com
-```
-
-Full operational details — keypair generation, activation flow, threat model, refunds, key rotation — live in [`docs/licensing.md`](docs/licensing.md).
-
 ## License
 
 Source is published for transparency and security audit. **All rights reserved** — Drobu is a commercial product; the compiled application is licensed separately. See [LICENSE](LICENSE).
