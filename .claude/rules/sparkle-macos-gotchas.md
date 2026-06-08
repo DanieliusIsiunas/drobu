@@ -21,6 +21,12 @@ As of v1.4.1 the app moved from the self-signed `ClipboardHistoryDev` cert to a 
 
 The validation gate in `SUUpdateValidator` is `passedDSACheck || passedCodeSigning` (an OR). The EdDSA signature is verified against the **old (installed) app's** `SUPublicEDKey`, and a valid EdDSA signature alone authorizes the update — Sparkle explicitly tolerates a code-signing identity change in this case (its own test `testPostValidationWithKeyRotation` covers "change the cert, keep the EdDSA key"). The new app must still be code signed (can't go signed→unsigned) and internally valid, which Developer ID + notarization satisfies.
 
+**One-time re-auth prompts after the identity switch (expected, not a bug):** macOS binds both TCC grants and Keychain-item ACLs to the app's *code signature*. When an installed self-signed build updates (over Sparkle) to the Developer-ID build, the new signature is a "different app" to those subsystems, so the user sees one-time prompts:
+- **Keychain:** *"Drobu wants to use your confidential information stored in `com.danielius.ClipboardHistory.license`"* — the license/trial data (accounts `trial-start`, and `active-license` if present) was written under the old identity. Click **Always Allow** (enter login password) to rewrite the ACL to trust the Developer ID signature. May appear once per account. **Never Deny** — that blocks Drobu from reading its own trial/license state and can throw the user into the activation gate.
+- **Accessibility (TCC):** the Cmd+V paste grant may need re-granting once for the same reason.
+
+This hits only installs that previously ran a self-signed build (1.2–1.4). **Fresh 1.4.1 installs never see it** — their Keychain items and TCC grants are born under Developer ID. It's the unavoidable, one-time cost of the identity migration; after Always Allow it's silent forever.
+
 **Hard rules for the migration:**
 - **Never change `SUPublicEDKey`.** It's the unbroken chain of trust across the identity switch. Ours: `XmiKqgGJ6dSmGbT3ehj6B9IUkn87vRhKbe16rTWGP54=`. `release.sh` signs the DMG with the matching private key from Keychain — same keypair.
 - **Never rotate the EdDSA key AND the signing cert in the same release** — that breaks the chain and Sparkle rejects with "signed with a new Code Signing identity that doesn't match…".
