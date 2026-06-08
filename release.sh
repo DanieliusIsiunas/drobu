@@ -206,9 +206,13 @@ cleanup_pushed_tag() {
     red "    git push --delete origin $TAG"
     red "    git tag -d $TAG"
 }
-# INT/TERM too — gh release create uploads the DMG (tens of seconds); a Ctrl-C
-# during that window would otherwise orphan the pushed tag with no recovery hint.
-trap cleanup_pushed_tag ERR INT TERM
+# ERR: under `set -e` the shell exits after the trap runs. INT/TERM: a signal
+# trap that RETURNS does not abort in Bash — so the signal handlers must exit
+# explicitly (128 + signal number), or a Ctrl-C during the DMG upload would
+# print the warning and then continue into release creation/appcast.
+trap cleanup_pushed_tag ERR
+trap 'cleanup_pushed_tag; exit 130' INT
+trap 'cleanup_pushed_tag; exit 143' TERM
 
 # --- GitHub release -----------------------------------------------------------
 
