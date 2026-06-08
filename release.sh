@@ -168,12 +168,14 @@ step "Stapling notarization ticket to $DMG"
 # Stapling rewrites the DMG, changing its bytes — so this MUST happen before
 # sign_update computes the Sparkle EdDSA signature and length below.
 xcrun stapler staple "$DMG"
-# Two checks before publish: stapler validate confirms the ticket is actually
-# attached (the precise check); spctl confirms Gatekeeper's policy verdict.
+# Verify the notarization ticket is attached + valid before publishing.
+# Do NOT add `spctl --assess --context primary-signature` here: the DMG container
+# is notarized + stapled but intentionally NOT codesigned (only the app inside is),
+# so spctl reports "no usable signature" and false-rejects a perfectly good DMG.
+# `stapler validate` is the correct ticket check; Gatekeeper accepts a quarantined
+# download on the strength of that stapled ticket.
 xcrun stapler validate "$DMG" \
     || { red "Staple ticket missing/invalid on $DMG — aborting before publish."; exit 1; }
-spctl --assess --type open --context context:primary-signature "$DMG" 2>&1 \
-    || { red "Stapled DMG failed Gatekeeper assessment — aborting before publish."; exit 1; }
 
 step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout

@@ -64,7 +64,20 @@ Shell-level alternative (for technical users): `xattr -d com.apple.quarantine /A
 - Set expectations before the click: include the bypass instruction near the download CTA so the user finds it when they hit the wall (not buried in a chevron or a help page they have to navigate to).
 - Use the exact button names that appear in System Settings: **Privacy & Security**, the **Security** section header, **Open Anyway**. Generic language ("change security settings") is significantly less helpful.
 
-**The real fix is notarization.** Apple Developer Program ($99/year), Developer ID Application certificate, `xcrun notarytool submit` on every release, `xcrun stapler staple` to attach the notarization ticket to the DMG. Once stapled, Gatekeeper recognizes the signature chain → no warning, smooth install. The `build.sh --notarize` stub is already wired for this; just needs the Apple Developer ID cert.
+**The real fix is notarization.** Apple Developer Program ($99/year), Developer ID Application certificate, `xcrun notarytool submit` on every release, `xcrun stapler staple` to attach the notarization ticket to the DMG. Once stapled, Gatekeeper recognizes the signature chain → no warning, smooth install. Implemented as of v1.4.1 — `release.sh` notarizes + staples both the `.app` and the DMG, then Sparkle-EdDSA-signs the stapled DMG. Setup: see CLAUDE.md (notarytool keychain profile).
+
+## Verifying a notarized DMG: `stapler validate`, NOT `spctl --assess`
+
+After `xcrun stapler staple Drobu.dmg`, verify the ticket with **`xcrun stapler validate Drobu.dmg`** — not `spctl`. The DMG *container* is notarized + stapled but intentionally **not codesigned** (only the app inside it is). So:
+
+```
+xcrun stapler validate Drobu.dmg          # → "The validate action worked!"  ✅
+spctl --assess --type open --context context:primary-signature Drobu.dmg
+                                          # → "rejected: source=no usable signature"  ❌ FALSE NEGATIVE
+codesign -dv Drobu.dmg                     # → "code object is not signed at all"
+```
+
+`spctl --assess --context primary-signature` asks Gatekeeper to evaluate a *primary code signature* the DMG doesn't have, so it false-rejects a perfectly valid notarized DMG. This aborted a v1.4.1 release at the pre-publish gate after both notarizations had already succeeded. `stapler validate` checks the actual notarization ticket — which is what Gatekeeper honors when a user opens a quarantined download. (Codesigning the DMG container too would make spctl pass, but it's redundant: the stapled ticket + the appcast's EdDSA signature already cover Gatekeeper acceptance and in-transit integrity.)
 
 ## Don't use `cp -r` for `.app` bundles
 
