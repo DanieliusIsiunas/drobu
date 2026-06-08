@@ -42,11 +42,7 @@ Database path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 
 ## Build & run
 
-**One-time setup** — create a self-signed code-signing certificate so Accessibility permissions persist across rebuilds (ad-hoc signing rotates the binary hash and revokes TCC grants on every build):
-
-1. Open **Keychain Access**
-2. **Keychain Access → Certificate Assistant → Create a Certificate…**
-3. Name `ClipboardHistoryDev`, identity type **Self-Signed Root**, certificate type **Code Signing**
+**One-time setup** — `build.sh` signs with the **Apple Developer ID Application** certificate (Apple Developer Program), which gives builds a stable signature so Accessibility permissions persist across rebuilds and lets releases be notarized. Install the cert into your login Keychain via **Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application**.
 
 Then build, install to `/Applications`, and launch:
 
@@ -54,7 +50,7 @@ Then build, install to `/Applications`, and launch:
 pkill -x Drobu 2>/dev/null; ./build.sh --install && open /Applications/Drobu.app
 ```
 
-Without the cert, the build script falls back to ad-hoc signing — the app still runs, but you'll re-grant Accessibility on every rebuild.
+If the Developer ID cert is missing, the build **fails loudly** rather than falling back to ad-hoc signing — ad-hoc rotates the binary hash (revoking TCC grants every build) and breaks Sparkle updates for installed users. This is a single-maintainer commercial app; building a signed copy requires that maintainer's Developer ID cert.
 
 ## Tests
 

@@ -33,9 +33,16 @@ Always use this combo — kills stale process, rebuilds, installs to `/Applicati
 - App log: `cat ~/Library/Application\ Support/ClipboardHistory/app.log`
 - `log show` does NOT work for this app — always use the file-based log above
 
-**Code signing:** `ClipboardHistoryDev` self-signed cert preserves Accessibility permissions across builds. Falls back to ad-hoc without it. **Watch for trust drift** — the cert can be present in Keychain but lose `Always Trust` status (`security find-identity -v -p codesigning` returns 0 valid identities even though the cert exists). Details in `.claude/rules/sparkle-macos-gotchas.md`.
+**Code signing:** `build.sh` signs with the **Developer ID Application** cert (`Developer ID Application: DANIELIUS ISIŪNAS (TGL69S88MD)`), hardened runtime + `--timestamp`, so the same bundle can be notarized for release and dev builds keep a stable signature (Accessibility persists). The cert name is resolved dynamically from Keychain. If it's missing, the build **fails loudly** — it does NOT fall back to ad-hoc signing (which would reset TCC and break Sparkle updates for installed users). The legacy self-signed `ClipboardHistoryDev` cert is no longer used. Details in `.claude/rules/sparkle-macos-gotchas.md`.
 
-**Release pipeline:** `./release.sh` produces a signed `Drobu.dmg` with the drag-to-Applications window layout (via `create-dmg` Homebrew package — `brew install create-dmg` once per dev machine), signs it with the Sparkle EdDSA key from Keychain, tags + pushes, creates the GitHub Release, and updates `website/public/appcast.xml`. Bump version in `Sources/DrobuCore/Info.plist` first.
+**Release pipeline:** `./release.sh` builds + Developer-ID-signs the app, **notarizes and staples** both the `.app` and the `Drobu.dmg` (drag-to-Applications layout via `create-dmg` — `brew install create-dmg` once per dev machine), then Sparkle-EdDSA-signs the *stapled* DMG (stapling rewrites the bytes, so the EdDSA signature/length must be computed last), tags + pushes, creates the GitHub Release, and updates `website/public/appcast.xml`. Bump version in `Sources/DrobuCore/Info.plist` first.
+
+Notarization needs a one-time keychain profile (the script preflights for it and prints the command if missing):
+```bash
+xcrun notarytool store-credentials "notary-profile" \
+    --apple-id <apple-id> --team-id TGL69S88MD --password <app-specific-password>
+```
+The app-specific password comes from appleid.apple.com → Sign-In and Security → App-Specific Passwords (NOT your Apple ID password). The first notarized release migrates installed self-signed clients over Sparkle's EdDSA path — safe **only** because `SUPublicEDKey` stays unchanged; never rotate the EdDSA key and the signing cert in the same release.
 
 **Tests:** `swift test` — runs ~73 tests across 5 suites in ~0.2s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
 

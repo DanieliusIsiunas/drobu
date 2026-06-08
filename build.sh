@@ -5,8 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Drobu"
 BUILD_DIR="$SCRIPT_DIR/.build"
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
-BUNDLE_ID="com.danielius.ClipboardHistory"
-CERT_NAME="ClipboardHistoryDev"
+# Sign with the Apple Developer ID Application cert so releases can be notarized
+# and dev builds keep a stable signature (Accessibility permission persists).
+# Pin to this Team ID so a second Developer ID cert in the Keychain (renewal
+# overlap, another team) can't be picked by accident. The trailing `|| true`
+# keeps the explicit empty-CERT_NAME guard below in charge of the error message
+# even if `security` exits non-zero on a machine with zero valid identities.
+TEAM_ID="TGL69S88MD"
+CERT_NAME=$(security find-identity -v -p codesigning \
+    | sed -nE 's/.*"(Developer ID Application: [^"]+)".*/\1/p' \
+    | grep -F "($TEAM_ID)" | head -1 || true)
 
 echo "Building ${APP_NAME}..."
 cd "$SCRIPT_DIR"
@@ -45,56 +53,45 @@ if ! otool -l "$APP_BUNDLE/Contents/MacOS/${APP_NAME}" | grep -q "@executable_pa
         "$APP_BUNDLE/Contents/MacOS/${APP_NAME}"
 fi
 
-# Code signing: use a stable self-signed certificate so Accessibility permission persists across rebuilds.
-# Ad-hoc signing (codesign --sign -) generates a unique hash per build, which invalidates TCC grants.
+# Code signing: Developer ID Application cert + hardened runtime + secure timestamp.
+# The stable Developer ID signature keeps Accessibility permission across rebuilds
+# and lets release.sh notarize the same bundle. --timestamp is REQUIRED for
+# notarization (Apple rejects ad-hoc-timestamped binaries).
 ENTITLEMENTS="$SCRIPT_DIR/Sources/DrobuCore/Drobu.entitlements"
 
-if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
-    echo "Signing with certificate: $CERT_NAME (hardened runtime)"
-    # Sign Sparkle components inside-out (never use --deep)
-    find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B" \
-        \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) \
-        -exec codesign --force --sign "$CERT_NAME" --options runtime {} \;
-    codesign --force --sign "$CERT_NAME" --options runtime \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-    # Sign the app bundle last (with entitlements)
-    codesign --force --sign "$CERT_NAME" --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
-else
+if [ -z "$CERT_NAME" ]; then
     echo ""
     echo "============================================================"
-    echo "  CERTIFICATE NOT FOUND: $CERT_NAME"
+    echo "  DEVELOPER ID APPLICATION CERTIFICATE NOT FOUND"
     echo "============================================================"
     echo ""
-    echo "  A stable code-signing certificate is needed so that"
-    echo "  Accessibility permission persists across rebuilds."
+    echo "  Build FAILED — refusing to fall back to ad-hoc signing."
     echo ""
-    echo "  ONE-TIME SETUP (takes 30 seconds):"
+    echo "  Ad-hoc signing changes the app's identity every build, which"
+    echo "  resets Accessibility permission and — critically — breaks"
+    echo "  Sparkle updates for installed users (this cost us a v1.2 redo)."
     echo ""
-    echo "  1. Open Keychain Access.app"
-    echo "  2. Menu: Keychain Access > Certificate Assistant > Create a Certificate..."
-    echo "  3. Name:  $CERT_NAME"
-    echo "     Identity Type:  Self-Signed Root"
-    echo "     Certificate Type:  Code Signing"
-    echo "  4. Click Create, then Done."
-    echo "  5. Re-run this build script."
+    echo "  The Developer ID cert should be in your login Keychain. Check:"
+    echo "    security find-identity -v -p codesigning"
+    echo ""
+    echo "  If it's missing: Xcode > Settings > Accounts > Manage"
+    echo "  Certificates > + > Developer ID Application. If present but not"
+    echo "  listed as valid, its trust may have drifted — see"
+    echo "  .claude/rules/sparkle-macos-gotchas.md."
     echo ""
     echo "============================================================"
-    echo ""
-    echo "Falling back to ad-hoc signing (permission will reset each build)..."
-    # Sign Sparkle components inside-out (never use --deep)
-    find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B" \
-        \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) \
-        -exec codesign --force --sign - --options runtime {} \;
-    codesign --force --sign - --options runtime \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-    # Sign the app bundle last (with entitlements)
-    codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
-
-    # Only reset TCC when using ad-hoc signing, since the signature changes every build.
-    # With a stable certificate, permission persists — that's the whole point.
-    echo "Resetting Accessibility permission (ad-hoc signing invalidates it)..."
-    tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+    exit 1
 fi
+
+echo "Signing with certificate: $CERT_NAME (hardened runtime + timestamp)"
+# Sign Sparkle components inside-out (never use --deep)
+find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B" \
+    \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) \
+    -exec codesign --force --sign "$CERT_NAME" --options runtime --timestamp {} \;
+codesign --force --sign "$CERT_NAME" --options runtime --timestamp \
+    "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+# Sign the app bundle last (with entitlements)
+codesign --force --sign "$CERT_NAME" --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
 echo ""
 echo "Built: $APP_BUNDLE"
@@ -107,18 +104,6 @@ for arg in "$@"; do
             rm -rf "/Applications/${APP_NAME}.app"
             ditto "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
             echo "Installed: /Applications/${APP_NAME}.app"
-            ;;
-        --notarize)
-            # Requires Apple Developer ID certificate ($99/yr).
-            # One-time setup: xcrun notarytool store-credentials "notary-profile"
-            echo "Creating zip for notarization..."
-            ditto -c -k --keepParent "$APP_BUNDLE" "$BUILD_DIR/${APP_NAME}.zip"
-            echo "Submitting for notarization..."
-            xcrun notarytool submit "$BUILD_DIR/${APP_NAME}.zip" \
-                --keychain-profile "notary-profile" --wait
-            echo "Stapling..."
-            xcrun stapler staple "$APP_BUNDLE"
-            echo "Notarization complete."
             ;;
     esac
 done

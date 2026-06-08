@@ -15,7 +15,30 @@ A 404 means that install can never auto-update — it needs a manual reinstall (
 
 **Rule:** treat `SUFeedURL` as a permanent public contract. Never rename the repo/Pages path that hosts the appcast without first standing up a permanent forward at the old URL. Prefer a custom domain you control over a `github.io/<repo-name>/` path for the feed.
 
+## Migrating signing identity (self-signed → Developer ID) is safe IF the EdDSA key is unchanged
+
+As of v1.4.1 the app moved from the self-signed `ClipboardHistoryDev` cert to a **Developer ID Application** cert (Team `TGL69S88MD`) so releases can be notarized (v1.4 and earlier shipped self-signed). The scary question was: will installed clients signed with the *old* identity accept an update signed with the *new* one? Answer — verified against Sparkle 2.9.1 source (`.build/checkouts/Sparkle/Sparkle/SUUpdateValidator.m`): **yes, as long as the EdDSA key does not change.**
+
+The validation gate in `SUUpdateValidator` is `passedDSACheck || passedCodeSigning` (an OR). The EdDSA signature is verified against the **old (installed) app's** `SUPublicEDKey`, and a valid EdDSA signature alone authorizes the update — Sparkle explicitly tolerates a code-signing identity change in this case (its own test `testPostValidationWithKeyRotation` covers "change the cert, keep the EdDSA key"). The new app must still be code signed (can't go signed→unsigned) and internally valid, which Developer ID + notarization satisfies.
+
+**Hard rules for the migration:**
+- **Never change `SUPublicEDKey`.** It's the unbroken chain of trust across the identity switch. Ours: `XmiKqgGJ6dSmGbT3ehj6B9IUkn87vRhKbe16rTWGP54=`. `release.sh` signs the DMG with the matching private key from Keychain — same keypair.
+- **Never rotate the EdDSA key AND the signing cert in the same release** — that breaks the chain and Sparkle rejects with "signed with a new Code Signing identity that doesn't match…".
+- The error people hit historically ("identity changed → refuses update") is either signed→**unsigned** (always rejected) or an identity change with **no valid EdDSA** (DSA-only, or `SUVerifyUpdateBeforeExtraction` set). We have neither: EdDSA is valid and `SUVerifyUpdateBeforeExtraction` is unset.
+- The team-ID-match fallback (`codeSignatureIsValidAtDownloadURL:andMatchesDeveloperIDTeamFromOldBundleURL:`) bails for a no-team host — but it's only consulted when EdDSA *fails*, so it never gates us.
+
+## Notarization requires hardened runtime + secure timestamp on ALL nested code
+
+`codesign --options runtime` (hardened runtime) AND `--timestamp` (secure timestamp) are both mandatory for notarization, and must be applied to every nested executable — the Sparkle XPC services, `Autoupdate`, `Updater.app`, the framework, and the outer app. Missing `--timestamp` is a silent local success that Apple's notary service rejects. `build.sh` adds both to every `codesign` call. Verify a build is notarization-ready before submitting:
+```bash
+codesign -dvvv .build/Drobu.app 2>&1 | grep -E 'Timestamp|flags|TeamIdentifier'  # want Timestamp set, flags=0x10000(runtime)
+codesign --verify --deep --strict --verbose=2 .build/Drobu.app                    # "satisfies its Designated Requirement"
+```
+
 ## Self-signed cert requires `disable-library-validation`
+
+**(Superseded by the Developer ID migration above — kept for history / if the app ever reverts to self-signing.)**
+
 
 Even when re-signing all Sparkle.framework components with `--force --sign "$CERT_NAME"` (inside-out), a self-signed certificate (like `ClipboardHistoryDev`) still fails hardened runtime's Library Validation. The `com.apple.security.cs.disable-library-validation` entitlement is required.
 
@@ -43,6 +66,8 @@ find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" \
 Never use `--deep`. Never pass `--entitlements` to Sparkle sub-components (only to the outer app bundle).
 
 ## Self-signed cert trust drifts; `build.sh` silently falls back to ad-hoc
+
+**(Superseded by the Developer ID migration above — `build.sh` no longer uses `ClipboardHistoryDev` and no longer has an ad-hoc fallback; it now hard-fails if the Developer ID cert is missing. Kept for history / if the app ever reverts to self-signing.)**
 
 A self-signed `ClipboardHistoryDev` certificate in the login Keychain can be *present* but *not trusted for code signing* — `security find-identity -v -p codesigning` then returns "0 valid identities" even though `security find-certificate -c ClipboardHistoryDev` succeeds. The trust state can clear unexpectedly (likely after sleep / Keychain lock cycles or macOS updates).
 
