@@ -24,6 +24,7 @@ REPO="DanieliusIsiunas/drobu"
 SIGN_UPDATE=".build/artifacts/sparkle/Sparkle/bin/sign_update"
 PLIST="Sources/DrobuCore/Info.plist"
 APPCAST="website/public/appcast.xml"
+TEAM_ID="TGL69S88MD"
 # notarytool keychain profile — created once via:
 #   xcrun notarytool store-credentials "notary-profile" \
 #       --apple-id <apple-id> --team-id TGL69S88MD --password <app-specific-password>
@@ -48,7 +49,10 @@ notarize() {
         [[ -n $sub_id ]] && xcrun notarytool log "$sub_id" --keychain-profile "$NOTARY_PROFILE"
         return 1
     fi
-    printf '%s\n' "$submit_out" | grep -E 'status:|id:' | head -3
+    # Print a short summary, but don't let grep's exit code (1 when neither token
+    # is present) become the function's — a successful submit must return 0.
+    printf '%s\n' "$submit_out" | grep -E 'status:|id:' | head -3 || true
+    return 0
 }
 
 # --- Pre-flight ---------------------------------------------------------------
@@ -61,12 +65,16 @@ command -v xcrun       >/dev/null || { red "xcrun not on PATH — install Xcode 
 
 # Notarization prerequisites. Catch these now, before a 2-minute build, rather
 # than failing the notarytool submit after the DMG is already built.
-security find-identity -v -p codesigning | grep -q "Developer ID Application" \
-    || { red "No 'Developer ID Application' cert in Keychain — releases must be notarized. See CLAUDE.md."; exit 1; }
-xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
-    || { red "notarytool profile '$NOTARY_PROFILE' not found or invalid. Create it once:"; \
-         red "  xcrun notarytool store-credentials \"$NOTARY_PROFILE\" --apple-id <apple-id> --team-id TGL69S88MD --password <app-specific-password>"; \
-         exit 1; }
+security find-identity -v -p codesigning | grep -q "Developer ID Application: .*($TEAM_ID)" \
+    || { red "No 'Developer ID Application' cert for team $TEAM_ID in Keychain — releases must be notarized. See CLAUDE.md."; exit 1; }
+# `notarytool history` makes a live API call, so a transient Apple outage looks
+# identical to a bad profile — surface the real output instead of a flat claim.
+if ! NOTARY_CHECK=$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1); then
+    red "notarytool profile '$NOTARY_PROFILE' check failed (bad profile, or Apple's service is down — retry):"
+    red "  xcrun notarytool store-credentials \"$NOTARY_PROFILE\" --apple-id <apple-id> --team-id $TEAM_ID --password <app-specific-password>"
+    echo "$NOTARY_CHECK"
+    exit 1
+fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $BRANCH == "main" ]] || { red "Not on main (on $BRANCH)."; exit 1; }
@@ -130,7 +138,8 @@ step "Notarizing Drobu.app (uploading to Apple — typically 1-3 min)"
 NOTARIZE_ZIP=".build/Drobu-notarize.zip"
 rm -f "$NOTARIZE_ZIP"
 ditto -c -k --keepParent "$APP" "$NOTARIZE_ZIP"
-notarize "$NOTARIZE_ZIP"
+# Clean up the zip on the failure path too — set -e would otherwise skip the rm.
+notarize "$NOTARIZE_ZIP" || { rm -f "$NOTARIZE_ZIP"; exit 1; }
 rm -f "$NOTARIZE_ZIP"
 step "Stapling notarization ticket to Drobu.app"
 xcrun stapler staple "$APP"
@@ -159,7 +168,10 @@ step "Stapling notarization ticket to $DMG"
 # Stapling rewrites the DMG, changing its bytes — so this MUST happen before
 # sign_update computes the Sparkle EdDSA signature and length below.
 xcrun stapler staple "$DMG"
-# Verify Gatekeeper accepts the stapled DMG offline before we publish it.
+# Two checks before publish: stapler validate confirms the ticket is actually
+# attached (the precise check); spctl confirms Gatekeeper's policy verdict.
+xcrun stapler validate "$DMG" \
+    || { red "Staple ticket missing/invalid on $DMG — aborting before publish."; exit 1; }
 spctl --assess --type open --context context:primary-signature "$DMG" 2>&1 \
     || { red "Stapled DMG failed Gatekeeper assessment — aborting before publish."; exit 1; }
 
@@ -194,7 +206,9 @@ cleanup_pushed_tag() {
     red "    git push --delete origin $TAG"
     red "    git tag -d $TAG"
 }
-trap cleanup_pushed_tag ERR
+# INT/TERM too — gh release create uploads the DMG (tens of seconds); a Ctrl-C
+# during that window would otherwise orphan the pushed tag with no recovery hint.
+trap cleanup_pushed_tag ERR INT TERM
 
 # --- GitHub release -----------------------------------------------------------
 

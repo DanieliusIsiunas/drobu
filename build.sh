@@ -5,12 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Drobu"
 BUILD_DIR="$SCRIPT_DIR/.build"
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
-BUNDLE_ID="com.danielius.ClipboardHistory"
 # Sign with the Apple Developer ID Application cert so releases can be notarized
 # and dev builds keep a stable signature (Accessibility permission persists).
-# The cert name embeds the Team ID; resolved dynamically so a cert renewal
-# (which keeps the same name) doesn't require editing this script.
-CERT_NAME=$(security find-identity -v -p codesigning | sed -nE 's/.*"(Developer ID Application: [^"]+)".*/\1/p' | head -1)
+# Pin to this Team ID so a second Developer ID cert in the Keychain (renewal
+# overlap, another team) can't be picked by accident. The trailing `|| true`
+# keeps the explicit empty-CERT_NAME guard below in charge of the error message
+# even if `security` exits non-zero on a machine with zero valid identities.
+TEAM_ID="TGL69S88MD"
+CERT_NAME=$(security find-identity -v -p codesigning \
+    | sed -nE 's/.*"(Developer ID Application: [^"]+)".*/\1/p' \
+    | grep -F "($TEAM_ID)" | head -1 || true)
 
 echo "Building ${APP_NAME}..."
 cd "$SCRIPT_DIR"
@@ -100,18 +104,6 @@ for arg in "$@"; do
             rm -rf "/Applications/${APP_NAME}.app"
             ditto "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
             echo "Installed: /Applications/${APP_NAME}.app"
-            ;;
-        --notarize)
-            # Requires Apple Developer ID certificate ($99/yr).
-            # One-time setup: xcrun notarytool store-credentials "notary-profile"
-            echo "Creating zip for notarization..."
-            ditto -c -k --keepParent "$APP_BUNDLE" "$BUILD_DIR/${APP_NAME}.zip"
-            echo "Submitting for notarization..."
-            xcrun notarytool submit "$BUILD_DIR/${APP_NAME}.zip" \
-                --keychain-profile "notary-profile" --wait
-            echo "Stapling..."
-            xcrun stapler staple "$APP_BUNDLE"
-            echo "Notarization complete."
             ;;
     esac
 done
