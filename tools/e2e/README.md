@@ -17,8 +17,9 @@ synthetic event delivery works.
 ## Prerequisites
 
 1. **Drobu installed and running:** `pkill -x Drobu; ./build.sh --install && open /Applications/Drobu.app`
-2. **Dismiss the keychain prompt** that appears after a fresh ad-hoc-signed
-   install — click *Always Allow* (see SPIKE_RESULT.md). Drobu is hung until you do.
+   (requires the Developer ID Application cert in your Keychain — see the main README).
+2. **Dismiss any keychain prompt** on first launch — click *Always Allow*
+   (see SPIKE_RESULT.md). Drobu is hung until you do.
 3. **Screen Recording permission** granted to Drobu (System Settings >
    Privacy & Security > Screen Recording).
 4. **Accessibility permission** for your terminal app (it posts the synthetic
