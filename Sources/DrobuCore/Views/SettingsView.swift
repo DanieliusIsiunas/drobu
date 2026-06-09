@@ -13,6 +13,7 @@ public struct SettingsView: View {
     @State private var licenseKeyInput: String = ""
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
+    @State private var daemonStatus: DaemonStatus = .notRegistered
 
     private static let stripeURL = URL(string: "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01")!
 
@@ -54,6 +55,21 @@ public struct SettingsView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
+            }
+
+            Section("Closed Lid Mode") {
+                HStack {
+                    Text("Helper status")
+                    Spacer()
+                    Text(daemonStatusText)
+                        .foregroundStyle(daemonStatusColor)
+                        .accessibilityLabel("Closed Lid helper status: \(daemonStatusText)")
+                }
+                daemonActionRow
+                Text("Closed Lid keeps your Mac awake with the lid shut. It needs a one-time approval of Drobu's helper in System Settings → Login Items.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Storage & Retention") {
@@ -159,6 +175,74 @@ public struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
+            refreshDaemonStatus()
+        }
+    }
+
+    // MARK: - Closed Lid helper section
+
+    private func refreshDaemonStatus() {
+        daemonStatus = DaemonRegistrar().status
+    }
+
+    private var daemonStatusText: String {
+        switch daemonStatus {
+        case .enabled: return "Approved ✓"
+        case .requiresApproval: return "Needs approval"
+        case .notRegistered: return "Not enabled"
+        case .notFound: return "Unavailable"
+        case .failed: return "Error"
+        }
+    }
+
+    private var daemonStatusColor: Color {
+        switch daemonStatus {
+        case .enabled: return .green
+        case .requiresApproval, .notFound, .failed: return .red
+        case .notRegistered: return .gray
+        }
+    }
+
+    @ViewBuilder
+    private var daemonActionRow: some View {
+        switch daemonStatus {
+        case .notRegistered:
+            daemonActionLabel("Enable Closed Lid Helper", color: .accentColor,
+                              accessibility: "Enable Closed Lid helper") {
+                daemonStatus = DaemonRegistrar().remediate()
+            }
+        case .requiresApproval:
+            daemonActionLabel("Approve in System Settings", color: .accentColor,
+                              accessibility: "Approve Closed Lid helper in System Settings") {
+                DaemonRegistrar().openApprovalSettings()
+            }
+        case .notFound:
+            daemonActionLabel("Open Login Items", color: .accentColor,
+                              accessibility: "Open Login Items in System Settings") {
+                DaemonRegistrar().openApprovalSettings()
+            }
+        case .enabled:
+            daemonActionLabel("Remove Helper", color: .red,
+                              accessibility: "Remove Closed Lid helper") {
+                daemonStatus = DaemonRegistrar().unregister()
+            }
+        case .failed:
+            daemonActionLabel("Retry", color: .accentColor,
+                              accessibility: "Retry enabling Closed Lid helper") {
+                daemonStatus = DaemonRegistrar().remediate()
+            }
+        }
+    }
+
+    private func daemonActionLabel(_ title: String, color: Color, accessibility: String,
+                                   action: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(color)
+                .onTapGesture(perform: action)
+                .accessibilityLabel(accessibility)
+                .accessibilityAddTraits(.isButton)
+            Spacer()
         }
     }
 

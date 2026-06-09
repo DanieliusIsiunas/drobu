@@ -1,0 +1,128 @@
+import Foundation
+import ServiceManagement
+import Testing
+@testable import DrobuCore
+
+@MainActor
+final class MockDaemonControl: DaemonServiceControlling {
+    var rawStatus: SMAppService.Status
+    var registerError: Error?
+    var unregisterError: Error?
+    /// Status the mock transitions to after a successful `register()` — models
+    /// BTM creating the approval toggle (notRegistered → requiresApproval).
+    var statusAfterRegister: SMAppService.Status?
+
+    private(set) var registerCallCount = 0
+    private(set) var unregisterCallCount = 0
+    private(set) var openSettingsCallCount = 0
+
+    init(status: SMAppService.Status) { self.rawStatus = status }
+
+    func register() throws {
+        registerCallCount += 1
+        if let registerError { throw registerError }
+        if let statusAfterRegister { rawStatus = statusAfterRegister }
+    }
+
+    func unregister() throws {
+        unregisterCallCount += 1
+        if let unregisterError { throw unregisterError }
+    }
+
+    func openSettings() { openSettingsCallCount += 1 }
+}
+
+struct StubError: Error {}
+
+@MainActor
+@Suite("DaemonRegistrar")
+struct DaemonRegistrarTests {
+
+    @Test("maps every SMAppService.Status case")
+    func statusMapping() {
+        #expect(DaemonRegistrar.map(.notRegistered) == .notRegistered)
+        #expect(DaemonRegistrar.map(.enabled) == .enabled)
+        #expect(DaemonRegistrar.map(.requiresApproval) == .requiresApproval)
+        #expect(DaemonRegistrar.map(.notFound) == .notFound)
+    }
+
+    @Test("reports the control's current status")
+    func reportsStatus() {
+        let control = MockDaemonControl(status: .enabled)
+        #expect(DaemonRegistrar(control: control).status == .enabled)
+    }
+
+    @Test("register success returns the new status")
+    func registerSuccess() {
+        let control = MockDaemonControl(status: .notRegistered)
+        control.statusAfterRegister = .requiresApproval
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.register() == .requiresApproval)
+        #expect(control.registerCallCount == 1)
+    }
+
+    @Test("register failure surfaces as .failed and does not crash")
+    func registerFailure() {
+        let control = MockDaemonControl(status: .notRegistered)
+        control.registerError = StubError()
+        let registrar = DaemonRegistrar(control: control)
+        if case .failed = registrar.register() {} else { Issue.record("expected .failed") }
+    }
+
+    @Test("remediate: notRegistered registers inline, then deep-links when approval is required")
+    func remediateNotRegistered() {
+        let control = MockDaemonControl(status: .notRegistered)
+        control.statusAfterRegister = .requiresApproval
+        let registrar = DaemonRegistrar(control: control)
+        let result = registrar.remediate()
+        #expect(control.registerCallCount == 1)         // registered inline (creates the toggle)
+        #expect(control.openSettingsCallCount == 1)      // then deep-linked
+        #expect(result == .requiresApproval)
+    }
+
+    @Test("remediate: notRegistered that becomes enabled does NOT deep-link")
+    func remediateNotRegisteredBecomesEnabled() {
+        let control = MockDaemonControl(status: .notRegistered)
+        control.statusAfterRegister = .enabled
+        let registrar = DaemonRegistrar(control: control)
+        let result = registrar.remediate()
+        #expect(control.registerCallCount == 1)
+        #expect(control.openSettingsCallCount == 0)      // no toggle needed
+        #expect(result == .enabled)
+    }
+
+    @Test("remediate: requiresApproval deep-links without re-registering")
+    func remediateRequiresApproval() {
+        let control = MockDaemonControl(status: .requiresApproval)
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.remediate() == .requiresApproval)
+        #expect(control.registerCallCount == 0)          // never send a registered user back through register
+        #expect(control.openSettingsCallCount == 1)
+    }
+
+    @Test("remediate: notFound deep-links to Login Items")
+    func remediateNotFound() {
+        let control = MockDaemonControl(status: .notFound)
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.remediate() == .notFound)
+        #expect(control.openSettingsCallCount == 1)
+    }
+
+    @Test("remediate: enabled does nothing")
+    func remediateEnabled() {
+        let control = MockDaemonControl(status: .enabled)
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.remediate() == .enabled)
+        #expect(control.registerCallCount == 0)
+        #expect(control.openSettingsCallCount == 0)
+    }
+
+    @Test("unregister recovers an orphaned binding")
+    func unregister() {
+        let control = MockDaemonControl(status: .enabled)
+        control.statusAfterRegister = nil
+        let registrar = DaemonRegistrar(control: control)
+        _ = registrar.unregister()
+        #expect(control.unregisterCallCount == 1)
+    }
+}
