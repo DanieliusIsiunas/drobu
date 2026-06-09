@@ -15,9 +15,16 @@ final class DaemonListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
 
     func listener(_ listener: NSXPCListener,
                   shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+        // Fail-closed (B1) is established BEFORE this point and does not rely on
+        // a return value here: main.swift validates the requirement string parses
+        // (SecRequirementCreateWithString) and exits the daemon if it does not,
+        // and the listener-level setConnectionCodeSigningRequirement is
+        // system-enforced — a non-matching peer is rejected before this delegate
+        // runs. The per-connection setCodeSigningRequirement below is
+        // defense-in-depth; it is a non-throwing setter (the requirement is
+        // already known-parseable), so there is no error path to gate `return`.
         newConnection.exportedInterface = NSXPCInterface(with: DrobuDaemonXPCProtocol.self)
         newConnection.exportedObject = service
-        // Defense in depth alongside the listener-level requirement.
         newConnection.setCodeSigningRequirement(DaemonConstants.clientCodeSigningRequirement)
         newConnection.resume()
         return true

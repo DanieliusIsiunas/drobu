@@ -35,7 +35,6 @@ enum ClosedLidErrorRoute: Equatable {
     case silent
     case guidance                 // post `.daemonNotApproved` → "Open System Settings"
     case visibleFailure(String)   // post `.closedLidActivationFailed`
-    case logOnly(String)
 }
 
 extension ClosedLidError {
@@ -215,6 +214,11 @@ final class ClosedLidService {
     func cleanup() {
         guard isActive else { return }
         _ = daemon.disableBounded(timeout: 0.4)
+        // Restore brightness + release the IOKit clamshell source before exit —
+        // if the app is killed while dimmed (lid was closed), the display would
+        // otherwise stay at zero brightness with no running app to restore it.
+        restoreDisplay()
+        stopClamshellMonitoring()
         if let proc = caffeinateProcess, proc.isRunning { proc.terminate() }
         caffeinateProcess = nil
     }

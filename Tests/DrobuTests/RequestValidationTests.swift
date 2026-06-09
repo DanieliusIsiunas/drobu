@@ -18,6 +18,13 @@ struct RequestValidationTests {
         #expect(RequestValidation.isDurationAllowed(SleepLimits.maxDurationSeconds + SleepLimits.durationSlackSeconds))
     }
 
+    @Test("the lower-slack boundary of the minimum duration is exact")
+    func lowerSlackBoundary() {
+        // 900 (15m) is the smallest offered duration; slack is 60.
+        #expect(RequestValidation.isDurationAllowed(900 - 60))       // 840: exactly at slack -> allowed
+        #expect(RequestValidation.isDurationAllowed(900 - 61) == false) // 839: one past slack -> rejected
+    }
+
     @Test("out-of-set, zero, negative, and over-max durations are rejected")
     func rejectedDurations() {
         #expect(RequestValidation.isDurationAllowed(0) == false)

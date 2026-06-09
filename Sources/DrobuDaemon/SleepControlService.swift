@@ -17,8 +17,8 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
     init(now: @escaping @Sendable () -> Date = Date.init) {
         self.now = now
         super.init()
-        watchdog = Watchdog(queue: watchdogQueue) { [weak self] in
-            self?.expire()
+        watchdog = Watchdog(queue: watchdogQueue) { [weak self] firingGeneration in
+            self?.expire(firingGeneration: firingGeneration)
         }
     }
 
@@ -39,7 +39,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
 
         if let rejection = RequestValidation.validate(durationSeconds: durationSeconds, now: n, priorState: prior) {
             lock.unlock()
-            DaemonLog.write("enable rejected (code \(rejection.enableResult.rawValue)) for \(durationSeconds)s")
+            DaemonLog.write("SleepControlService: enable rejected (code \(rejection.enableResult.rawValue)) for \(durationSeconds)s")
             reply(false, rejection.enableResult.rawValue, 0)
             return
         }
@@ -49,7 +49,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         guard PmsetControl.setDisableSleep(true) else {
             let remaining = prior?.remaining(now: n) ?? 0
             lock.unlock()
-            DaemonLog.write("enable: pmset disablesleep 1 failed; prior session left intact")
+            DaemonLog.write("SleepControlService: enable — pmset disablesleep 1 failed; prior session left intact")
             reply(false, DaemonEnableResult.internalError.rawValue, remaining)
             return
         }
@@ -60,22 +60,34 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         let state = SleepSessionState(
             deadline: deadline, startedAt: n,
             accumulatedActiveSeconds: accumulator, accumulatorUpdatedAt: n)
-        SleepStateStore.write(state)
+
+        // The persisted deadline is the cross-restart/reboot source of truth. If
+        // it cannot be written, do NOT report an active session — reverse and
+        // fail, so a relaunch/reboot won't lose a session it was told succeeded.
+        guard SleepStateStore.write(state) else {
+            _ = PmsetControl.setDisableSleep(false)
+            watchdog.cancel()
+            lock.unlock()
+            DaemonLog.write("SleepControlService: enable — state write failed; reversed, not armed")
+            reply(false, DaemonEnableResult.internalError.rawValue, 0)
+            return
+        }
         watchdog.arm(deadline: deadline)
         let remaining = state.remaining(now: n)
         lock.unlock()
 
-        DaemonLog.write("enable ok: \(durationSeconds)s armed")
+        DaemonLog.write("SleepControlService: enable ok — \(durationSeconds)s armed")
         reply(true, DaemonEnableResult.ok.rawValue, remaining)
     }
 
     func disable(reply: @escaping (Bool) -> Void) {
         lock.lock()
+        let n = now()
         let ok = PmsetControl.setDisableSleep(false)
         watchdog.cancel()
-        SleepStateStore.clear()
+        settleLocked(now: n)
         lock.unlock()
-        DaemonLog.write("disable: pmset 0 \(ok ? "ok" : "FAILED"); state cleared")
+        DaemonLog.write("SleepControlService: disable — pmset 0 \(ok ? "ok" : "FAILED"); accumulator preserved")
         reply(ok)
     }
 
@@ -103,16 +115,37 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
 
     // MARK: - Private (mutating; callers hold or acquire `lock`)
 
-    /// Watchdog fired — reverse + clear. Idempotent against a concurrent
-    /// `disable` (a cancelled DispatchSource may still run an already-fired
-    /// handler; reversing an already-disabled session is harmless).
-    private func expire() {
+    /// Persist a "settled" state on stop/expiry: an already-past deadline (so
+    /// status() reports inactive) carrying the *decayed* duty-cycle accumulator
+    /// forward. This honors the documented invariant — the accumulator is NOT
+    /// zeroed on stop, so a stop→start loop keeps accruing toward the cap
+    /// instead of resetting it. (A daemon restart still clears via reconcile's
+    /// expired cell, an accepted residual — re-arming the cap reset requires
+    /// killing the root daemon, which the XPC peer gate does not grant.)
+    private func settleLocked(now n: Date) {
+        let carried = SleepStateStore.read()?.decayedAccumulatedSeconds(now: n) ?? 0
+        let settled = SleepSessionState(
+            deadline: n, startedAt: n,
+            accumulatedActiveSeconds: carried, accumulatorUpdatedAt: n)
+        SleepStateStore.write(settled)
+    }
+
+    /// Watchdog fired — reverse + settle. The generation guard ignores a timer
+    /// that fired just before a re-arm bumped the generation (a cancelled
+    /// DispatchSource may still run an already-dispatched handler; without this
+    /// guard that stale handler would reverse the freshly re-armed session).
+    private func expire(firingGeneration: Int) {
         lock.lock()
+        guard firingGeneration == watchdog.currentGeneration else {
+            lock.unlock()
+            return
+        }
+        let n = now()
         _ = PmsetControl.setDisableSleep(false)
         watchdog.cancel()
-        SleepStateStore.clear()
+        settleLocked(now: n)
         lock.unlock()
-        DaemonLog.write("watchdog fired: session expired, disablesleep reversed")
+        DaemonLog.write("SleepControlService: watchdog fired — session expired, disablesleep reversed")
     }
 
     private func reconcileLocked() {
@@ -123,14 +156,14 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         case .reapplyDisableSleepAndArm(let deadline):
             _ = PmsetControl.setDisableSleep(true)
             watchdog.arm(deadline: deadline)
-            DaemonLog.write("reconcile: re-applied disablesleep + armed to persisted deadline")
+            DaemonLog.write("SleepControlService: reconcile — re-applied disablesleep + armed to persisted deadline")
         case .armWatchdogOnly(let deadline):
             watchdog.arm(deadline: deadline)
-            DaemonLog.write("reconcile: armed watchdog to persisted deadline")
+            DaemonLog.write("SleepControlService: reconcile — armed watchdog to persisted deadline")
         case .reverseAndClear:
             _ = PmsetControl.setDisableSleep(false)
             SleepStateStore.clear()
-            DaemonLog.write("reconcile: reversed orphaned/expired/untrusted disablesleep")
+            DaemonLog.write("SleepControlService: reconcile — reversed orphaned/expired/untrusted disablesleep")
         case .noop:
             break
         }

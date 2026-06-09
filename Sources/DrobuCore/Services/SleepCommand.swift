@@ -122,8 +122,6 @@ final class SleepCommand: SlashCommand {
         case .visibleFailure(let message):
             NotificationCenter.default.post(
                 name: .closedLidActivationFailed, object: nil, userInfo: ["message": message])
-        case .logOnly(let message):
-            Log.error("SleepCommand: \(message)")
         }
     }
 

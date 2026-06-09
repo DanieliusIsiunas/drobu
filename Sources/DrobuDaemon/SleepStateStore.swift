@@ -13,15 +13,26 @@ enum SleepStateStore {
     static func ensureSupportDirectory() {
         let path = DaemonConstants.supportDirectory
         let fm = FileManager.default
-        if fm.fileExists(atPath: path) {
-            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
-        } else {
-            try? fm.createDirectory(atPath: path, withIntermediateDirectories: true,
-                                    attributes: [.posixPermissions: 0o700])
+        do {
+            if fm.fileExists(atPath: path) {
+                try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+            } else {
+                try fm.createDirectory(atPath: path, withIntermediateDirectories: true,
+                                       attributes: [.posixPermissions: 0o700])
+            }
+        } catch {
+            // Security-relevant: a looser-than-0700 support dir is a signal, not
+            // something to swallow (file-permission-hardening rule).
+            DaemonLog.write("SleepStateStore: failed to harden support dir: \(error)")
         }
     }
 
-    static func write(_ state: SleepSessionState) {
+    /// Persist `state`. Returns true only if the file is durably written, so the
+    /// caller can treat `enable` as transactional (a session whose deadline
+    /// cannot be persisted must NOT be reported as active — the persisted
+    /// deadline is the cross-restart/reboot source of truth).
+    @discardableResult
+    static func write(_ state: SleepSessionState) -> Bool {
         ensureSupportDirectory()
         let oldMask = umask(0o077)
         defer { umask(oldMask) }
@@ -29,10 +40,16 @@ enum SleepStateStore {
             let data = try SleepSessionStateCodec.encode(state)
             try data.write(to: URL(fileURLWithPath: DaemonConstants.stateFilePath), options: [.atomic])
             // .atomic renames a temp into place; re-assert 0600 explicitly.
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o600], ofItemAtPath: DaemonConstants.stateFilePath)
+            do {
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600], ofItemAtPath: DaemonConstants.stateFilePath)
+            } catch {
+                DaemonLog.write("SleepStateStore: failed to assert 0600 on state file: \(error)")
+            }
+            return true
         } catch {
             DaemonLog.write("SleepStateStore: write failed: \(error)")
+            return false
         }
     }
 

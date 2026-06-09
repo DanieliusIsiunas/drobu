@@ -245,11 +245,15 @@ public struct SettingsView: View {
         HStack {
             Text(title)
                 .foregroundStyle(color)
-                .onTapGesture(perform: action)
-                .accessibilityLabel(accessibility)
-                .accessibilityAddTraits(.isButton)
             Spacer()
         }
+        // Whole-row tap target; one VoiceOver element with an explicit label +
+        // button trait (children: .ignore avoids unpredictable concatenation).
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibility)
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - License section helpers

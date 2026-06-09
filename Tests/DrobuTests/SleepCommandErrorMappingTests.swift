@@ -28,17 +28,14 @@ struct SleepCommandErrorMappingTests {
         #expect(ClosedLidError.authFailed("locked out").route == .visibleFailure("locked out"))
     }
 
-    @Test("daemon unavailable surfaces a visible failure")
+    @Test("daemon unavailable surfaces a visible failure with its message")
     func unavailableVisible() {
-        guard case .visibleFailure = ClosedLidError.daemonUnavailable.route else {
-            Issue.record("expected .visibleFailure"); return
-        }
+        #expect(ClosedLidError.daemonUnavailable.route == .visibleFailure("Closed Lid helper is unavailable."))
     }
 
-    @Test("a daemon-side validation rejection surfaces a visible failure")
+    @Test("a daemon-side validation rejection surfaces a visible failure with its message")
     func rejectedVisible() {
-        guard case .visibleFailure = ClosedLidError.enableRejected(.durationNotAllowed).route else {
-            Issue.record("expected .visibleFailure"); return
-        }
+        #expect(ClosedLidError.enableRejected(.durationNotAllowed).route
+                == .visibleFailure("Closed Lid couldn't be activated right now."))
     }
 }

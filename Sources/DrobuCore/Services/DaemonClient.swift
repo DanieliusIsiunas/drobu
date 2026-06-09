@@ -34,16 +34,23 @@ protocol DaemonControlling: Sendable {
 private final class ResumeOnce<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
-    private let body: (T) -> Void
-    init(_ body: @escaping (T) -> Void) { self.body = body }
+    private let body: @Sendable (T) -> Void
+    init(_ body: @escaping @Sendable (T) -> Void) { self.body = body }
     func fire(_ value: T) {
         lock.lock(); let first = !done; done = true; lock.unlock()
         if first { body(value) }
     }
 }
 
+/// Lock-guarded so a late XPC reply (after disableBounded's wait times out) and
+/// the waiter's read don't race on the terminate path.
 private final class BoolBox: @unchecked Sendable {
-    var value = false
+    private let lock = NSLock()
+    private var stored = false
+    var value: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); stored = newValue; lock.unlock() }
+    }
 }
 
 /// Owns the `NSXPCConnection(machServiceName:options:.privileged)` lifecycle:

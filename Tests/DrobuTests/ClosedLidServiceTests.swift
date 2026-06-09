@@ -268,6 +268,35 @@ struct ClosedLidServiceTests {
         #expect(!service.isActive)
     }
 
+    @Test("reconciliation leaves the session active when the daemon is unreachable")
+    func reconcileStaysActiveOnUnreachable() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        daemon.statusReply = nil   // status() returns nil (XPC unreachable)
+        await service.reconcileTick()
+        #expect(service.isActive)  // leave state as-is; retry next tick
+    }
+
+    @Test("start falls back to the nominal duration when the daemon reports remaining 0")
+    func startFallsBackToNominal() async throws {
+        let daemon = MockDaemonControl()
+        daemon.enableOutcome = EnableOutcome(result: .ok, remaining: 0)
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 1800)
+        #expect(service.isActive)
+        #expect((service.remainingTime ?? 0) == 1800)   // not 0 — fell back to nominal
+    }
+
+    @Test("rehydration stays idle when the daemon is unreachable")
+    func rehydrateUnreachableStaysIdle() async {
+        let daemon = MockDaemonControl()
+        daemon.statusReply = nil   // status() returns nil
+        let service = makeService(daemon: daemon)
+        await service.rehydrate()
+        #expect(!service.isActive)
+    }
+
     @Test("a re-entrant start while one is in flight is guarded (single enable)")
     func doubleStartGuarded() async throws {
         let daemon = MockDaemonControl()
