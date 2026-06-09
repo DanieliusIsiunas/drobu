@@ -41,11 +41,19 @@ public final class SMAppServiceDaemonControl: DaemonServiceControlling {
     public func openSettings() { SMAppService.openSystemSettingsLoginItems() }
 }
 
+/// The slice of registration `ClosedLidService` needs — injectable so the
+/// service's status-gating is testable without `SMAppService`.
+@MainActor
+public protocol DaemonRegistration: AnyObject {
+    var status: DaemonStatus { get }
+    @discardableResult func register() -> DaemonStatus
+}
+
 /// Wraps daemon registration: status mapping, `register`/`unregister`, the
 /// Login Items deep-link, and — crucially — *state-correct* remediation (R3),
 /// so the user is never sent to a toggle that does not exist yet.
 @MainActor
-public final class DaemonRegistrar {
+public final class DaemonRegistrar: DaemonRegistration {
     private let control: DaemonServiceControlling
 
     public init(control: DaemonServiceControlling = SMAppServiceDaemonControl()) {

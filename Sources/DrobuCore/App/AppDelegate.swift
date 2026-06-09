@@ -179,8 +179,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             }
         }
 
-        // Startup audit: detect orphaned disablesleep state from a previous crash
-        auditDisableSleep()
+        // Launch-time rehydration (R14): adopt a live daemon session without a
+        // new auth prompt or a second enable. A true orphan is reversed by the
+        // daemon's own boot reconciliation, so there is nothing to adopt here.
+        Task { await closedLidService.rehydrate() }
 
         // Signal handlers for SIGTERM/SIGHUP: best-effort cleanup of Closed Lid mode
         installSignalHandlers()
@@ -494,7 +496,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     @objc private func stopClosedLidFromMenu() {
         Log.info("AppDelegate: menu Stop Closed Lid")
-        closedLidService.stop()
+        Task { await closedLidService.stop() }
     }
 
     @objc private func extendKeepAwakeFromMenu() {
@@ -549,20 +551,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         escStopHotKey = nil
         caffeinateService.cleanup()
         closedLidService.cleanup()
-    }
-
-    // MARK: - Closed Lid Startup Audit
-
-    private func auditDisableSleep() {
-        guard closedLidService.isDisableSleepActive() else { return }
-        // pmset disablesleep is enabled but we have no active session.
-        // This means the app crashed or was killed while Closed Lid was active.
-        let daemonExists = FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/com.clipboardhistory.disablesleep-reversal.plist")
-        if daemonExists {
-            Log.info("AppDelegate: orphaned disablesleep — LaunchDaemon present, will handle reversal")
-        } else {
-            Log.error("AppDelegate: orphaned disablesleep — no LaunchDaemon, cleanup needed on next admin auth")
-        }
     }
 
     // MARK: - Signal Handlers

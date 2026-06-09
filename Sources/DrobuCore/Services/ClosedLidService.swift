@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
+import DrobuShared
 
 // Clamshell state change from xnu/iokit/IOKit/pwr_mgt/IOPM.h
 private let kIOPMMessageClamshellStateChange: UInt32 = 0xE003_4100
@@ -17,11 +18,51 @@ private let clamshellCallback: IOServiceInterestCallback = { refcon, _, messageT
     }
 }
 
+/// Why Closed Lid activation did not proceed. The privilege boundary moved to
+/// the daemon (BTM approval + Team-ID XPC requirement); these are the
+/// client-side outcomes that route to UI (see `route`).
+enum ClosedLidError: Error, Equatable {
+    case daemonNotApproved              // not registered/approved → guidance
+    case protocolMismatch               // stale daemon after an update → guidance
+    case authCancelled                  // user dismissed the sheet → silent
+    case authFailed(String)             // lockout / unavailable → visible
+    case daemonUnavailable              // XPC unreachable → visible
+    case enableRejected(DaemonEnableResult) // daemon validation refused → visible
+}
+
+/// How a `ClosedLidError` surfaces to the user.
+enum ClosedLidErrorRoute: Equatable {
+    case silent
+    case guidance                 // post `.daemonNotApproved` → "Open System Settings"
+    case visibleFailure(String)   // post `.closedLidActivationFailed`
+    case logOnly(String)
+}
+
+extension ClosedLidError {
+    var route: ClosedLidErrorRoute {
+        switch self {
+        case .authCancelled:
+            return .silent
+        case .daemonNotApproved, .protocolMismatch:
+            return .guidance
+        case .authFailed(let reason):
+            return .visibleFailure(reason)
+        case .daemonUnavailable:
+            return .visibleFailure("Closed Lid helper is unavailable.")
+        case .enableRejected:
+            return .visibleFailure("Closed Lid couldn't be activated right now.")
+        }
+    }
+}
+
 @MainActor
 final class ClosedLidService {
     enum State: Equatable {
         case idle
-        case active(startDate: Date, duration: TimeInterval)
+        /// Active until `deadline` — the deadline is seeded from the daemon's
+        /// reported remaining time (the single source of truth), never from the
+        /// nominal duration, so the client and daemon clocks cannot diverge.
+        case active(deadline: Date)
     }
 
     private(set) var state: State = .idle {
@@ -33,6 +74,17 @@ final class ClosedLidService {
 
     var onStateChange: ((State) -> Void)?
 
+    // Injected collaborators (defaults wire the real implementations).
+    private let daemon: DaemonControlling
+    private let auth: AuthGating
+    private let registrar: DaemonRegistration
+    private let now: () -> Date
+    /// Test seam: when false, the unprivileged client companions (caffeinate
+    /// process, clamshell IOKit monitoring, reconciliation Timer) are NOT
+    /// started, so unit tests exercise the gate/state logic without spawning
+    /// real processes or run-loop sources. Production always uses the default.
+    private let companionsEnabled: Bool
+
     private var caffeinateProcess: Process?
     private var reconciliationTimer: Timer?
     private var isActivating = false
@@ -40,12 +92,20 @@ final class ClosedLidService {
     private var clamshellNotifier: io_object_t = IO_OBJECT_NULL
     private var savedBrightness: Float?
 
-    // MARK: - Paths
+    /// Static, PII-free reason string (surfaces in system auth logs), < 60 chars.
+    private static let authReason = "Keep your Mac awake with the lid closed"
 
-    private static let daemonLabel = "com.clipboardhistory.disablesleep-reversal"
-    private static let daemonPlistPath = "/Library/LaunchDaemons/\(daemonLabel).plist"
-    private static let cleanupScriptPath = "/Library/Application Support/ClipboardHistory/cleanup-disablesleep.sh"
-    private static let sudoersPath = "/etc/sudoers.d/clipboardhistory-cleanup"
+    init(daemon: DaemonControlling = DaemonClient(),
+         auth: AuthGating = AuthGate(),
+         registrar: DaemonRegistration = DaemonRegistrar(),
+         now: @escaping () -> Date = Date.init,
+         companionsEnabled: Bool = true) {
+        self.daemon = daemon
+        self.auth = auth
+        self.registrar = registrar
+        self.now = now
+        self.companionsEnabled = companionsEnabled
+    }
 
     // MARK: - Public API
 
@@ -54,13 +114,14 @@ final class ClosedLidService {
     }
 
     var remainingTime: TimeInterval? {
-        guard case .active(let startDate, let duration) = state else { return nil }
-        let remaining = startDate.addingTimeInterval(duration).timeIntervalSinceNow
-        return max(0, remaining)
+        guard case .active(let deadline) = state else { return nil }
+        return max(0, deadline.timeIntervalSince(now()))
     }
 
-    /// Activate Closed Lid mode. Shows macOS admin auth dialog.
-    /// Throws `PrivilegedCommandError.userCancelled` if user cancels auth.
+    /// Activate Closed Lid: daemon status check → version handshake → Touch ID
+    /// gate → idempotent XPC enable. `onStateChange(.active)` fires exactly once
+    /// and only after every gate passes, so the badge never flashes active on a
+    /// failed activation. Throws `ClosedLidError` on any non-success path.
     func start(duration: TimeInterval) async throws {
         guard !isActivating else {
             Log.debug("ClosedLidService: start() skipped — already activating")
@@ -69,166 +130,173 @@ final class ClosedLidService {
         isActivating = true
         defer { isActivating = false }
 
-        // Stop any existing session first
-        if isActive { stopInternal() }
-
-        let durationInt = Int(duration)
-        let username = NSUserName()
-
-        // Validate username before interpolating into shell scripts and sudoers
-        guard username.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == ".") }) else {
-            throw PrivilegedCommandError.executionFailed(code: -1, message: "Username contains unsupported characters for sudoers")
+        // 1. Daemon must be registered + approved. State-correct (R3): a
+        //    not-registered daemon is registered inline (creating the approval
+        //    toggle); anything short of .enabled routes to guidance.
+        switch registrar.status {
+        case .enabled:
+            break
+        case .notRegistered:
+            if registrar.register() != .enabled { throw ClosedLidError.daemonNotApproved }
+        case .requiresApproval, .notFound, .failed:
+            throw ClosedLidError.daemonNotApproved
         }
 
-        // 1. Generate LaunchDaemon plist XML
-        let plistXML = generateDaemonPlist(sleepSeconds: durationInt)
-
-        // 2. Write plist to /tmp first (no privileges needed)
-        let tmpPlistPath = NSTemporaryDirectory() + "\(Self.daemonLabel).plist"
-        do {
-            try plistXML.write(toFile: tmpPlistPath, atomically: true, encoding: .utf8)
-        } catch {
-            Log.error("ClosedLidService: failed to write tmp plist: \(error)")
-            throw PrivilegedCommandError.scriptCreationFailed
+        // 2. Protocol-version handshake — never speak a newer protocol at an
+        //    older daemon. Mismatch → attempt to install the bundled daemon and
+        //    route to re-approval guidance.
+        guard let daemonVersion = await daemon.protocolVersion() else {
+            throw ClosedLidError.daemonUnavailable
+        }
+        guard daemonVersion == drobuDaemonProtocolVersion else {
+            _ = registrar.register()
+            throw ClosedLidError.protocolMismatch
         }
 
-        // 3. Build the privileged batch command
-        let batch = buildActivationCommand(
-            tmpPlistPath: tmpPlistPath,
-            username: username,
-            durationInt: durationInt
-        )
+        // 3. Consent gate (Touch ID / Apple Watch / password). Cancel aborts
+        //    silently; lockout/unavailable surfaces a visible failure.
+        switch await auth.authenticate(reason: Self.authReason) {
+        case .cancelled: throw ClosedLidError.authCancelled
+        case .failed(let reason): throw ClosedLidError.authFailed(reason)
+        case .success: break
+        }
 
-        // 4. Run with admin auth (shows password dialog)
-        _ = try await runPrivileged(batch)
+        // 4. Idempotent enable (daemon re-arms in place if already active).
+        guard let outcome = await daemon.enable(durationSeconds: Int(duration)) else {
+            throw ClosedLidError.daemonUnavailable
+        }
+        guard outcome.result == .ok else {
+            throw ClosedLidError.enableRejected(outcome.result)
+        }
 
-        // 5. Start companion caffeinate process
-        startCaffeinate(duration: duration)
-
-        // 6. Update state and start reconciliation
-        state = .active(startDate: Date(), duration: duration)
-        startReconciliationTimer()
+        // 5. Success — seed everything from the daemon's reported remaining.
+        let remaining = outcome.remaining > 0 ? outcome.remaining : duration
+        state = .active(deadline: now().addingTimeInterval(remaining))
+        startCaffeinate(seconds: remaining)
         startClamshellMonitoring()
+        startReconciliationTimer()
     }
 
-    /// Deactivate Closed Lid mode. No auth prompt needed (uses sudoers entry).
-    func stop() {
-        stopInternal()
+    /// Deactivate — confirmed-by-readback. Does not transition to `.idle` until
+    /// the daemon's `disable` reply confirms reversal; on XPC failure it stays
+    /// pending-reversal with reconciliation running (the watchdog deadline is
+    /// the ultimate guarantee).
+    func stop() async {
+        guard isActive else { return }
+        let confirmed = await daemon.disable()
+        if confirmed == true {
+            teardownClientState()
+            state = .idle
+        } else {
+            Log.error("ClosedLidService: stop() reversal not confirmed — pending; reconciliation will resolve")
+            // Keep state .active + reconciliation running; do NOT idle.
+            if reconciliationTimer == nil { startReconciliationTimer() }
+        }
     }
 
-    /// Best-effort cleanup for applicationWillTerminate / signal handlers.
+    /// Launch-time rehydration (R14): adopt a live daemon session without a new
+    /// auth prompt or a second `enable`. A true orphan is the daemon's own
+    /// concern (it reverses on its boot reconciliation), so there is nothing to
+    /// adopt when `status` is inactive.
+    func rehydrate() async {
+        guard !isActive else { return }
+        guard let status = await daemon.status(), status.active, status.remaining > 0 else { return }
+        state = .active(deadline: now().addingTimeInterval(status.remaining))
+        startCaffeinate(seconds: status.remaining)
+        startClamshellMonitoring()
+        startReconciliationTimer()
+        Log.info("ClosedLidService: rehydrated live session, \(Int(status.remaining))s remaining")
+    }
+
+    /// Terminate path (SIGTERM/SIGHUP/applicationWillTerminate). Bounded-wait
+    /// disable (reply on a non-main queue, so blocking here cannot deadlock —
+    /// M7); a missed message defers reversal to the daemon watchdog deadline
+    /// (stated behavior change vs the old synchronous sudo reversal).
     func cleanup() {
         guard isActive else { return }
-        stopInternal()
-    }
-
-    /// Check if pmset disablesleep is currently enabled (no root needed).
-    func isDisableSleepActive() -> Bool {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        proc.arguments = ["-g"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            return output.contains("SleepDisabled") && output.contains("1")
-        } catch {
-            Log.error("ClosedLidService: isDisableSleepActive failed: \(error)")
-            return false
-        }
+        _ = daemon.disableBounded(timeout: 0.4)
+        if let proc = caffeinateProcess, proc.isRunning { proc.terminate() }
+        caffeinateProcess = nil
     }
 
     // MARK: - Private
 
-    private func stopInternal() {
+    /// Client-side teardown only — never touches the daemon (used when the
+    /// session has already ended daemon-side, via stop-confirmed or expiry).
+    private func teardownClientState() {
         restoreDisplay()
         stopClamshellMonitoring()
-
-        // Kill caffeinate first
         if let proc = caffeinateProcess {
             caffeinateProcess = nil
             if proc.isRunning { proc.terminate() }
         }
-
         reconciliationTimer?.invalidate()
         reconciliationTimer = nil
-
-        // Run cleanup script via sudo (no auth prompt due to NOPASSWD entry)
-        let stderrPipe = Pipe()
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        proc.arguments = [Self.cleanupScriptPath]
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = stderrPipe
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            if proc.terminationStatus != 0 {
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let msg = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                Log.error("ClosedLidService: cleanup exited \(proc.terminationStatus)\(msg.isEmpty ? "" : " — \(msg)")")
-            }
-        } catch {
-            Log.error("ClosedLidService: cleanup script failed: \(error)")
-        }
-
-        state = .idle
     }
 
-    private func startCaffeinate(duration: TimeInterval) {
+    private func startCaffeinate(seconds: TimeInterval) {
+        guard companionsEnabled else { return }
         if let old = caffeinateProcess, old.isRunning {
             old.terminate()
         }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        // No -d flag: allow display to sleep when lid is closed
-        proc.arguments = ["-ims", "-t", "\(Int(duration))"]
+        // No -d flag: allow display to sleep when lid is closed. -t seeded from
+        // the daemon's remaining time so the companion cannot outlive the
+        // daemon's deadline.
+        proc.arguments = ["-ims", "-t", "\(Int(seconds))"]
 
+        // Companion only — its termination must not drive daemon/session state
+        // (the daemon owns the deadline; reconciliation drives teardown).
         proc.terminationHandler = { [weak self] terminatedProcess in
             Task { @MainActor in
                 guard let self, self.caffeinateProcess === terminatedProcess else { return }
-                self.stopInternal()
+                self.caffeinateProcess = nil
             }
         }
 
         do {
             try proc.run()
-            Log.debug("ClosedLidService: launched caffeinate pid=\(proc.processIdentifier), duration=\(Int(duration))s")
+            Log.debug("ClosedLidService: launched caffeinate pid=\(proc.processIdentifier), seconds=\(Int(seconds))")
             caffeinateProcess = proc
         } catch {
+            // Belt-and-suspenders: a failed caffeinate spawn does NOT fail the
+            // session — disablesleep is already on daemon-side.
             Log.error("ClosedLidService: failed to launch caffeinate: \(error)")
         }
     }
 
     private func startReconciliationTimer() {
+        guard companionsEnabled else { return }
         reconciliationTimer?.invalidate()
         reconciliationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, case .active = self.state else { return }
-
-                // Duration expired but cleanup hasn't run yet (belt-and-suspenders)
-                if let remaining = self.remainingTime, remaining <= 0 {
-                    self.stopInternal()
-                    return
-                }
-
-                // If pmset was reversed externally, clear our state
-                if !self.isDisableSleepActive() {
-                    Log.info("ClosedLidService: pmset disablesleep was reversed externally")
-                    self.stopInternal()
-                }
-            }
+            Task { @MainActor in await self?.reconcileTick() }
         }
+    }
+
+    /// Polls the daemon (the single source of truth) and tears down client
+    /// state once the session has ended. Also a belt-and-suspenders local
+    /// expiry check.
+    func reconcileTick() async {
+        guard isActive else { return }
+        if let remaining = remainingTime, remaining <= 0 {
+            teardownClientState()
+            state = .idle
+            return
+        }
+        if let status = await daemon.status(), !status.active {
+            Log.info("ClosedLidService: daemon reports session ended — tearing down")
+            teardownClientState()
+            state = .idle
+        }
+        // status == nil (XPC unreachable): leave state as-is; retry next tick.
     }
 
     // MARK: - Clamshell Monitoring & Display Brightness
 
     private func startClamshellMonitoring() {
+        guard companionsEnabled else { return }
         stopClamshellMonitoring()
 
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
@@ -324,59 +392,5 @@ final class ClosedLidService {
             IODisplaySetFloatParameter(display, 0, "brightness" as CFString, brightness)
             Log.info("ClosedLidService: display brightness restored to \(brightness)")
         }
-    }
-
-    // MARK: - Command Building
-
-    private func buildActivationCommand(tmpPlistPath: String, username: String, durationInt: Int) -> String {
-        return """
-        #!/bin/sh
-        /usr/bin/pmset disablesleep 1 && \
-        mkdir -p /Library/Application\\ Support/ClipboardHistory && \
-        cat > '\(Self.cleanupScriptPath)' << 'CLEANUP_SCRIPT'
-        #!/bin/sh
-        /usr/bin/pmset disablesleep 0
-        /bin/launchctl bootout system/\(Self.daemonLabel) 2>/dev/null
-        /bin/rm -f '\(Self.daemonPlistPath)'
-        /bin/rm -f '\(Self.cleanupScriptPath)'
-        /bin/rm -f '\(Self.sudoersPath)'
-        CLEANUP_SCRIPT
-        chmod 755 '\(Self.cleanupScriptPath)' && \
-        echo '\(username) ALL=(root) NOPASSWD: \(Self.cleanupScriptPath)' > '\(Self.sudoersPath)' && \
-        chmod 440 '\(Self.sudoersPath)' && \
-        /bin/launchctl bootout system/\(Self.daemonLabel) 2>/dev/null ; \
-        cp '\(tmpPlistPath)' '\(Self.daemonPlistPath)' && \
-        chown root:wheel '\(Self.daemonPlistPath)' && \
-        chmod 644 '\(Self.daemonPlistPath)' && \
-        /bin/launchctl bootstrap system '\(Self.daemonPlistPath)'
-        """
-    }
-
-    private func generateDaemonPlist(sleepSeconds: Int) -> String {
-        """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
-        "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key>
-            <string>\(Self.daemonLabel)</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>/bin/sh</string>
-                <string>-c</string>
-                <string>/bin/sleep \(sleepSeconds); /usr/bin/pmset disablesleep 0</string>
-            </array>
-            <key>RunAtLoad</key>
-            <true/>
-            <key>StandardInputPath</key>
-            <string>/dev/null</string>
-            <key>StandardOutputPath</key>
-            <string>/dev/null</string>
-            <key>StandardErrorPath</key>
-            <string>/tmp/disablesleep-reversal.log</string>
-        </dict>
-        </plist>
-        """
     }
 }

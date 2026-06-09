@@ -4,7 +4,7 @@ import Testing
 @testable import DrobuCore
 
 @MainActor
-final class MockDaemonControl: DaemonServiceControlling {
+final class MockDaemonServiceControl: DaemonServiceControlling {
     var rawStatus: SMAppService.Status
     var registerError: Error?
     var unregisterError: Error?
@@ -48,13 +48,13 @@ struct DaemonRegistrarTests {
 
     @Test("reports the control's current status")
     func reportsStatus() {
-        let control = MockDaemonControl(status: .enabled)
+        let control = MockDaemonServiceControl(status: .enabled)
         #expect(DaemonRegistrar(control: control).status == .enabled)
     }
 
     @Test("register success returns the new status")
     func registerSuccess() {
-        let control = MockDaemonControl(status: .notRegistered)
+        let control = MockDaemonServiceControl(status: .notRegistered)
         control.statusAfterRegister = .requiresApproval
         let registrar = DaemonRegistrar(control: control)
         #expect(registrar.register() == .requiresApproval)
@@ -63,7 +63,7 @@ struct DaemonRegistrarTests {
 
     @Test("register failure surfaces as .failed and does not crash")
     func registerFailure() {
-        let control = MockDaemonControl(status: .notRegistered)
+        let control = MockDaemonServiceControl(status: .notRegistered)
         control.registerError = StubError()
         let registrar = DaemonRegistrar(control: control)
         if case .failed = registrar.register() {} else { Issue.record("expected .failed") }
@@ -71,7 +71,7 @@ struct DaemonRegistrarTests {
 
     @Test("remediate: notRegistered registers inline, then deep-links when approval is required")
     func remediateNotRegistered() {
-        let control = MockDaemonControl(status: .notRegistered)
+        let control = MockDaemonServiceControl(status: .notRegistered)
         control.statusAfterRegister = .requiresApproval
         let registrar = DaemonRegistrar(control: control)
         let result = registrar.remediate()
@@ -82,7 +82,7 @@ struct DaemonRegistrarTests {
 
     @Test("remediate: notRegistered that becomes enabled does NOT deep-link")
     func remediateNotRegisteredBecomesEnabled() {
-        let control = MockDaemonControl(status: .notRegistered)
+        let control = MockDaemonServiceControl(status: .notRegistered)
         control.statusAfterRegister = .enabled
         let registrar = DaemonRegistrar(control: control)
         let result = registrar.remediate()
@@ -93,7 +93,7 @@ struct DaemonRegistrarTests {
 
     @Test("remediate: requiresApproval deep-links without re-registering")
     func remediateRequiresApproval() {
-        let control = MockDaemonControl(status: .requiresApproval)
+        let control = MockDaemonServiceControl(status: .requiresApproval)
         let registrar = DaemonRegistrar(control: control)
         #expect(registrar.remediate() == .requiresApproval)
         #expect(control.registerCallCount == 0)          // never send a registered user back through register
@@ -102,7 +102,7 @@ struct DaemonRegistrarTests {
 
     @Test("remediate: notFound deep-links to Login Items")
     func remediateNotFound() {
-        let control = MockDaemonControl(status: .notFound)
+        let control = MockDaemonServiceControl(status: .notFound)
         let registrar = DaemonRegistrar(control: control)
         #expect(registrar.remediate() == .notFound)
         #expect(control.openSettingsCallCount == 1)
@@ -110,7 +110,7 @@ struct DaemonRegistrarTests {
 
     @Test("remediate: enabled does nothing")
     func remediateEnabled() {
-        let control = MockDaemonControl(status: .enabled)
+        let control = MockDaemonServiceControl(status: .enabled)
         let registrar = DaemonRegistrar(control: control)
         #expect(registrar.remediate() == .enabled)
         #expect(control.registerCallCount == 0)
@@ -119,7 +119,7 @@ struct DaemonRegistrarTests {
 
     @Test("unregister recovers an orphaned binding")
     func unregister() {
-        let control = MockDaemonControl(status: .enabled)
+        let control = MockDaemonServiceControl(status: .enabled)
         control.statusAfterRegister = nil
         let registrar = DaemonRegistrar(control: control)
         _ = registrar.unregister()
