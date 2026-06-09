@@ -85,8 +85,22 @@ final class SleepCommand: SlashCommand {
             return
         }
         if id.hasPrefix("ka-"), let duration = Self.parseDuration(id: String(id.dropFirst(3))) {
-            // Mutual exclusion: stop Closed Lid first (confirmed-by-readback).
-            if closedLidService.isActive { await closedLidService.stop() }
+            // Mutual exclusion: Closed Lid must actually stop before Keep Awake
+            // starts. stop() is confirmed-by-readback — on an unconfirmed
+            // reversal (XPC failure) it stays .active and the daemon still holds
+            // pmset disablesleep, so starting Keep Awake on top would leave both
+            // modes engaged (the Mac held lid-closed-awake until the daemon
+            // watchdog). Surface the failure and bail instead of stacking.
+            if closedLidService.isActive {
+                await closedLidService.stop()
+                if closedLidService.isActive {
+                    Log.error("SleepCommand: Closed Lid stop unconfirmed — not starting Keep Awake (avoids stacking sleep modes)")
+                    NotificationCenter.default.post(
+                        name: .closedLidActivationFailed, object: nil,
+                        userInfo: ["message": "Couldn't switch to Keep Awake — Closed Lid is still stopping. Try again in a moment."])
+                    return
+                }
+            }
             caffeinateService.start(duration: duration)
             return
         }

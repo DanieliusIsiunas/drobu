@@ -318,4 +318,18 @@ struct ClosedLidServiceTests {
         service.handleClamshellChange(isClosed: true)
         #expect(!service.isActive)
     }
+
+    @Test("Keep Awake is not stacked when Closed Lid stop is unconfirmed (Codex P2)")
+    func keepAwakeNotStackedOnUnconfirmedStop() async throws {
+        let daemon = MockDaemonControl()
+        let closedLid = makeService(daemon: daemon)
+        try await closedLid.start(duration: 3600)   // → .active
+        daemon.disableResult = nil                   // stop() can't confirm reversal
+        let caffeinate = CaffeinateService()
+        let command = SleepCommand(caffeinateService: caffeinate, closedLidService: closedLid)
+        await command.execute(option: CommandOption(
+            id: "ka-15m", label: "15 minutes", icon: "clock", isDestructive: false, section: "Keep Awake"))
+        #expect(caffeinate.isActive == false)   // NOT started on top of a lingering Closed Lid
+        #expect(closedLid.isActive)             // Closed Lid stays pending-reversal
+    }
 }
