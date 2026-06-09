@@ -212,7 +212,10 @@ public struct SettingsView: View {
     @ViewBuilder
     private var daemonActionRow: some View {
         switch daemonStatus {
-        case .notRegistered:
+        case .notRegistered, .notFound:
+            // .notFound is the never-registered state on macOS 14+, so it must
+            // register (via remediate) — not dead-end into Login Items where no
+            // toggle exists yet. Mirrors DaemonRegistrar.remediate / ClosedLidService.
             daemonActionLabel("Enable Closed Lid Helper", color: .accentColor,
                               accessibility: "Enable Closed Lid helper") {
                 daemonStatus = DaemonRegistrar().remediate()
@@ -220,11 +223,6 @@ public struct SettingsView: View {
         case .requiresApproval:
             daemonActionLabel("Approve in System Settings", color: .accentColor,
                               accessibility: "Approve Closed Lid helper in System Settings") {
-                DaemonRegistrar().openApprovalSettings()
-            }
-        case .notFound:
-            daemonActionLabel("Open Login Items", color: .accentColor,
-                              accessibility: "Open Login Items in System Settings") {
                 DaemonRegistrar().openApprovalSettings()
             }
         case .enabled:

@@ -84,10 +84,19 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         lock.lock()
         let n = now()
         let ok = PmsetControl.setDisableSleep(false)
-        watchdog.cancel()
-        settleLocked(now: n)
+        if ok {
+            watchdog.cancel()
+            settleLocked(now: n)
+        } else {
+            // Reversal failed — do NOT cancel the watchdog or settle. Keep the
+            // session active and re-arm a short retry so the daemon retains
+            // ownership of recovery; otherwise SleepDisabled would be orphaned
+            // ON with no timer, and the client would tear its UI down on the
+            // next status read while sleep is still held.
+            watchdog.arm(deadline: n.addingTimeInterval(Self.reversalRetryInterval))
+        }
         lock.unlock()
-        DaemonLog.write("SleepControlService: disable — pmset 0 \(ok ? "ok" : "FAILED"); accumulator preserved")
+        DaemonLog.write("SleepControlService: disable — pmset 0 \(ok ? "ok; accumulator preserved" : "FAILED; retry armed")")
         reply(ok)
     }
 
@@ -112,6 +121,10 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
     }
 
     private static let daemonBuildVersion = "1.5"
+
+    /// On a failed `pmset` reversal, re-arm the watchdog this far out to retry,
+    /// keeping the daemon in charge of recovery instead of orphaning the state.
+    private static let reversalRetryInterval: TimeInterval = 60
 
     // MARK: - Private (mutating; callers hold or acquire `lock`)
 
@@ -141,11 +154,17 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
             return
         }
         let n = now()
-        _ = PmsetControl.setDisableSleep(false)
-        watchdog.cancel()
-        settleLocked(now: n)
+        let ok = PmsetControl.setDisableSleep(false)
+        if ok {
+            watchdog.cancel()
+            settleLocked(now: n)
+        } else {
+            // Reversal failed at the deadline — re-arm a short retry rather than
+            // cancelling (which would orphan SleepDisabled=on permanently).
+            watchdog.arm(deadline: n.addingTimeInterval(Self.reversalRetryInterval))
+        }
         lock.unlock()
-        DaemonLog.write("SleepControlService: watchdog fired — session expired, disablesleep reversed")
+        DaemonLog.write("SleepControlService: watchdog fired — pmset 0 \(ok ? "reversed" : "FAILED; retry armed")")
     }
 
     private func reconcileLocked() {
