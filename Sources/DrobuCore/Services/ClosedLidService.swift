@@ -136,8 +136,13 @@ final class ClosedLidService {
         case .enabled:
             break
         case .notRegistered:
-            if registrar.register() != .enabled { throw ClosedLidError.daemonNotApproved }
+            let afterRegister = registrar.register()
+            if afterRegister != .enabled {
+                Log.info("ClosedLidService: daemon not usable after register (status: \(afterRegister)) — guiding to approval")
+                throw ClosedLidError.daemonNotApproved
+            }
         case .requiresApproval, .notFound, .failed:
+            Log.info("ClosedLidService: daemon status \(registrar.status) — guiding to approval")
             throw ClosedLidError.daemonNotApproved
         }
 

@@ -81,4 +81,16 @@ struct DaemonConstantsTests {
         #expect(DaemonConstants.clientCodeSigningRequirement.contains(DaemonConstants.teamIdentifier))
         #expect(DaemonConstants.clientCodeSigningRequirement.contains("anchor apple generic"))
     }
+
+    @Test("the two requirements pin DIFFERENT identities (daemon vs app)")
+    func requirementsPinOppositeIdentities() {
+        // Client→daemon pin names the daemon id; daemon→client pin names the app
+        // id. They must differ, or the client would reject the genuine daemon.
+        #expect(DaemonConstants.daemonCodeSigningRequirement.contains("\"\(DaemonConstants.daemonLabel)\""))
+        #expect(DaemonConstants.daemonCodeSigningRequirement.contains(DaemonConstants.teamIdentifier))
+        #expect(DaemonConstants.daemonCodeSigningRequirement.contains("anchor apple generic"))
+        #expect(DaemonConstants.daemonCodeSigningRequirement != DaemonConstants.clientCodeSigningRequirement)
+        // The daemon requirement must NOT pin the bare app id (that would be the bug).
+        #expect(DaemonConstants.daemonCodeSigningRequirement.contains("\"\(DaemonConstants.appBundleIdentifier)\"") == false)
+    }
 }

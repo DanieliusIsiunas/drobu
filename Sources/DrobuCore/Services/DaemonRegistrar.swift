@@ -77,8 +77,13 @@ public final class DaemonRegistrar: DaemonRegistration {
     public func register() -> DaemonStatus {
         do {
             try control.register()
-            return status
+            let result = status
+            Log.info("DaemonRegistrar: register() → \(result)")
+            return result
         } catch {
+            // Surface the real SMAppService error — registration failures are
+            // otherwise invisible (the client just shows generic guidance).
+            Log.error("DaemonRegistrar: register() failed: \(error)")
             return .failed(error.localizedDescription)
         }
     }
@@ -90,6 +95,7 @@ public final class DaemonRegistrar: DaemonRegistration {
             try control.unregister()
             return status
         } catch {
+            Log.error("DaemonRegistrar: unregister() failed: \(error)")
             return .failed(error.localizedDescription)
         }
     }

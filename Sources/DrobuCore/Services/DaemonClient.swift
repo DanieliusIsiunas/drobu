@@ -73,8 +73,10 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
         } else {
             let new = NSXPCConnection(machServiceName: DaemonConstants.machServiceName, options: .privileged)
             new.remoteObjectInterface = NSXPCInterface(with: DrobuDaemonXPCProtocol.self)
-            // Pin the daemon (defense alongside the daemon's own listener gate).
-            new.setCodeSigningRequirement(DaemonConstants.clientCodeSigningRequirement)
+            // Pin the DAEMON's identity (distinct from the app's — M3). Using
+            // the app requirement here would reject the genuine daemon and break
+            // every call. (The daemon's listener pins the app id to verify us.)
+            new.setCodeSigningRequirement(DaemonConstants.daemonCodeSigningRequirement)
             new.invalidationHandler = { [weak self] in
                 guard let self else { return }
                 self.lock.lock(); self.connection = nil; self.lock.unlock()

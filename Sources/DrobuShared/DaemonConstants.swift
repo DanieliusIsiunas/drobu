@@ -41,6 +41,17 @@ public enum DaemonConstants {
         "anchor apple generic and identifier \"\(appBundleIdentifier)\" "
         + "and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
 
+    /// Code-sign requirement the *client* pins on its connection to verify the
+    /// *daemon* it is talking to. Pins the DAEMON's identifier — which is
+    /// distinct from the app's (M3) — so the client accepts only the genuine
+    /// Developer-ID daemon. The two directions pin DIFFERENT identities: the
+    /// daemon's listener uses `clientCodeSigningRequirement` (the app id) to
+    /// verify the client; the client uses this to verify the daemon. Using the
+    /// app requirement here would reject the real daemon (its id is `.daemon`).
+    public static let daemonCodeSigningRequirement =
+        "anchor apple generic and identifier \"\(daemonLabel)\" "
+        + "and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+
     // MARK: - Daemon-owned paths (root:wheel)
 
     /// Root-owned support directory (mode 0700, created under `umask(0o077)`).
