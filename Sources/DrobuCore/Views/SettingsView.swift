@@ -1,6 +1,7 @@
 import SwiftUI
 import HotKey
 import ServiceManagement
+import Combine
 
 public struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -175,6 +176,11 @@ public struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
+            refreshDaemonStatus()
+        }
+        // Re-read daemon status when the app regains focus — picks up an
+        // approval the user just toggled in System Settings.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDaemonStatus()
         }
     }
