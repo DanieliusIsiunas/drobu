@@ -65,10 +65,17 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         // it cannot be written, do NOT report an active session — reverse and
         // fail, so a relaunch/reboot won't lose a session it was told succeeded.
         guard SleepStateStore.write(state) else {
-            _ = PmsetControl.setDisableSleep(false)
-            watchdog.cancel()
+            // Roll back the pmset we just applied. If the rollback reversal also
+            // fails, keep recovery ownership (persist a retry deadline + re-arm)
+            // rather than orphaning SleepDisabled=on with no timer or state.
+            if PmsetControl.setDisableSleep(false) {
+                watchdog.cancel()
+                DaemonLog.write("SleepControlService: enable — state write failed; rolled back, not armed")
+            } else {
+                armReversalRetryLocked(now: n)
+                DaemonLog.write("SleepControlService: enable — state write AND rollback failed; retry armed")
+            }
             lock.unlock()
-            DaemonLog.write("SleepControlService: enable — state write failed; reversed, not armed")
             reply(false, DaemonEnableResult.internalError.rawValue, 0)
             return
         }
@@ -93,7 +100,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
             // ownership of recovery; otherwise SleepDisabled would be orphaned
             // ON with no timer, and the client would tear its UI down on the
             // next status read while sleep is still held.
-            watchdog.arm(deadline: n.addingTimeInterval(Self.reversalRetryInterval))
+            armReversalRetryLocked(now: n)
         }
         lock.unlock()
         DaemonLog.write("SleepControlService: disable — pmset 0 \(ok ? "ok; accumulator preserved" : "FAILED; retry armed")")
@@ -143,6 +150,24 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         SleepStateStore.write(settled)
     }
 
+    /// Called when a `pmset disablesleep 0` reversal FAILED and the daemon must
+    /// keep durable ownership of recovery. Persists a FUTURE-dated retry
+    /// deadline — so `status()` reports the session active (truthful: sleep is
+    /// still held) and boot reconciliation hits the future-deadline +
+    /// SleepDisabled-on cell (re-arm), instead of reverseAndClear-ing an expired
+    /// state and dropping the session — then arms the watchdog to retry.
+    /// Best-effort: if the state write itself fails, the in-memory timer still
+    /// retries, and a daemon restart falls back to the orphan-reverse path.
+    private func armReversalRetryLocked(now n: Date) {
+        let retryDeadline = n.addingTimeInterval(Self.reversalRetryInterval)
+        let carried = SleepStateStore.read()?.decayedAccumulatedSeconds(now: n) ?? 0
+        let retryState = SleepSessionState(
+            deadline: retryDeadline, startedAt: n,
+            accumulatedActiveSeconds: carried, accumulatorUpdatedAt: n)
+        SleepStateStore.write(retryState)
+        watchdog.arm(deadline: retryDeadline)
+    }
+
     /// Watchdog fired — reverse + settle. The generation guard ignores a timer
     /// that fired just before a re-arm bumped the generation (a cancelled
     /// DispatchSource may still run an already-dispatched handler; without this
@@ -161,7 +186,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         } else {
             // Reversal failed at the deadline — re-arm a short retry rather than
             // cancelling (which would orphan SleepDisabled=on permanently).
-            watchdog.arm(deadline: n.addingTimeInterval(Self.reversalRetryInterval))
+            armReversalRetryLocked(now: n)
         }
         lock.unlock()
         DaemonLog.write("SleepControlService: watchdog fired — pmset 0 \(ok ? "reversed" : "FAILED; retry armed")")
