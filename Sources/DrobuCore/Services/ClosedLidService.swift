@@ -135,14 +135,22 @@ final class ClosedLidService {
         switch registrar.status {
         case .enabled:
             break
-        case .notRegistered:
+        case .notRegistered, .notFound, .failed:
+            // Attempt to install the daemon. register() is idempotent and is the
+            // only forward path; a never-registered daemon reports .notFound
+            // (not .notRegistered) on macOS 14+, so we must try to register
+            // rather than dead-end into guidance toward a toggle that doesn't
+            // exist yet. The real SMAppService error (if any) is logged inside
+            // register() — see DaemonRegistrar.
             let afterRegister = registrar.register()
             if afterRegister != .enabled {
                 Log.info("ClosedLidService: daemon not usable after register (status: \(afterRegister)) — guiding to approval")
                 throw ClosedLidError.daemonNotApproved
             }
-        case .requiresApproval, .notFound, .failed:
-            Log.info("ClosedLidService: daemon status \(registrar.status) — guiding to approval")
+        case .requiresApproval:
+            // Already registered; the user just needs to flip the Login Items
+            // toggle. Re-registering would not help — deep-link straight there.
+            Log.info("ClosedLidService: daemon requires approval — guiding to System Settings")
             throw ClosedLidError.daemonNotApproved
         }
 

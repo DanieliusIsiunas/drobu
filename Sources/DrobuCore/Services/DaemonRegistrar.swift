@@ -114,14 +114,18 @@ public final class DaemonRegistrar: DaemonRegistration {
     @discardableResult
     public func remediate() -> DaemonStatus {
         switch status {
-        case .notRegistered:
+        case .notRegistered, .notFound, .failed:
+            // register() is the only forward path and is idempotent. A
+            // never-registered daemon reports .notFound (not .notRegistered) on
+            // macOS 14+, so it must attempt registration too — not be sent to a
+            // Login Items toggle that doesn't exist yet (R3, corrected).
             let after = register()
             if after == .requiresApproval { openApprovalSettings() }
             return after
-        case .requiresApproval, .notFound:
+        case .requiresApproval:
             openApprovalSettings()
             return status
-        case .enabled, .failed:
+        case .enabled:
             return status
         }
     }

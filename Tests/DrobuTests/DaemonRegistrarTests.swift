@@ -100,12 +100,28 @@ struct DaemonRegistrarTests {
         #expect(control.openSettingsCallCount == 1)
     }
 
-    @Test("remediate: notFound deep-links to Login Items")
+    @Test("remediate: notFound attempts register inline (forward path), then deep-links if approval needed")
     func remediateNotFound() {
+        // A never-registered daemon reports .notFound on macOS 14+, so remediate
+        // must register() rather than send the user to a non-existent toggle.
+        let control = MockDaemonServiceControl(status: .notFound)
+        control.statusAfterRegister = .requiresApproval
+        let registrar = DaemonRegistrar(control: control)
+        let result = registrar.remediate()
+        #expect(control.registerCallCount == 1)
+        #expect(control.openSettingsCallCount == 1)
+        #expect(result == .requiresApproval)
+    }
+
+    @Test("remediate: notFound that won't register surfaces and does not deep-link")
+    func remediateNotFoundStuck() {
+        // register() leaves it .notFound (statusAfterRegister unset) → no toggle exists, no deep-link.
         let control = MockDaemonServiceControl(status: .notFound)
         let registrar = DaemonRegistrar(control: control)
-        #expect(registrar.remediate() == .notFound)
-        #expect(control.openSettingsCallCount == 1)
+        let result = registrar.remediate()
+        #expect(control.registerCallCount == 1)
+        #expect(control.openSettingsCallCount == 0)
+        #expect(result == .notFound)
     }
 
     @Test("remediate: enabled does nothing")
