@@ -195,14 +195,10 @@ step "Stapling notarization ticket to $DMG"
 # Stapling rewrites the DMG, changing its bytes — so this MUST happen before
 # sign_update computes the Sparkle EdDSA signature and length below.
 xcrun stapler staple "$DMG"
-# Verify the notarization ticket is attached + valid before publishing.
-# Do NOT add `spctl --assess --context primary-signature` here: the DMG container
-# is notarized + stapled but intentionally NOT codesigned (only the app inside is),
-# so spctl reports "no usable signature" and false-rejects a perfectly good DMG.
-# `stapler validate` is the correct ticket check; Gatekeeper accepts a quarantined
-# download on the strength of that stapled ticket.
-xcrun stapler validate "$DMG" \
-    || { red "Staple ticket missing/invalid on $DMG — aborting before publish."; exit 1; }
+# Artifact verification (incl. the staple-ticket check that used to live
+# here) is consolidated in tools/verify-release.sh --pre, which runs after
+# sign_update below — see that script for the full check set and the
+# standing "never spctl --assess the DMG" prohibition.
 
 step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout
@@ -218,6 +214,18 @@ fi
 
 echo "  edSignature: ${ED_SIG:0:24}..."
 echo "  length:      $LENGTH bytes"
+
+# --- Pre-publish verification gate ---------------------------------------------
+# Every input is now in its final form (DMG bytes frozen post-staple,
+# EdDSA computed over those bytes) and nothing external has happened yet —
+# the unique point to verify everything. A failure here costs nothing:
+# fix and re-run.
+step "Pre-publish verification gate"
+tools/verify-release.sh --pre \
+    --app "$APP" --dmg "$DMG" \
+    --version "$VERSION" --build "$BUILD" \
+    --ed-sig "$ED_SIG" --length "$LENGTH" \
+    || { red "Pre-publish gate failed — nothing was published. Fix and re-run."; exit 1; }
 
 # --- Tag + push ---------------------------------------------------------------
 
@@ -263,8 +271,19 @@ gh release create "$TAG" "$DMG" \
     --notes "$RELEASE_BODY"
 
 # Release exists. Any later failure is appcast-only and recoverable without
-# tag/release surgery, so drop the tag-cleanup trap.
+# tag/release surgery, so drop the tag-cleanup trap — and RETARGET the
+# INT/TERM traps: from this point the tag-deletion guidance they printed
+# would be destructive advice about a PUBLIC release, and the --post
+# verification below widens this window by several minutes of polling.
 trap - ERR
+post_publish_interrupt() {
+    yellow ""
+    yellow "! Interrupted after publish. Release $TAG is PUBLIC; verification is incomplete."
+    yellow "  Finish verifying when ready:"
+    yellow "    tools/verify-release.sh --post --version $VERSION --build $BUILD --local-dmg $DMG"
+}
+trap 'post_publish_interrupt; exit 130' INT
+trap 'post_publish_interrupt; exit 143' TERM
 
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$DMG"
 echo "  Download URL: $DOWNLOAD_URL"
@@ -319,15 +338,27 @@ git add "$APPCAST"
 git commit -m "chore: appcast for $TAG"
 git push
 
+# --- Post-publish verification (synthetic Sparkle client) ----------------------
+# Polls the live appcast through Pages propagation, downloads the published
+# enclosure, and verifies the full client contract (EdDSA, length, staple,
+# latest/download alias, byte-identity with the local DMG). A failure here
+# means the release is PUBLIC and UNVERIFIED — the script prints
+# state-specific recovery guidance; the local DMG is kept for inspection.
+step "Post-publish verification (this polls through the Pages deploy — a few minutes)"
+tools/verify-release.sh --post \
+    --version "$VERSION" --build "$BUILD" --local-dmg "$DMG" \
+    || { red "Post-publish verification FAILED — see guidance above. Local $DMG kept."; exit 1; }
+
 # --- Cleanup ------------------------------------------------------------------
 
 rm -f "$DMG"
 
 echo
-green "✓ Released $TAG"
+green "✓ Released $TAG — published AND verified end-to-end"
 echo
 echo "  Download URL: $DOWNLOAD_URL"
-echo "  Appcast URL:  https://danieliusisiunas.github.io/drobu/appcast.xml"
+echo "  Appcast URL:  https://drobu.app/appcast.xml"
+echo "                (legacy https://danieliusisiunas.github.io/drobu/appcast.xml 301s here)"
 echo "  GH release:   https://github.com/$REPO/releases/tag/$TAG"
 echo
 echo "GitHub Pages deploy takes ~1-2 min. Once live, an installed Drobu"
