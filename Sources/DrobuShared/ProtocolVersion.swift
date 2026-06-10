@@ -8,4 +8,6 @@ import Foundation
 /// after a Sparkle update) refuses activation and attempts `register()` to
 /// install the bundled daemon — the client never speaks a newer protocol at an
 /// older daemon.
-public let drobuDaemonProtocolVersion: Int = 1
+///
+/// History: 1 = initial (enable/disable/status/versions); 2 = + displayOff.
+public let drobuDaemonProtocolVersion: Int = 2

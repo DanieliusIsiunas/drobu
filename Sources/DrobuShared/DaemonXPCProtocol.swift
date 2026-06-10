@@ -18,6 +18,14 @@ import Foundation
     /// Disable `pmset disablesleep` and clear persisted state. Reply: `(ok)`.
     func disable(reply: @escaping (Bool) -> Void)
 
+    /// Put displays to sleep now (`pmset displaysleepnow`) — the lid-close
+    /// display-off actuator. One-shot; mutates no persistent power setting, so
+    /// it never touches session state, the watchdog, or reconciliation. Only
+    /// honored while a sleep session is active (refused otherwise — a blank
+    /// screen outside a session the user armed is not the daemon's to cause).
+    /// Reply: `(ok)`.
+    func displayOff(reply: @escaping (Bool) -> Void)
+
     /// Current session status — the rehydration source after an app relaunch.
     /// Reply: `(active, remainingSeconds)`.
     func status(reply: @escaping (Bool, Double) -> Void)

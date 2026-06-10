@@ -23,6 +23,26 @@ enum PmsetControl {
         }
     }
 
+    /// `pmset displaysleepnow` — immediate display sleep, the lid-close
+    /// display-off actuator. One-shot (no persistent setting changes; the lid
+    /// or HID wake relights the panel). Returns true on exit 0.
+    @discardableResult
+    static func displaySleepNow() -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        proc.arguments = ["displaysleepnow"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            return proc.terminationStatus == 0
+        } catch {
+            DaemonLog.write("PmsetControl: pmset displaysleepnow run failed: \(error)")
+            return false
+        }
+    }
+
     /// Read `pmset -g` and parse the `SleepDisabled` flag via the M1 parser.
     static func isSleepDisabled() -> Bool {
         let proc = Process()
