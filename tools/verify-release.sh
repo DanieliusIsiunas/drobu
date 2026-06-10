@@ -632,19 +632,26 @@ run_post() {
         # THERE too, followed exactly as Sparkle would — if the 301 chain is
         # broken or the legacy feed is stale, every installed client is
         # stranded even though canonical (checked above) is current.
-        local legacy_body="$SCRATCH/legacy.xml" legacy_vals legacy_short legacy_build
+        # Compare the FULL enclosure tuple (version|url|length|edSignature),
+        # not just version+build — matching the U4 monitor. The two feeds
+        # are the same Pages file (legacy 301s to canonical), so divergence
+        # at the same version is unlikely, but an in-place correction or a
+        # CDN split that updates one and not the other would leave legacy
+        # clients downloading a different/unverifiable enclosure than the one
+        # the canonical content checks below validate.
+        local legacy_body="$SCRATCH/legacy.xml" legacy_vals legacy_tuple canonical_tuple
+        canonical_tuple="$(sed -n 's/^APPCAST_SHORT=//p' <<<"$appcast_vals")|$(sed -n 's/^APPCAST_URL=//p' <<<"$appcast_vals")|$(sed -n 's/^APPCAST_LENGTH=//p' <<<"$appcast_vals")|$(sed -n 's/^APPCAST_SIG=//p' <<<"$appcast_vals")"
         fetch "${LEGACY_APPCAST}?$(cb)" "$legacy_body"
         if [[ $FETCH_CODE != 200 ]]; then
             check_fail "the baked SUFeedURL ($LEGACY_APPCAST) returned $FETCH_CODE following redirects — installed clients fetch THIS url and would silently see 'no updates' (the 301 chain to drobu.app may be broken)"
         elif ! legacy_vals=$(parse_appcast "$legacy_body" 2>/dev/null); then
             check_fail "the baked SUFeedURL serves unparseable XML — installed clients see 'no updates'"
         else
-            legacy_short=$(sed -n 's/^APPCAST_SHORT=//p' <<<"$legacy_vals")
-            legacy_build=$(sed -n 's/^APPCAST_VERSION=//p' <<<"$legacy_vals")
-            if [[ $legacy_short == "$expected_version" && $legacy_build == "$expected_build" ]]; then
-                pass "baked SUFeedURL (legacy github.io) also serves v$expected_version — installed clients see the release"
+            legacy_tuple="$(sed -n 's/^APPCAST_SHORT=//p' <<<"$legacy_vals")|$(sed -n 's/^APPCAST_URL=//p' <<<"$legacy_vals")|$(sed -n 's/^APPCAST_LENGTH=//p' <<<"$legacy_vals")|$(sed -n 's/^APPCAST_SIG=//p' <<<"$legacy_vals")"
+            if [[ $legacy_tuple == "$canonical_tuple" ]]; then
+                pass "baked SUFeedURL (legacy github.io) serves the identical latest enclosure — installed clients see the verified release"
             else
-                check_fail "baked SUFeedURL serves v$legacy_short (build $legacy_build), not v$expected_version — installed clients are stranded on a stale feed while canonical is current"
+                check_fail "baked SUFeedURL's latest enclosure differs from canonical — installed clients get a stale or unverifiable update. legacy='$legacy_tuple' canonical='$canonical_tuple'"
             fi
         fi
 
