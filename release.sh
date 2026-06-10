@@ -83,13 +83,16 @@ fi
 # references it ships". Mirrors .github/workflows/payment-links-monitor.yml.
 BUY_REDIRECT="https://drobu.app/buy"
 STRIPE_LINK="https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01"
-BUY_OUT=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-redirs 0 --max-time 15 "$BUY_REDIRECT") || BUY_OUT="000 "
-BUY_CODE=${BUY_OUT%% *}
-BUY_TARGET=${BUY_OUT#* }
-[[ $BUY_CODE == "302" ]] \
-    || { red "$BUY_REDIRECT did not answer 302 (got '$BUY_CODE') — Buy buttons in this release would be dead. Configure the Cloudflare redirect first."; exit 1; }
-[[ $BUY_TARGET == "$STRIPE_LINK" ]] \
-    || { red "$BUY_REDIRECT redirects to '$BUY_TARGET', not the contract Payment Link — a hijacked or misconfigured redirect must not ship."; exit 1; }
+# /buy is a static GitHub Pages page (not a server 302); follow the
+# trailing-slash redirect, require 200, and pin the exact Stripe URL in
+# the body so a hijacked/misconfigured target blocks the release.
+BUY_BODY=$(mktemp)
+BUY_CODE=$(curl -sL -o "$BUY_BODY" -w '%{http_code}' --max-time 15 "$BUY_REDIRECT") || BUY_CODE=000
+[[ $BUY_CODE == "200" ]] \
+    || { rm -f "$BUY_BODY"; red "$BUY_REDIRECT returned '$BUY_CODE', not 200 — Buy buttons in this release would be dead. Check the drobu.app site deploy."; exit 1; }
+grep -qF "$STRIPE_LINK" "$BUY_BODY" \
+    || { rm -f "$BUY_BODY"; red "$BUY_REDIRECT does not contain the contract Payment Link — a hijacked or misconfigured redirect must not ship."; exit 1; }
+rm -f "$BUY_BODY"
 STRIPE_BODY=$(mktemp)
 STRIPE_OUT=$(curl -s -o "$STRIPE_BODY" -w '%{http_code} %{size_download}' --max-time 30 -A "Mozilla/5.0" "$STRIPE_LINK") || STRIPE_OUT="000 0"
 STRIPE_CODE=${STRIPE_OUT%% *}
@@ -97,7 +100,7 @@ STRIPE_SIZE=${STRIPE_OUT#* }
 { [[ $STRIPE_CODE == "200" && $STRIPE_SIZE -gt 100000 ]] && grep -q "livemode" "$STRIPE_BODY"; } \
     || { rm -f "$STRIPE_BODY"; red "Stripe Payment Link is not serving the live checkout shell (code $STRIPE_CODE, ${STRIPE_SIZE} bytes) — old binaries' Buy buttons depend on it. Check the Stripe dashboard."; exit 1; }
 rm -f "$STRIPE_BODY"
-dig +short MX drobu.app | grep -q "mx.cloudflare.net" \
+dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
