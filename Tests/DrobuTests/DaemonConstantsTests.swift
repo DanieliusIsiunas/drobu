@@ -67,9 +67,13 @@ struct DaemonConstantsTests {
         #expect(DaemonConstants.legacyLaunchdLabel == "com.clipboardhistory.disablesleep-reversal")
     }
 
-    @Test("protocol version is a positive integer")
-    func protocolVersionPositive() {
-        #expect(drobuDaemonProtocolVersion > 0)
+    @Test("protocol version is pinned — bumping it is a deliberate, test-acknowledged act")
+    func protocolVersionPinned() {
+        // Keep in lockstep with Sources/DrobuShared/ProtocolVersion.swift.
+        // 2 = displayOff added (the handshake refuses mismatched daemons, so an
+        // accidental revert would silently change update behavior for every
+        // installed client — this pin makes any change deliberate).
+        #expect(drobuDaemonProtocolVersion == 2)
     }
 
     @Test("daemon identity is distinct from the app, and the client requirement pins the app (M3)")

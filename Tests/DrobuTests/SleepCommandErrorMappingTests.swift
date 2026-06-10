@@ -18,9 +18,12 @@ struct SleepCommandErrorMappingTests {
         #expect(ClosedLidError.daemonNotApproved.route == .guidance)
     }
 
-    @Test("protocol mismatch routes to guidance")
-    func mismatchGuidance() {
-        #expect(ClosedLidError.protocolMismatch.route == .guidance)
+    @Test("protocol mismatch (post-reinstall residual) is a visible failure, NOT approval guidance")
+    func mismatchVisible() {
+        // The approval alert would be a lie here — the helper is approved; its
+        // stale process just survived the reinstall attempt.
+        #expect(ClosedLidError.protocolMismatch.route
+                == .visibleFailure("Closed Lid helper is still updating — try again in a moment."))
     }
 
     @Test("auth failure surfaces a visible failure carrying the reason")

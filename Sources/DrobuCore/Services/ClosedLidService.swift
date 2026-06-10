@@ -1,22 +1,6 @@
 import Foundation
 import IOKit
-import IOKit.pwr_mgt
 import DrobuShared
-
-// Clamshell state change from xnu/iokit/IOKit/pwr_mgt/IOPM.h
-private let kIOPMMessageClamshellStateChange: UInt32 = 0xE003_4100
-private let kClamshellStateBit: UInt32 = 1 << 0
-
-private let clamshellCallback: IOServiceInterestCallback = { refcon, _, messageType, messageArgument in
-    guard messageType == kIOPMMessageClamshellStateChange else { return }
-    let bits = UInt32(UInt(bitPattern: messageArgument))
-    let isClosed = (bits & kClamshellStateBit) != 0
-    guard let refcon else { return }
-    let obj = Unmanaged<ClosedLidService>.fromOpaque(refcon).takeUnretainedValue()
-    Task { @MainActor in
-        obj.handleClamshellChange(isClosed: isClosed)
-    }
-}
 
 /// Why Closed Lid activation did not proceed. The privilege boundary moved to
 /// the daemon (BTM approval + Team-ID XPC requirement); these are the
@@ -42,8 +26,13 @@ extension ClosedLidError {
         switch self {
         case .authCancelled:
             return .silent
-        case .daemonNotApproved, .protocolMismatch:
+        case .daemonNotApproved:
             return .guidance
+        case .protocolMismatch:
+            // Only reachable after a reinstall + re-handshake already failed —
+            // approval guidance would be the wrong message (the helper IS
+            // approved; its process just hasn't been replaced yet).
+            return .visibleFailure("Closed Lid helper is still updating — try again in a moment.")
         case .authFailed(let reason):
             return .visibleFailure(reason)
         case .daemonUnavailable:
@@ -87,9 +76,9 @@ final class ClosedLidService {
     private var caffeinateProcess: Process?
     private var reconciliationTimer: Timer?
     private var isActivating = false
-    private var clamshellNotifyPort: IONotificationPortRef?
-    private var clamshellNotifier: io_object_t = IO_OBJECT_NULL
-    private var savedBrightness: Float?
+    private var clamshellPollTimer: Timer?
+    private var clamshellService: io_service_t = IO_OBJECT_NULL
+    private var edgeDetector = ClamshellEdgeDetector()
 
     /// Static, PII-free reason string (surfaces in system auth logs), < 60 chars.
     private static let authReason = "Keep your Mac awake with the lid closed"
@@ -155,14 +144,43 @@ final class ClosedLidService {
         }
 
         // 2. Protocol-version handshake — never speak a newer protocol at an
-        //    older daemon. Mismatch → attempt to install the bundled daemon and
-        //    route to re-approval guidance.
+        //    older daemon. A mismatch means a STALE daemon process is still
+        //    running across an app update (launchd does not restart a running
+        //    daemon when the bundle on disk is replaced; register() alone never
+        //    bounces it). Self-heal: reinstall (unregister kills the old
+        //    process, register points launchd at the new binary), then
+        //    re-handshake once — the NSXPCConnection respawns the daemon on the
+        //    next message after the old process dies.
         guard let daemonVersion = await daemon.protocolVersion() else {
             throw ClosedLidError.daemonUnavailable
         }
-        guard daemonVersion == drobuDaemonProtocolVersion else {
-            _ = registrar.register()
-            throw ClosedLidError.protocolMismatch
+        if daemonVersion != drobuDaemonProtocolVersion {
+            Log.info("ClosedLidService: daemon protocol \(daemonVersion) != \(drobuDaemonProtocolVersion) — reinstalling stale daemon")
+            switch await registrar.reinstall() {
+            case .enabled:
+                break
+            case .failed:
+                // BTM teardown race outlasted the retries — registration state
+                // is transient, not an approval problem. "Try again in a
+                // moment" (the protocolMismatch route) is the truthful message;
+                // the approval alert would point at a toggle that fixes nothing.
+                throw ClosedLidError.protocolMismatch
+            case .notRegistered, .notFound, .requiresApproval:
+                // The reinstall genuinely needs the user's approval again.
+                throw ClosedLidError.daemonNotApproved
+            }
+            if companionsEnabled {
+                // Give BTM a beat to finish tearing down the old process so the
+                // re-handshake spawns the new binary, not the dying one. Skipped
+                // under the test seam (mocks have no process to bounce).
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            guard let retried = await daemon.protocolVersion() else {
+                throw ClosedLidError.daemonUnavailable
+            }
+            guard retried == drobuDaemonProtocolVersion else {
+                throw ClosedLidError.protocolMismatch
+            }
         }
 
         // 3. Consent gate (Touch ID / Apple Watch / password). Cancel aborts
@@ -215,7 +233,18 @@ final class ClosedLidService {
         guard let status = await daemon.status(), status.active, status.remaining > 0 else { return }
         state = .active(deadline: now().addingTimeInterval(status.remaining))
         startCaffeinate(seconds: status.remaining)
-        startClamshellMonitoring()
+        // Version-gate the display-off companion only: rehydrate can adopt a
+        // session held by a stale pre-update daemon (launchd keeps the old
+        // process running across a Sparkle update) whose v1 interface lacks
+        // displayOff — never send a newer selector at it (the reply may never
+        // fire, leaking the continuation). The session itself is still adopted:
+        // disable()/status() exist in every protocol version, and refusing
+        // adoption would make the UI lie about a live stay-awake session.
+        if await daemon.protocolVersion() == drobuDaemonProtocolVersion {
+            startClamshellMonitoring()
+        } else {
+            Log.info("ClosedLidService: rehydrated against a stale daemon — display-off disabled for this session")
+        }
         startReconciliationTimer()
         Log.info("ClosedLidService: rehydrated live session, \(Int(status.remaining))s remaining")
     }
@@ -227,10 +256,9 @@ final class ClosedLidService {
     func cleanup() {
         guard isActive else { return }
         _ = daemon.disableBounded(timeout: 0.4)
-        // Restore brightness + release the IOKit clamshell source before exit —
-        // if the app is killed while dimmed (lid was closed), the display would
-        // otherwise stay at zero brightness with no running app to restore it.
-        restoreDisplay()
+        // Release the IOKit poll source before exit. No brightness restore is
+        // needed: display-off is `pmset displaysleepnow` daemon-side, and the
+        // lid/HID wake relights the panel without app involvement.
         stopClamshellMonitoring()
         if let proc = caffeinateProcess, proc.isRunning { proc.terminate() }
         caffeinateProcess = nil
@@ -241,7 +269,6 @@ final class ClosedLidService {
     /// Client-side teardown only — never touches the daemon (used when the
     /// session has already ended daemon-side, via stop-confirmed or expiry).
     private func teardownClientState() {
-        restoreDisplay()
         stopClamshellMonitoring()
         if let proc = caffeinateProcess {
             caffeinateProcess = nil
@@ -310,104 +337,80 @@ final class ClosedLidService {
         // status == nil (XPC unreachable): leave state as-is; retry next tick.
     }
 
-    // MARK: - Clamshell Monitoring & Display Brightness
+    // MARK: - Clamshell Monitoring (lid-close → display-off)
 
+    /// Lid detection is a 500ms POLL of the `AppleClamshellState` property on
+    /// `IOPMrootDomain` — the interest-notification path
+    /// (`kIOPMMessageClamshellStateChange`) never fans out on Apple Silicon,
+    /// while the kernel sets the property *before* messaging clients, making
+    /// the poll authoritative even where the notification is dead.
     private func startClamshellMonitoring() {
         guard companionsEnabled else { return }
         stopClamshellMonitoring()
 
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
         guard service != IO_OBJECT_NULL else {
-            Log.error("ClosedLidService: IOPMrootDomain not found")
+            Log.error("ClosedLidService: IOPMrootDomain not found — lid detection unavailable")
             return
         }
-        defer { IOObjectRelease(service) }
+        clamshellService = service
+        edgeDetector = ClamshellEdgeDetector()
+        // Prime the baseline synchronously: without this, a lid closed between
+        // now and the first 500ms tick would be swallowed INTO the baseline
+        // (first definitive reading never fires) and displayOff would never
+        // run — and "activate, then shut the lid" is the primary flow. Priming
+        // moves the baseline to t=0, so that close registers as an edge on the
+        // first tick. A lid ALREADY closed here (clamshell mode on an external
+        // display) still baselines without firing, exactly as before.
+        let primed = IORegistryEntryCreateCFProperty(
+            service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue()
+        _ = edgeDetector.ingest(parseClamshellState(primed))
 
-        let port = IONotificationPortCreate(kIOMainPortDefault)
-        guard let port else {
-            Log.error("ClosedLidService: failed to create notification port")
-            return
+        // Manual .common-mode registration: a scheduledTimer registers in
+        // .default only and would freeze while a menu is open
+        // (.claude/rules/nsmenu-statusitem-gotchas.md).
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clamshellPollTick() }
         }
-
-        let source = IONotificationPortGetRunLoopSource(port).takeUnretainedValue()
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
-
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        var notifier: io_object_t = IO_OBJECT_NULL
-        let kr = IOServiceAddInterestNotification(
-            port, service, kIOGeneralInterest,
-            clamshellCallback, refcon, &notifier
-        )
-        if kr != KERN_SUCCESS {
-            Log.error("ClosedLidService: IOServiceAddInterestNotification failed: \(kr)")
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
-            IONotificationPortDestroy(port)
-            return
-        }
-
-        clamshellNotifyPort = port
-        clamshellNotifier = notifier
-        Log.info("ClosedLidService: clamshell monitoring started")
+        RunLoop.main.add(timer, forMode: .common)
+        clamshellPollTimer = timer
+        Log.info("ClosedLidService: clamshell polling started")
     }
 
     private func stopClamshellMonitoring() {
-        guard clamshellNotifier != IO_OBJECT_NULL else { return }
-
-        IOObjectRelease(clamshellNotifier)
-        clamshellNotifier = IO_OBJECT_NULL
-
-        if let port = clamshellNotifyPort {
-            let source = IONotificationPortGetRunLoopSource(port).takeUnretainedValue()
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
-            IONotificationPortDestroy(port)
-            clamshellNotifyPort = nil
+        clamshellPollTimer?.invalidate()
+        clamshellPollTimer = nil
+        if clamshellService != IO_OBJECT_NULL {
+            IOObjectRelease(clamshellService)
+            clamshellService = IO_OBJECT_NULL
         }
     }
 
-    func handleClamshellChange(isClosed: Bool) {
+    private func clamshellPollTick() {
+        guard isActive, clamshellService != IO_OBJECT_NULL else { return }
+        let raw = IORegistryEntryCreateCFProperty(
+            clamshellService, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue()
+        guard let edge = edgeDetector.ingest(parseClamshellState(raw)) else { return }
+        Task { @MainActor [weak self] in await self?.handleClamshellChange(isClosed: edge == .closed) }
+    }
+
+    /// Edge dispatch — called once per lid transition (the detector swallows
+    /// repeated same-state readings). Best-effort by design: display-off is
+    /// cosmetic relative to the stay-awake guarantee, so an XPC failure logs
+    /// and leaves the session untouched. The open edge needs no daemon call —
+    /// the lid/HID wake relights the panel on its own.
+    func handleClamshellChange(isClosed: Bool) async {
         guard isActive else { return }
-        if isClosed {
-            dimDisplay()
+        guard isClosed else {
+            Log.info("ClosedLidService: lid opened — panel restored by lid wake")
+            return
+        }
+        if await daemon.displayOff() == true {
+            Log.info("ClosedLidService: lid closed — display off")
         } else {
-            restoreDisplay()
-        }
-    }
-
-    private func withDisplayService(_ body: (io_object_t) -> Void) {
-        var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(
-            kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &iterator
-        ) == kIOReturnSuccess else { return }
-        defer { IOObjectRelease(iterator) }
-
-        let service = IOIteratorNext(iterator)
-        guard service != IO_OBJECT_NULL else { return }
-        defer { IOObjectRelease(service) }
-
-        body(service)
-    }
-
-    /// Set display brightness to 0 — no sleep cascade, just backlight off.
-    private func dimDisplay() {
-        withDisplayService { display in
-            var current: Float = 0
-            guard IODisplayGetFloatParameter(display, 0, "brightness" as CFString, &current) == kIOReturnSuccess else {
-                Log.error("ClosedLidService: could not read brightness, skipping dim")
-                return
-            }
-            savedBrightness = current
-            IODisplaySetFloatParameter(display, 0, "brightness" as CFString, 0)
-            Log.info("ClosedLidService: lid closed — display dimmed (was \(current))")
-        }
-    }
-
-    /// Restore display brightness to the value saved before dimming.
-    private func restoreDisplay() {
-        guard let brightness = savedBrightness else { return }
-        savedBrightness = nil
-        withDisplayService { display in
-            IODisplaySetFloatParameter(display, 0, "brightness" as CFString, brightness)
-            Log.info("ClosedLidService: display brightness restored to \(brightness)")
+            Log.error("ClosedLidService: lid closed but displayOff failed — session unaffected, panel may stay lit")
         }
     }
 }

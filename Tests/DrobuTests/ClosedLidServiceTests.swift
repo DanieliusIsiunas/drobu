@@ -7,22 +7,31 @@ import DrobuShared
 
 final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     var versionToReturn: Int? = drobuDaemonProtocolVersion
+    /// When non-empty, protocolVersion() consumes from here first — lets a test
+    /// model a stale daemon that is replaced mid-start (reinstall self-heal).
+    var versionSequence: [Int?] = []
     var enableOutcome: EnableOutcome? = EnableOutcome(result: .ok, remaining: 3600)
     var disableResult: Bool? = true
+    var displayOffResult: Bool? = true
     var statusReply: DaemonStatusReply?
 
     private(set) var enabledDurations: [Int] = []
     private(set) var enableCallCount = 0
     private(set) var disableCallCount = 0
+    private(set) var displayOffCallCount = 0
     private(set) var statusCallCount = 0
 
-    func protocolVersion() async -> Int? { versionToReturn }
+    func protocolVersion() async -> Int? {
+        if !versionSequence.isEmpty { return versionSequence.removeFirst() }
+        return versionToReturn
+    }
     func enable(durationSeconds: Int) async -> EnableOutcome? {
         enableCallCount += 1
         enabledDurations.append(durationSeconds)
         return enableOutcome
     }
     func disable() async -> Bool? { disableCallCount += 1; return disableResult }
+    func displayOff() async -> Bool? { displayOffCallCount += 1; return displayOffResult }
     func status() async -> DaemonStatusReply? { statusCallCount += 1; return statusReply }
     func disableBounded(timeout: TimeInterval) -> Bool { disableCallCount += 1; return disableResult ?? false }
 }
@@ -50,17 +59,26 @@ final class ReentrantAuthGate: AuthGating, @unchecked Sendable {
 final class MockRegistration: DaemonRegistration {
     private var statusValue: DaemonStatus
     private let registerResult: DaemonStatus
+    private let reinstallResult: DaemonStatus
     private(set) var registerCallCount = 0
+    private(set) var reinstallCallCount = 0
 
-    init(status: DaemonStatus, registerResult: DaemonStatus? = nil) {
+    init(status: DaemonStatus, registerResult: DaemonStatus? = nil,
+         reinstallResult: DaemonStatus? = nil) {
         self.statusValue = status
         self.registerResult = registerResult ?? status
+        self.reinstallResult = reinstallResult ?? registerResult ?? status
     }
     var status: DaemonStatus { statusValue }
     func register() -> DaemonStatus {
         registerCallCount += 1
         statusValue = registerResult
         return registerResult
+    }
+    func reinstall() async -> DaemonStatus {
+        reinstallCallCount += 1
+        statusValue = reinstallResult
+        return reinstallResult
     }
 }
 
@@ -168,8 +186,22 @@ struct ClosedLidServiceTests {
         #expect(daemon.enabledDurations == [1800])
     }
 
-    @Test("protocol mismatch refuses, re-registers, and never prompts or enables")
-    func protocolMismatch() async {
+    @Test("protocol mismatch self-heals: reinstall bounces the stale daemon, then proceeds")
+    func protocolMismatchSelfHeals() async throws {
+        let daemon = MockDaemonControl()
+        daemon.versionSequence = [drobuDaemonProtocolVersion + 1]   // stale once, current after reinstall
+        let auth = MockAuthGate()
+        let reg = MockRegistration(status: .enabled)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg)
+        try await service.start(duration: 3600)
+        #expect(reg.reinstallCallCount == 1)
+        #expect(service.isActive)
+        #expect(auth.callCount == 1)                 // healed BEFORE the consent gate
+        #expect(daemon.enabledDurations == [3600])
+    }
+
+    @Test("persistent protocol mismatch after reinstall refuses without prompting or enabling")
+    func protocolMismatchPersists() async {
         let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
         let auth = MockAuthGate()
         let reg = MockRegistration(status: .enabled)
@@ -177,9 +209,34 @@ struct ClosedLidServiceTests {
         await #expect(throws: ClosedLidError.protocolMismatch) {
             try await service.start(duration: 3600)
         }
-        #expect(reg.registerCallCount == 1)
+        #expect(reg.reinstallCallCount == 1)
         #expect(auth.callCount == 0)
         #expect(daemon.enableCallCount == 0)
+    }
+
+    @Test("reinstall that loses BTM approval routes to approval guidance")
+    func reinstallLosesApproval() async {
+        let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
+        let reg = MockRegistration(status: .enabled, reinstallResult: .requiresApproval)
+        let service = makeService(daemon: daemon, registration: reg)
+        await #expect(throws: ClosedLidError.daemonNotApproved) {
+            try await service.start(duration: 3600)
+        }
+        #expect(reg.reinstallCallCount == 1)
+        #expect(!service.isActive)
+    }
+
+    @Test("reinstall register-failure (BTM teardown race) is 'still updating', not approval guidance")
+    func reinstallFailureRoutesToStillUpdating() async {
+        let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
+        let reg = MockRegistration(status: .enabled, reinstallResult: .failed("Operation not permitted"))
+        let service = makeService(daemon: daemon, registration: reg)
+        await #expect(throws: ClosedLidError.protocolMismatch) {
+            try await service.start(duration: 3600)
+        }
+        // The route carries the truthful retry message — not the approval alert.
+        #expect(ClosedLidError.protocolMismatch.route
+                == .visibleFailure("Closed Lid helper is still updating — try again in a moment."))
     }
 
     @Test("unreachable daemon at handshake → daemonUnavailable before auth")
@@ -312,11 +369,67 @@ struct ClosedLidServiceTests {
         #expect(daemon.enabledDurations == [3600])   // only the outer start enabled
     }
 
-    @Test("clamshell change while idle is a no-op")
-    func clamshellWhileIdle() {
-        let service = makeService()
-        service.handleClamshellChange(isClosed: true)
+    @Test("clamshell close edge while idle never calls the daemon")
+    func clamshellWhileIdle() async {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        await service.handleClamshellChange(isClosed: true)
         #expect(!service.isActive)
+        #expect(daemon.displayOffCallCount == 0)
+    }
+
+    @Test("lid-close edge while active calls displayOff exactly once")
+    func closeEdgeFiresDisplayOff() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 1)
+        #expect(service.isActive)
+    }
+
+    @Test("lid-open edge calls nothing — the lid wake restores the panel")
+    func openEdgeIsNoDaemonCall() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        await service.handleClamshellChange(isClosed: false)
+        #expect(daemon.displayOffCallCount == 0)
+        #expect(service.isActive)
+    }
+
+    @Test("displayOff XPC failure is tolerated — session stays active (R8)")
+    func displayOffFailureLeavesSessionActive() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        var stateChanges = 0
+        service.onStateChange = { _ in stateChanges += 1 }
+
+        daemon.displayOffResult = nil            // XPC unreachable
+        await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 1) // the call was made, then tolerated
+        #expect(service.isActive)
+        #expect(stateChanges == 0)               // no state churn on failure
+
+        daemon.displayOffResult = false          // daemon refused
+        await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 2) // not silently skipped
+        #expect(service.isActive)
+        #expect(stateChanges == 0)
+    }
+
+    @Test("rehydration against a stale (version-mismatched) daemon still adopts the session")
+    func rehydrateStaleDaemonStillAdopts() async {
+        let daemon = MockDaemonControl()
+        daemon.statusReply = DaemonStatusReply(active: true, remaining: 1200)
+        daemon.versionToReturn = drobuDaemonProtocolVersion - 1   // pre-update daemon
+        let service = makeService(daemon: daemon)
+        await service.rehydrate()
+        // Stay-awake adoption is NOT version-gated (the UI must not lie about a
+        // live session) — only the display-off companion is withheld.
+        #expect(service.isActive)
+        #expect((service.remainingTime ?? 0) == 1200)
     }
 
     @Test("Keep Awake is not stacked when Closed Lid stop is unconfirmed (Codex P2)")

@@ -107,6 +107,25 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         reply(ok)
     }
 
+    func displayOff(reply: @escaping (Bool) -> Void) {
+        lock.lock()
+        let n = now()
+        let state = SleepStateStore.read()
+        let sessionActive = state.map { $0.isDeadlineTrustworthy(now: n) && !$0.isExpired(now: n) } ?? false
+        guard sessionActive else {
+            lock.unlock()
+            DaemonLog.write("SleepControlService: displayOff refused — no active session")
+            reply(false)
+            return
+        }
+        // One-shot actuator: no session-state, watchdog, or accumulator
+        // changes — the stay-awake machinery is deliberately untouched (R8).
+        let ok = PmsetControl.displaySleepNow()
+        lock.unlock()
+        DaemonLog.write("SleepControlService: displayOff — pmset displaysleepnow \(ok ? "ok" : "FAILED")")
+        reply(ok)
+    }
+
     func status(reply: @escaping (Bool, Double) -> Void) {
         lock.lock()
         let n = now()
