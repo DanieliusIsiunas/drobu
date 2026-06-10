@@ -102,6 +102,13 @@ jobs:
           # each query-string variant is itself cached).
           set -euo pipefail
           enclosure_url=""
+          # Each feed's latest item, captured per-iteration as
+          # "<shortVersionString> <enclosure-url>". Both feeds must not only
+          # be alive+parseable but advertise the SAME latest item — a legacy
+          # github.io feed that drifts to a stale-but-parseable copy while
+          # canonical is current would otherwise pass green, leaving every
+          # client on the baked-in SUFeedURL stranded on an old version.
+          declare -a latest_items=()
           for feed in "https://drobu.app/appcast.xml" "https://danieliusisiunas.github.io/drobu/appcast.xml"; do
             body=$(mktemp)
             code=$(curl -sL -o "$body" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "${feed}?cb=$(date +%s)$RANDOM") || code=000
@@ -110,18 +117,29 @@ jobs:
               echo "::error::appcast at $feed returned $code — installed clients silently see no updates (the v1.2 stranding class)"
               exit 1
             fi
-            url=$(python3 - "$body" <<'PY'
+            item=$(python3 - "$body" <<'PY'
           import sys, xml.etree.ElementTree as ET
-          tree = ET.parse(sys.argv[1])
-          enc = tree.findall(".//item")[0].find("enclosure")
-          print(enc.get("url"))
+          SP = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+          first = ET.parse(sys.argv[1]).findall(".//item")[0]
+          enc = first.find("enclosure")
+          print(f"{first.findtext(f'{SP}shortVersionString')} {enc.get('url')}")
           PY
             ) || {
               echo "::error::appcast at $feed does not parse as XML — to Sparkle clients a broken appcast is indistinguishable from 'no updates'"
               exit 1
             }
-            enclosure_url="$url"
+            echo "  latest: $item"
+            latest_items+=("$item")
+            enclosure_url="${item#* }"
           done
+
+          # The two feeds must agree on the latest item. Divergence means the
+          # legacy SUFeedURL clients bake is serving a different (stale) feed
+          # than canonical — the silent-stranding class, just slower.
+          if [ "${latest_items[0]}" != "${latest_items[1]}" ]; then
+            echo "::error::canonical and legacy appcast feeds disagree on the latest item — clients on the baked-in github.io SUFeedURL are stranded on a stale feed. canonical='${latest_items[0]}' legacy='${latest_items[1]}'"
+            exit 1
+          fi
 
           # The latest enclosure must be downloadable, and the stable
           # latest/download alias (the website Download button) must redirect.
