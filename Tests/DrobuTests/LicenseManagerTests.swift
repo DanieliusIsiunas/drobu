@@ -31,6 +31,21 @@ struct LicenseManagerTests {
         Data((0..<32).map { _ in UInt8.random(in: 0...255) })
     }
 
+    /// Store double simulating the real Keychain's silent write-failure
+    /// mode: `set` is a no-op for the configured keys (matching
+    /// KeychainLicenseStore, which surfaces failures only via Log).
+    private final class WriteFailingLicenseStore: LicenseStore {
+        private var storage: [String: String] = [:]
+        private let failingKeys: Set<String>
+        init(failingKeys: Set<String>) { self.failingKeys = failingKeys }
+        func get(_ key: String) -> String? { storage[key] }
+        func set(_ key: String, _ value: String) {
+            guard !failingKeys.contains(key) else { return }
+            storage[key] = value
+        }
+        func delete(_ key: String) { storage.removeValue(forKey: key) }
+    }
+
     // MARK: - Trial state
 
     @Test func freshLaunchStartsTrialAtFullDuration() {
@@ -96,6 +111,26 @@ struct LicenseManagerTests {
         let store = InMemoryLicenseStore()
         let mgr = LicenseManager(publicKey: testPublicKey, store: store)
         #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func failedTrialStartWriteStaysFailClosed() {
+        // If the Keychain silently swallows the trial-start write, the
+        // read-back sees nil and the gate stays closed — the degraded
+        // mode is fail-closed (and logged), never a free pass.
+        let store = WriteFailingLicenseStore(failingKeys: ["trial-start"])
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        mgr.recordFirstLaunchIfNeeded()
+        #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func storedButInvalidLicenseFallsBackToTrialState() {
+        // An active-license entry that reads but fails verification must
+        // not activate — status falls through to the underlying trial.
+        let store = InMemoryLicenseStore()
+        store.set("active-license", "DROBU-bm90LXJlYWw.bm90LWEtc2lnbmF0dXJl")
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        mgr.recordFirstLaunchIfNeeded()
+        #expect(mgr.status == .trialActive(daysRemaining: 14))
     }
 
     // MARK: - Activation

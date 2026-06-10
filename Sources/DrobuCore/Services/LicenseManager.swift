@@ -49,11 +49,21 @@ public struct KeychainLicenseStore: LicenseStore {
         ]
         var item: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        guard status == errSecSuccess, let data = item as? Data else {
+            // notFound is the normal miss (every trial-mode recompute queries
+            // active-license) — only real denials are signal. An ACL denial
+            // here is what gates a paying customer (the "Never Deny" mode).
+            if status != errSecItemNotFound {
+                Log.error("KeychainLicenseStore: SecItemCopyMatching failed for \(key): \(status) (\(Self.describe(status)))")
+            }
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
     public func set(_ key: String, _ value: String) {
+        // `value` is secret on the active-license path (the raw license key)
+        // — it must never appear in any log interpolation below.
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -61,11 +71,19 @@ public struct KeychainLicenseStore: LicenseStore {
             kSecAttrAccount as String: key,
         ]
         let attrs: [String: Any] = [kSecValueData as String: data]
-        let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
-        if updateStatus == errSecItemNotFound {
+        var status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+        if status == errSecItemNotFound {
             var insertQuery = query
             insertQuery[kSecValueData as String] = data
-            _ = SecItemAdd(insertQuery as CFDictionary, nil)
+            status = SecItemAdd(insertQuery as CFDictionary, nil)
+            if status == errSecDuplicateItem {
+                // Two app instances raced past the not-found check — the
+                // item exists now, so this is a benign race, not corruption.
+                status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+            }
+        }
+        if status != errSecSuccess {
+            Log.error("KeychainLicenseStore: write failed for \(key): \(status) (\(Self.describe(status)))")
         }
     }
 
@@ -75,7 +93,14 @@ public struct KeychainLicenseStore: LicenseStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        _ = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Log.error("KeychainLicenseStore: SecItemDelete failed for \(key): \(status) (\(Self.describe(status)))")
+        }
+    }
+
+    private static func describe(_ status: OSStatus) -> String {
+        (SecCopyErrorMessageString(status, nil) as String?) ?? "unknown"
     }
 }
 
@@ -152,6 +177,13 @@ public final class LicenseManager: ObservableObject {
         guard store.get(Self.trialStartKey) == nil else { return }
         let iso = Self.isoFormatter.string(from: now())
         store.set(Self.trialStartKey, iso)
+        // Read-back: a silently failed Keychain write here means the user
+        // sees "trial ended" on day 0. The failure happens at launch, so
+        // this line is always in the current session's truncate-on-launch
+        // log — the smoking gun for that support-ticket shape.
+        if store.get(Self.trialStartKey) == nil {
+            Log.error("LicenseManager: trial-start write did not persist (read-back nil) — user will be gated")
+        }
         recomputeStatus()
     }
 
@@ -160,6 +192,8 @@ public final class LicenseManager: ObservableObject {
     /// to `.activated` synchronously.
     public func activate(keyString: String) throws {
         try verifyKey(keyString)
+        // keyString is the customer's license key — the store must never
+        // log this value (see KeychainLicenseStore.set).
         store.set(Self.activeLicenseKey, keyString)
         recomputeStatus()
     }
@@ -182,10 +216,16 @@ public final class LicenseManager: ObservableObject {
 
     private func recomputeStatus() {
         // Activated wins regardless of trial state.
-        if let activeKey = store.get(Self.activeLicenseKey),
-           (try? verifyKey(activeKey)) != nil {
-            status = .activated
-            return
+        if let activeKey = store.get(Self.activeLicenseKey) {
+            if (try? verifyKey(activeKey)) != nil {
+                status = .activated
+                return
+            }
+            // A stored key that reads but fails verification is the one
+            // gated-paying-customer case OSStatus logging alone misses
+            // (bitrot, truncated write, public-key change). Never log the
+            // key material itself.
+            Log.error("LicenseManager: stored active-license failed verification — falling back to trial state")
         }
 
         guard let startIso = store.get(Self.trialStartKey),
