@@ -455,7 +455,12 @@ for e in d.get('system-entities', []):
                     detach_mount
                 fi
                 if [[ -z $prev_key ]]; then
-                    note "could not read SUPublicEDKey from the previous release's bundle — key-continuity check skipped (environment issue)"
+                    # Can't read the previously-shipped key → can't PROVE
+                    # continuity. Fail closed (like R8/R9's network class):
+                    # this check is the sole guard against a joint key+cert
+                    # rotation stranding every installed client, so an
+                    # un-checkable run must block, not pass. Re-running is free.
+                    check_fail "could not read SUPublicEDKey from the previous release's bundle — key continuity is UNVERIFIED; re-run (or pass --allow-key-rotation if you are intentionally rotating, runbook first)"
                 else
                     eddsa_verify "$DMG" "$ED_SIG" "$prev_key"
                     case "$EDDSA_VERDICT" in
@@ -465,10 +470,18 @@ for e in d.get('system-entities', []):
                     esac
                 fi
             else
-                note "could not download the previous release ($prev_url) — key-continuity check skipped this run (network)"
+                # Download failure → continuity UNVERIFIED. Fail closed: a
+                # transient outage must not be a window through which a
+                # client-stranding key rotation can ship. Blocking is cheap
+                # (nothing published; re-run), consistent with every other
+                # --pre network check.
+                check_fail "could not download the previous release ($prev_url) to verify key continuity — UNVERIFIED; re-run when reachable (or pass --allow-key-rotation if intentionally rotating, runbook first)"
             fi
         else
-            note "no previous enclosure found in appcast — first release? key-continuity check skipped"
+            # No previous enclosure = genuine first release: there are no
+            # installed clients holding a prior key, so there is nothing to
+            # strand. This is the ONE legitimate skip (not a failure).
+            note "no previous enclosure in the appcast — first release, key-continuity check not applicable"
         fi
     fi
 
