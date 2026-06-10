@@ -21,6 +21,10 @@ protocol DaemonControlling: Sendable {
     func protocolVersion() async -> Int?
     func enable(durationSeconds: Int) async -> EnableOutcome?
     func disable() async -> Bool?
+    /// One-shot display sleep on the lid-close edge. Best-effort: the panel is
+    /// cosmetic relative to the stay-awake guarantee, so callers log a failure
+    /// and move on — never unwind the session over it.
+    func displayOff() async -> Bool?
     func status() async -> DaemonStatusReply?
     /// Bounded synchronous disable for the terminate path. The reply is
     /// delivered on a non-main queue, so a main-thread caller can block on the
@@ -115,6 +119,14 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
             let once = ResumeOnce<Bool?> { continuation.resume(returning: $0) }
             guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
             proxy.disable { ok in once.fire(ok) }
+        }
+    }
+
+    func displayOff() async -> Bool? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool?, Never>) in
+            let once = ResumeOnce<Bool?> { continuation.resume(returning: $0) }
+            guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
+            proxy.displayOff { ok in once.fire(ok) }
         }
     }
 

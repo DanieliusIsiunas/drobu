@@ -9,11 +9,13 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     var versionToReturn: Int? = drobuDaemonProtocolVersion
     var enableOutcome: EnableOutcome? = EnableOutcome(result: .ok, remaining: 3600)
     var disableResult: Bool? = true
+    var displayOffResult: Bool? = true
     var statusReply: DaemonStatusReply?
 
     private(set) var enabledDurations: [Int] = []
     private(set) var enableCallCount = 0
     private(set) var disableCallCount = 0
+    private(set) var displayOffCallCount = 0
     private(set) var statusCallCount = 0
 
     func protocolVersion() async -> Int? { versionToReturn }
@@ -23,6 +25,7 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
         return enableOutcome
     }
     func disable() async -> Bool? { disableCallCount += 1; return disableResult }
+    func displayOff() async -> Bool? { displayOffCallCount += 1; return displayOffResult }
     func status() async -> DaemonStatusReply? { statusCallCount += 1; return statusReply }
     func disableBounded(timeout: TimeInterval) -> Bool { disableCallCount += 1; return disableResult ?? false }
 }
@@ -312,11 +315,52 @@ struct ClosedLidServiceTests {
         #expect(daemon.enabledDurations == [3600])   // only the outer start enabled
     }
 
-    @Test("clamshell change while idle is a no-op")
-    func clamshellWhileIdle() {
-        let service = makeService()
-        service.handleClamshellChange(isClosed: true)
+    @Test("clamshell close edge while idle never calls the daemon")
+    func clamshellWhileIdle() async {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        await service.handleClamshellChange(isClosed: true)
         #expect(!service.isActive)
+        #expect(daemon.displayOffCallCount == 0)
+    }
+
+    @Test("lid-close edge while active calls displayOff exactly once")
+    func closeEdgeFiresDisplayOff() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 1)
+        #expect(service.isActive)
+    }
+
+    @Test("lid-open edge calls nothing — the lid wake restores the panel")
+    func openEdgeIsNoDaemonCall() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        await service.handleClamshellChange(isClosed: false)
+        #expect(daemon.displayOffCallCount == 0)
+        #expect(service.isActive)
+    }
+
+    @Test("displayOff XPC failure is tolerated — session stays active (R8)")
+    func displayOffFailureLeavesSessionActive() async throws {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        var stateChanges = 0
+        service.onStateChange = { _ in stateChanges += 1 }
+
+        daemon.displayOffResult = nil            // XPC unreachable
+        await service.handleClamshellChange(isClosed: true)
+        #expect(service.isActive)
+        #expect(stateChanges == 0)               // no state churn on failure
+
+        daemon.displayOffResult = false          // daemon refused
+        await service.handleClamshellChange(isClosed: true)
+        #expect(service.isActive)
+        #expect(stateChanges == 0)
     }
 
     @Test("Keep Awake is not stacked when Closed Lid stop is unconfirmed (Codex P2)")

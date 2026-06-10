@@ -337,14 +337,24 @@ final class ClosedLidService {
             clamshellService, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
         )?.takeRetainedValue()
         guard let edge = edgeDetector.ingest(parseClamshellState(raw)) else { return }
-        Log.info("ClosedLidService: lid \(edge == .closed ? "closed" : "opened")")
-        handleClamshellChange(isClosed: edge == .closed)
+        Task { await self.handleClamshellChange(isClosed: edge == .closed) }
     }
 
     /// Edge dispatch — called once per lid transition (the detector swallows
-    /// repeated same-state readings). Display actuation lands here.
-    func handleClamshellChange(isClosed: Bool) {
+    /// repeated same-state readings). Best-effort by design: display-off is
+    /// cosmetic relative to the stay-awake guarantee, so an XPC failure logs
+    /// and leaves the session untouched. The open edge needs no daemon call —
+    /// the lid/HID wake relights the panel on its own.
+    func handleClamshellChange(isClosed: Bool) async {
         guard isActive else { return }
-        _ = isClosed
+        guard isClosed else {
+            Log.info("ClosedLidService: lid opened — panel restored by lid wake")
+            return
+        }
+        if await daemon.displayOff() == true {
+            Log.info("ClosedLidService: lid closed — display off")
+        } else {
+            Log.error("ClosedLidService: lid closed but displayOff failed — session unaffected, panel may stay lit")
+        }
     }
 }
