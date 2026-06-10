@@ -76,6 +76,22 @@ if ! NOTARY_CHECK=$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE
     exit 1
 fi
 
+# Purchase-path contracts (see docs/licensing.md, "Payment-link contract").
+# This release's binary points its Buy buttons at drobu.app/buy; already-
+# shipped binaries point at the bare Stripe link. Both must be alive before
+# anything ships — this also enforces "domain live before a binary that
+# references it ships". Mirrors .github/workflows/payment-links-monitor.yml.
+BUY_REDIRECT="https://drobu.app/buy"
+STRIPE_LINK="https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01"
+BUY_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-redirs 0 --max-time 15 "$BUY_REDIRECT" || true)
+[[ $BUY_CODE == "302" ]] \
+    || { red "$BUY_REDIRECT did not answer 302 (got '$BUY_CODE') — Buy buttons in this release would be dead. Configure the Cloudflare redirect first."; exit 1; }
+STRIPE_SIZE=$(curl -s -o /dev/null -w '%{size_download}' --max-time 30 -A "Mozilla/5.0" "$STRIPE_LINK" || echo 0)
+[[ $STRIPE_SIZE -gt 100000 ]] \
+    || { red "Stripe Payment Link is not serving the checkout shell (${STRIPE_SIZE} bytes) — old binaries' Buy buttons depend on it. Check the Stripe dashboard."; exit 1; }
+dig +short MX drobu.app | grep -q "mx.cloudflare.net" \
+    || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $BRANCH == "main" ]] || { red "Not on main (on $BRANCH)."; exit 1; }
 

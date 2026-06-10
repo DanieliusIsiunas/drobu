@@ -1,0 +1,81 @@
+name: payment-links-monitor
+
+# Watches the purchase-path contracts (and the support-mail MX records)
+# so a dead Buy button is detected within a day — not by a customer at
+# the moment of purchase intent. See docs/licensing.md ("Payment-link
+# contract"). Deliberately NOT a per-PR check: these are external
+# dependencies and would make merges flaky.
+#
+# Note: GitHub auto-disables scheduled workflows after ~60 days of repo
+# inactivity — the release.sh preflight runs the same checks as a backstop.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily, off the top-of-hour load spike
+  workflow_dispatch:
+
+jobs:
+  buy-redirect:
+    name: drobu.app/buy 302 -> Stripe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert 302 with a buy.stripe.com location
+        run: |
+          response=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-redirs 0 --max-time 15 https://drobu.app/buy)
+          echo "got: $response"
+          code=${response%% *}
+          location=${response#* }
+          if [ "$code" != "302" ]; then
+            echo "::error::expected 302 from drobu.app/buy, got '$code' — Buy buttons in shipped binaries are dead"
+            exit 1
+          fi
+          case "$location" in
+            https://buy.stripe.com/*) echo "redirect target OK" ;;
+            *)
+              echo "::error::redirect target is not buy.stripe.com: $location"
+              exit 1
+              ;;
+          esac
+
+  stripe-link:
+    name: bare Stripe link alive (never-deactivate contract)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the checkout shell is served
+        run: |
+          # Binaries v1.2-v1.5.2 carry this URL baked in — it must never die.
+          # The live page is the ~500KB Stripe Checkout shell with a
+          # "livemode" marker; product data renders client-side, so no
+          # product-name assertion is possible. TODO(runbook): capture a
+          # deactivated test link's response empirically and tighten this.
+          out=$(curl -s -o /tmp/checkout.html -w '%{http_code} %{size_download}' --max-time 30 \
+            -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" \
+            "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01")
+          echo "got: $out"
+          code=${out%% *}
+          size=${out#* }
+          if [ "$code" != "200" ]; then
+            echo "::error::Stripe Payment Link answered $code — old binaries' Buy buttons depend on this link"
+            exit 1
+          fi
+          if [ "$size" -lt 100000 ]; then
+            echo "::error::Stripe response is only ${size} bytes — not the checkout shell; the link may be deactivated"
+            exit 1
+          fi
+          grep -q "livemode" /tmp/checkout.html || {
+            echo "::error::checkout shell missing the livemode marker — page shape changed, verify the link manually"
+            exit 1
+          }
+
+  support-mx:
+    name: support@drobu.app MX records
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert Cloudflare Email Routing MX
+        run: |
+          mx=$(dig +short MX drobu.app)
+          echo "MX: $mx"
+          echo "$mx" | grep -q "mx.cloudflare.net" || {
+            echo "::error::drobu.app MX records missing or not Cloudflare Email Routing — support mail (printed in shipped binaries) will bounce"
+            exit 1
+          }
