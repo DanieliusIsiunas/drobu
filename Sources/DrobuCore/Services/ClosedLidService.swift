@@ -26,8 +26,13 @@ extension ClosedLidError {
         switch self {
         case .authCancelled:
             return .silent
-        case .daemonNotApproved, .protocolMismatch:
+        case .daemonNotApproved:
             return .guidance
+        case .protocolMismatch:
+            // Only reachable after a reinstall + re-handshake already failed —
+            // approval guidance would be the wrong message (the helper IS
+            // approved; its process just hasn't been replaced yet).
+            return .visibleFailure("Closed Lid helper is still updating — try again in a moment.")
         case .authFailed(let reason):
             return .visibleFailure(reason)
         case .daemonUnavailable:
@@ -139,14 +144,35 @@ final class ClosedLidService {
         }
 
         // 2. Protocol-version handshake — never speak a newer protocol at an
-        //    older daemon. Mismatch → attempt to install the bundled daemon and
-        //    route to re-approval guidance.
+        //    older daemon. A mismatch means a STALE daemon process is still
+        //    running across an app update (launchd does not restart a running
+        //    daemon when the bundle on disk is replaced; register() alone never
+        //    bounces it). Self-heal: reinstall (unregister kills the old
+        //    process, register points launchd at the new binary), then
+        //    re-handshake once — the NSXPCConnection respawns the daemon on the
+        //    next message after the old process dies.
         guard let daemonVersion = await daemon.protocolVersion() else {
             throw ClosedLidError.daemonUnavailable
         }
-        guard daemonVersion == drobuDaemonProtocolVersion else {
-            _ = registrar.register()
-            throw ClosedLidError.protocolMismatch
+        if daemonVersion != drobuDaemonProtocolVersion {
+            Log.info("ClosedLidService: daemon protocol \(daemonVersion) != \(drobuDaemonProtocolVersion) — reinstalling stale daemon")
+            guard registrar.reinstall() == .enabled else {
+                // BTM dropped the approval across the reinstall — the approval
+                // guidance is now genuinely the right message.
+                throw ClosedLidError.daemonNotApproved
+            }
+            if companionsEnabled {
+                // Give BTM a beat to finish tearing down the old process so the
+                // re-handshake spawns the new binary, not the dying one. Skipped
+                // under the test seam (mocks have no process to bounce).
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            guard let retried = await daemon.protocolVersion() else {
+                throw ClosedLidError.daemonUnavailable
+            }
+            guard retried == drobuDaemonProtocolVersion else {
+                throw ClosedLidError.protocolMismatch
+            }
         }
 
         // 3. Consent gate (Touch ID / Apple Watch / password). Cancel aborts

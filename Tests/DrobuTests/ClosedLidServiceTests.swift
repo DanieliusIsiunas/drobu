@@ -7,6 +7,9 @@ import DrobuShared
 
 final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     var versionToReturn: Int? = drobuDaemonProtocolVersion
+    /// When non-empty, protocolVersion() consumes from here first — lets a test
+    /// model a stale daemon that is replaced mid-start (reinstall self-heal).
+    var versionSequence: [Int?] = []
     var enableOutcome: EnableOutcome? = EnableOutcome(result: .ok, remaining: 3600)
     var disableResult: Bool? = true
     var displayOffResult: Bool? = true
@@ -18,7 +21,10 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     private(set) var displayOffCallCount = 0
     private(set) var statusCallCount = 0
 
-    func protocolVersion() async -> Int? { versionToReturn }
+    func protocolVersion() async -> Int? {
+        if !versionSequence.isEmpty { return versionSequence.removeFirst() }
+        return versionToReturn
+    }
     func enable(durationSeconds: Int) async -> EnableOutcome? {
         enableCallCount += 1
         enabledDurations.append(durationSeconds)
@@ -53,17 +59,26 @@ final class ReentrantAuthGate: AuthGating, @unchecked Sendable {
 final class MockRegistration: DaemonRegistration {
     private var statusValue: DaemonStatus
     private let registerResult: DaemonStatus
+    private let reinstallResult: DaemonStatus
     private(set) var registerCallCount = 0
+    private(set) var reinstallCallCount = 0
 
-    init(status: DaemonStatus, registerResult: DaemonStatus? = nil) {
+    init(status: DaemonStatus, registerResult: DaemonStatus? = nil,
+         reinstallResult: DaemonStatus? = nil) {
         self.statusValue = status
         self.registerResult = registerResult ?? status
+        self.reinstallResult = reinstallResult ?? registerResult ?? status
     }
     var status: DaemonStatus { statusValue }
     func register() -> DaemonStatus {
         registerCallCount += 1
         statusValue = registerResult
         return registerResult
+    }
+    func reinstall() -> DaemonStatus {
+        reinstallCallCount += 1
+        statusValue = reinstallResult
+        return reinstallResult
     }
 }
 
@@ -171,8 +186,22 @@ struct ClosedLidServiceTests {
         #expect(daemon.enabledDurations == [1800])
     }
 
-    @Test("protocol mismatch refuses, re-registers, and never prompts or enables")
-    func protocolMismatch() async {
+    @Test("protocol mismatch self-heals: reinstall bounces the stale daemon, then proceeds")
+    func protocolMismatchSelfHeals() async throws {
+        let daemon = MockDaemonControl()
+        daemon.versionSequence = [drobuDaemonProtocolVersion + 1]   // stale once, current after reinstall
+        let auth = MockAuthGate()
+        let reg = MockRegistration(status: .enabled)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg)
+        try await service.start(duration: 3600)
+        #expect(reg.reinstallCallCount == 1)
+        #expect(service.isActive)
+        #expect(auth.callCount == 1)                 // healed BEFORE the consent gate
+        #expect(daemon.enabledDurations == [3600])
+    }
+
+    @Test("persistent protocol mismatch after reinstall refuses without prompting or enabling")
+    func protocolMismatchPersists() async {
         let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
         let auth = MockAuthGate()
         let reg = MockRegistration(status: .enabled)
@@ -180,9 +209,21 @@ struct ClosedLidServiceTests {
         await #expect(throws: ClosedLidError.protocolMismatch) {
             try await service.start(duration: 3600)
         }
-        #expect(reg.registerCallCount == 1)
+        #expect(reg.reinstallCallCount == 1)
         #expect(auth.callCount == 0)
         #expect(daemon.enableCallCount == 0)
+    }
+
+    @Test("reinstall that loses BTM approval routes to approval guidance")
+    func reinstallLosesApproval() async {
+        let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
+        let reg = MockRegistration(status: .enabled, reinstallResult: .requiresApproval)
+        let service = makeService(daemon: daemon, registration: reg)
+        await #expect(throws: ClosedLidError.daemonNotApproved) {
+            try await service.start(duration: 3600)
+        }
+        #expect(reg.reinstallCallCount == 1)
+        #expect(!service.isActive)
     }
 
     @Test("unreachable daemon at handshake → daemonUnavailable before auth")

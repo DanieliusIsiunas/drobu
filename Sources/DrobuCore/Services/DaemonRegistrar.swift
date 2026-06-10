@@ -47,6 +47,7 @@ public final class SMAppServiceDaemonControl: DaemonServiceControlling {
 public protocol DaemonRegistration: AnyObject {
     var status: DaemonStatus { get }
     @discardableResult func register() -> DaemonStatus
+    @discardableResult func reinstall() -> DaemonStatus
 }
 
 /// Wraps daemon registration: status mapping, `register`/`unregister`, the
@@ -98,6 +99,19 @@ public final class DaemonRegistrar: DaemonRegistration {
             Log.error("DaemonRegistrar: unregister() failed: \(error)")
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// Force-replace a RUNNING daemon with the bundled binary: unregister (BTM
+    /// terminates the old process) then register (launchd points at the new
+    /// binary). This is the stale-daemon remediation for app updates —
+    /// `register()` alone is a no-op on an already-registered service and never
+    /// bounces the running process, so a protocol-mismatched daemon would
+    /// otherwise survive every retry until reboot.
+    @discardableResult
+    public func reinstall() -> DaemonStatus {
+        let afterUnregister = unregister()
+        Log.info("DaemonRegistrar: reinstall — unregister → \(afterUnregister)")
+        return register()
     }
 
     public func openApprovalSettings() {

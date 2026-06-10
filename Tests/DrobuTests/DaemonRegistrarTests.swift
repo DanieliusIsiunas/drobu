@@ -141,4 +141,24 @@ struct DaemonRegistrarTests {
         _ = registrar.unregister()
         #expect(control.unregisterCallCount == 1)
     }
+
+    @Test("reinstall unregisters then registers — the stale-daemon bounce")
+    func reinstallBounces() {
+        let control = MockDaemonServiceControl(status: .enabled)
+        control.statusAfterRegister = .enabled
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.reinstall() == .enabled)
+        #expect(control.unregisterCallCount == 1)
+        #expect(control.registerCallCount == 1)
+    }
+
+    @Test("reinstall proceeds to register even when unregister fails (orphan tolerance)")
+    func reinstallToleratesUnregisterFailure() {
+        let control = MockDaemonServiceControl(status: .enabled)
+        control.unregisterError = StubError()
+        control.statusAfterRegister = .enabled
+        let registrar = DaemonRegistrar(control: control)
+        #expect(registrar.reinstall() == .enabled)   // register still attempted
+        #expect(control.registerCallCount == 1)
+    }
 }
