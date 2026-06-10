@@ -58,7 +58,11 @@ public struct KeychainLicenseStore: LicenseStore {
             }
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        guard let string = String(data: data, encoding: .utf8) else {
+            Log.error("KeychainLicenseStore: item for \(key) read OK but is not valid UTF-8 (\(data.count) bytes)")
+            return nil
+        }
+        return string
     }
 
     public func set(_ key: String, _ value: String) {
@@ -231,15 +235,18 @@ public final class LicenseManager: ObservableObject {
     private func recomputeStatus() {
         // Activated wins regardless of trial state.
         if let activeKey = store.get(Self.activeLicenseKey) {
-            if (try? verifyKey(activeKey)) != nil {
+            do {
+                try verifyKey(activeKey)
                 status = .activated
                 return
+            } catch {
+                // A stored key that reads but fails verification is the one
+                // gated-paying-customer case OSStatus logging alone misses
+                // (bitrot, truncated write, public-key change). Never log
+                // the key material itself — the error case carries no key
+                // bytes.
+                Log.error("LicenseManager: stored active-license failed verification (\(error)) — falling back to trial state")
             }
-            // A stored key that reads but fails verification is the one
-            // gated-paying-customer case OSStatus logging alone misses
-            // (bitrot, truncated write, public-key change). Never log the
-            // key material itself.
-            Log.error("LicenseManager: stored active-license failed verification — falling back to trial state")
         }
 
         guard let startIso = store.get(Self.trialStartKey) else {
@@ -273,7 +280,7 @@ public final class LicenseManager: ObservableObject {
         if let anchor, rawNow < anchor {
             Log.info("LicenseManager: clock rollback clamped (now \(Self.isoFormatter.string(from: rawNow)) < last-seen \(Self.isoFormatter.string(from: anchor)))")
         }
-        if anchor == nil || effectiveNow > anchor! {
+        if anchor.map({ effectiveNow > $0 }) ?? true {
             store.set(Self.lastSeenKey, Self.isoFormatter.string(from: effectiveNow))
         }
 

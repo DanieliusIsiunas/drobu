@@ -287,6 +287,46 @@ struct LicenseManagerTests {
         #expect(mgr2.status == .trialActive(daysRemaining: 9))
     }
 
+    @Test func anchorWinsAfterDeactivateWhenClockRolledBelowIt() throws {
+        // Complement of the accepted-residual deactivate test: when the
+        // pre-activation anchor is AHEAD of the rolled-back clock, the
+        // clamp engages — deactivate computes from the anchor, not raw now.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(10 * 86400)
+        mgr.refresh()  // anchor advances to day 10
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+
+        currentTime = start.addingTimeInterval(5 * 86400)  // roll below the anchor
+        mgr.deactivate()
+        #expect(mgr.status == .trialActive(daysRemaining: 4))
+    }
+
+    @Test func anchorFreezesAtPreActivationValueWhileActivated() throws {
+        // A non-nil anchor created by the trial path must stop advancing
+        // once activated — activatedNeverTouchesAnchor only covers the
+        // starts-nil-stays-nil case, which a buggy always-write would pass.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(3 * 86400)
+        mgr.refresh()
+        let frozen = store.get("last-seen")
+        #expect(frozen == iso(currentTime))
+
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        currentTime = start.addingTimeInterval(9 * 86400)
+        mgr.refresh()
+        mgr.refresh()
+        #expect(mgr.status == .activated)
+        #expect(store.get("last-seen") == frozen)
+    }
+
     // MARK: - Accepted tamper residuals (acceptance tests)
     //
     // These pin the *chosen* limits of the anchor (it closes clock

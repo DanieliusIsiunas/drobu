@@ -29,13 +29,12 @@ jobs:
             echo "::error::expected 302 from drobu.app/buy, got '$code' — Buy buttons in shipped binaries are dead"
             exit 1
           fi
-          case "$location" in
-            https://buy.stripe.com/*) echo "redirect target OK" ;;
-            *)
-              echo "::error::redirect target is not buy.stripe.com: $location"
-              exit 1
-              ;;
-          esac
+          expected="https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01"
+          if [ "$location" != "$expected" ]; then
+            echo "::error::redirect target is '$location', not the contract Payment Link — a hijacked or retargeted redirect must alert (update this pin only on a deliberate contract change)"
+            exit 1
+          fi
+          echo "redirect target OK"
 
   stripe-link:
     name: bare Stripe link alive (never-deactivate contract)
