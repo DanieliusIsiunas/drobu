@@ -37,6 +37,19 @@ SMAppServiceErrorDomain Code=1 "Operation not permitted"
   `DaemonRegistrar.reinstall()`). Only retry `.failed`; a `.requiresApproval`
   result is a user decision, not a race — return it immediately.
 
+## A replaced-binary zombie fails the code-sign pin as "unavailable", not "mismatch"
+
+The third stale-daemon shape (observed live on the 1.4.1→1.5 Sparkle update):
+the old daemon process keeps running after the bundle swap, and validating a
+process whose backing executable was **replaced on disk** fails the client's
+`setCodeSigningRequirement` pin — the connection is refused **before any XPC
+message round-trips**, so the failure surfaces as *unreachable* (error handler,
+no reply), never as a protocol mismatch. Symptoms: registration reads
+`.enabled` ("Approved" in Settings), yet every call nils out. A mismatch-only
+self-heal misses this entirely — treat **approved-but-unreachable at
+handshake** as a stale daemon too and bounce it (`reinstall()`), exactly like a
+mismatch. Manual recovery: Settings → Remove Helper, then re-activate.
+
 ## The Login Items toggle UI can lag reality
 
 System Settings can show the daemon's background toggle ON while the
