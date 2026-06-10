@@ -715,6 +715,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         guard videoCaptureService?.state == .idle else { return } // Mutual exclusion
         switch service.state {
         case .idle:
+            // License gate, mirroring showPanel(): block STARTING a capture
+            // once the trial has expired. Only the .idle→start transition is
+            // gated — stop/cancel below stay reachable so a recording begun
+            // in-trial can still be finished. (mgr nil only in dev builds.)
+            if let mgr = licenseManager, !CaptureUIPolicy.captureStartAllowed(license: mgr.status) {
+                showActivationPanel(licenseManager: mgr)
+                return
+            }
             if panel?.isVisible == true { togglePanel() }
             service.startRegionSelection()
         case .selecting:
@@ -765,6 +773,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         guard captureService?.state == .idle else { return } // Mutual exclusion
         switch service.state {
         case .idle:
+            // License gate, mirroring showPanel(): block STARTING a capture
+            // once the trial has expired. Only the .idle→start transition is
+            // gated — stop/cancel below stay reachable so a recording begun
+            // in-trial can still be finished. (mgr nil only in dev builds.)
+            if let mgr = licenseManager, !CaptureUIPolicy.captureStartAllowed(license: mgr.status) {
+                showActivationPanel(licenseManager: mgr)
+                return
+            }
             if panel?.isVisible == true { togglePanel() }
             service.startRegionSelection()
         case .selecting:
