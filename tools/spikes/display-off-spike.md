@@ -119,12 +119,16 @@ daemon log (`/Library/Application Support/...` per DaemonLog) the actuator call.
 
 ---
 
-## Outcome record (fill in when run)
+## Outcome record — RUN 2026-06-10 (M4 Pro, macOS 26.3.1) — SIMPLE PATH CONFIRMED
+
+Run as the end-to-end check (installed build, lid physically closed; the app's
+own poll → daemon `displayOff()` chain did the actuation — no manual `sudo`).
 
 | Check | Result | Notes (assertions observed, timings, AC/battery) |
 |---|---|---|
-| U1.1 displaysleepnow stay-dark | ☐ pass ☐ fail | |
-| U1.1 wake-on-open without explicit restore | ☐ pass ☐ fail | |
-| U1.2 displaysleep=1 (only if U1.1 failed) | ☐ pass ☐ fail ☐ skipped | |
-| U1.3 AppleClamshellState flip ≤1 tick | ☐ pass ☐ fail | |
+| U1.1 displaysleepnow stay-dark | ✅ pass | Battery AND AC: panel dark for the closed interval; Spotify audio kept playing throughout (stay-awake intact, R8) |
+| U1.1 wake-on-open without explicit restore | ✅ pass | Lid open → lock screen (the user's "require password after display sleep" setting — expected macOS behavior, not a bug); unlock and continue |
+| U1.2 displaysleep=1 (only if U1.1 failed) | ✅ skipped | Not needed — the fallback path stays unbuilt |
+| U1.3 AppleClamshellState flip ≤1 tick | ✅ pass (implicit) | Panel went dark promptly after physical close via the 500ms poll → edge → XPC chain |
 | U1.4 IODisplayConnect dead | ✅ confirmed 2026-06-10 | 0 matches; IOMobileFramebuffer ×3 is the panel path |
+| External display (bonus, AC) | ✅ observed | `displaysleepnow` turns off external displays too — user explicitly LIKES this; the deferred display-topology guard is NOT wanted |
