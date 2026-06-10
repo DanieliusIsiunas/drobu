@@ -72,6 +72,10 @@ final class ClosedLidService {
     /// started, so unit tests exercise the gate/state logic without spawning
     /// real processes or run-loop sources. Production always uses the default.
     private let companionsEnabled: Bool
+    /// How many times the protocol handshake is attempted before a nil reply is
+    /// treated as a persistent failure. Injectable so tests can force the
+    /// no-retry (1) path; production rides out the transient post-update window.
+    private let handshakeMaxAttempts: Int
 
     private var caffeinateProcess: Process?
     private var reconciliationTimer: Timer?
@@ -87,12 +91,37 @@ final class ClosedLidService {
          auth: AuthGating = AuthGate(),
          registrar: DaemonRegistration = DaemonRegistrar(),
          now: @escaping () -> Date = Date.init,
-         companionsEnabled: Bool = true) {
+         companionsEnabled: Bool = true,
+         handshakeMaxAttempts: Int = 5) {
         self.daemon = daemon
         self.auth = auth
         self.registrar = registrar
         self.now = now
         self.companionsEnabled = companionsEnabled
+        self.handshakeMaxAttempts = max(1, handshakeMaxAttempts)
+    }
+
+    /// Inter-attempt delay for the handshake retry (~0.3s × up to 4 gaps ≈ 1.2s
+    /// worst case — comfortably longer than the launchd bundle-swap window,
+    /// short enough that a user who just clicked doesn't notice on the happy path).
+    private static let handshakeRetryDelayNs: UInt64 = 300_000_000
+
+    /// Probe the daemon's protocol version, retrying on a nil (unreachable)
+    /// reply. A non-nil reply returns immediately — a version mismatch is
+    /// deterministic, so retrying it is pointless. Between tries the cached
+    /// connection is dropped so the next attempt redials the (possibly just
+    /// relaunched) daemon. This is the primary recovery for the transient
+    /// post-update unreachable window.
+    private func handshakeWithRetry() async -> Int? {
+        for attempt in 0..<handshakeMaxAttempts {
+            if let version = await daemon.protocolVersion() { return version }
+            guard attempt < handshakeMaxAttempts - 1 else { break }
+            daemon.resetConnection()
+            if companionsEnabled {
+                try? await Task.sleep(nanoseconds: Self.handshakeRetryDelayNs)
+            }
+        }
+        return nil
     }
 
     // MARK: - Public API
@@ -143,25 +172,28 @@ final class ClosedLidService {
             throw ClosedLidError.daemonNotApproved
         }
 
-        // 2. Protocol-version handshake — never speak a newer protocol at an
-        //    older daemon. TWO stale-daemon shapes follow an app update
-        //    (launchd does not restart a running daemon when the bundle on
-        //    disk is replaced, and register() alone never bounces it):
-        //      - UNREACHABLE: the old process still runs but its backing
-        //        executable was swapped on disk, so the client's code-sign pin
-        //        refuses the peer before the version is even compared
-        //        (observed live on the 1.4.1→1.5 Sparkle update);
-        //      - MISMATCH: the old process replies with an older protocol.
-        //    Both self-heal the same way: reinstall (unregister kills the old
-        //    process, register points launchd at the new binary), then
-        //    re-handshake once — the NSXPCConnection respawns the daemon on
-        //    the next message after the old process dies.
-        var daemonVersion = await daemon.protocolVersion()
-        let staleDaemon = daemonVersion == nil
-            ? registrar.status == .enabled   // approved-but-unreachable = replaced-binary zombie
+        // 2. Protocol-version handshake. A nil ("unreachable") reply right
+        //    after an app update is almost always TRANSIENT: during the bundle
+        //    swap launchd briefly drops the mach-service provider, so a fresh
+        //    connection in that window fails — but the daemon (RunAtLoad +
+        //    MachServices) is back within a second or two. So the PRIMARY
+        //    recovery is a bounded retry that drops the stale cached connection
+        //    between tries (handshakeWithRetry), NOT a reinstall.
+        //
+        //    The reinstall is now an escalation, reached only when the retry
+        //    exhausts on a still-registered daemon (a genuinely wedged
+        //    registration) OR the daemon answers with a real protocol MISMATCH
+        //    (a deterministic older daemon — retrying can't change that, so go
+        //    straight to reinstalling the bundled binary). Earlier framing of a
+        //    persistent "replaced-binary zombie" was wrong: a running daemon
+        //    keeps its original mapped binary across an on-disk swap and stays
+        //    reachable — see .claude/rules/smappservice-btm-gotchas.md.
+        var daemonVersion = await handshakeWithRetry()
+        let needsReinstall = daemonVersion == nil
+            ? registrar.status == .enabled   // registered but unreachable past the transient window
             : daemonVersion != drobuDaemonProtocolVersion
-        if staleDaemon {
-            Log.info("ClosedLidService: stale daemon at handshake (version: \(daemonVersion.map(String.init) ?? "unreachable")) — reinstalling")
+        if needsReinstall {
+            Log.info("ClosedLidService: handshake unresolved after retries (version: \(daemonVersion.map(String.init) ?? "unreachable")) — reinstalling")
             switch await registrar.reinstall() {
             case .enabled:
                 break
@@ -175,30 +207,12 @@ final class ClosedLidService {
                 // The reinstall genuinely needs the user's approval again.
                 throw ClosedLidError.daemonNotApproved
             }
-            // Force a FRESH connection for the re-handshake: the cached one
-            // was created against the OLD service instance (and may already
-            // have failed the code-sign pin against the zombie). Observed live
-            // on the 1.5→1.5.1 update: reinstall succeeded and the new daemon
-            // was running, yet the re-handshake on the stale connection still
-            // returned nil.
+            // Dial the freshly-registered service on a clean connection, then
+            // retry (the fresh daemon runs startUp() — legacy sweep + boot
+            // reconciliation — before resuming its listener, so it may need a
+            // beat).
             daemon.resetConnection()
-            if companionsEnabled {
-                // Give BTM a beat to finish tearing down the old process so the
-                // re-handshake spawns the new binary, not the dying one. Skipped
-                // under the test seam (mocks have no process to bounce).
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
-            daemonVersion = await daemon.protocolVersion()
-            if daemonVersion == nil {
-                // The fresh daemon runs startUp() (legacy sweep + boot
-                // reconciliation, with pmset subprocess reads) BEFORE resuming
-                // its listener — allow one extra settle retry before refusing.
-                Log.info("ClosedLidService: re-handshake not ready after reinstall — one settle retry")
-                if companionsEnabled {
-                    try? await Task.sleep(nanoseconds: 700_000_000)
-                }
-                daemonVersion = await daemon.protocolVersion()
-            }
+            daemonVersion = await handshakeWithRetry()
         }
         guard let confirmedVersion = daemonVersion else {
             Log.error("ClosedLidService: daemon unreachable at handshake — activation refused (daemonUnavailable)")
