@@ -58,7 +58,7 @@ struct LicenseManagerTests {
 
     @Test func trialDay13ShowsOneDayRemaining() {
         let store = InMemoryLicenseStore()
-        let start = Date()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)  // fixed whole second: lossless ISO round-trip → deterministic boundary
         var currentTime = start
         let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
@@ -69,7 +69,7 @@ struct LicenseManagerTests {
 
     @Test func trialAtExpiryBoundaryIsExpired() {
         let store = InMemoryLicenseStore()
-        let start = Date()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)  // fixed whole second: lossless ISO round-trip → deterministic boundary
         var currentTime = start
         let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
@@ -80,7 +80,7 @@ struct LicenseManagerTests {
 
     @Test func trialPastBoundaryIsExpired() {
         let store = InMemoryLicenseStore()
-        let start = Date()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)  // fixed whole second: lossless ISO round-trip → deterministic boundary
         var currentTime = start
         let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
@@ -122,7 +122,7 @@ struct LicenseManagerTests {
 
     @Test func activatedTakesPrecedenceOverExpiredTrial() throws {
         let store = InMemoryLicenseStore()
-        let start = Date()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)  // fixed whole second: lossless ISO round-trip → deterministic boundary
         var currentTime = start
         let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
