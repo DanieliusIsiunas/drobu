@@ -355,6 +355,17 @@ final class ClosedLidService {
         }
         clamshellService = service
         edgeDetector = ClamshellEdgeDetector()
+        // Prime the baseline synchronously: without this, a lid closed between
+        // now and the first 500ms tick would be swallowed INTO the baseline
+        // (first definitive reading never fires) and displayOff would never
+        // run — and "activate, then shut the lid" is the primary flow. Priming
+        // moves the baseline to t=0, so that close registers as an edge on the
+        // first tick. A lid ALREADY closed here (clamshell mode on an external
+        // display) still baselines without firing, exactly as before.
+        let primed = IORegistryEntryCreateCFProperty(
+            service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue()
+        _ = edgeDetector.ingest(parseClamshellState(primed))
 
         // Manual .common-mode registration: a scheduledTimer registers in
         // .default only and would freeze while a menu is open
