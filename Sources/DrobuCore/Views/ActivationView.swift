@@ -15,8 +15,6 @@ struct ActivationView: View {
     @State private var activationSucceeded: Bool = false
     @FocusState private var keyFieldFocused: Bool
 
-    private static let stripeURL = URL(string: "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01")!
-    private static let supportEmail = "support@drobu.app"
 
     var body: some View {
         VStack(spacing: 18) {
@@ -44,7 +42,7 @@ struct ActivationView: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    NSWorkspace.shared.open(Self.stripeURL)
+                    NSWorkspace.shared.open(PurchaseLinks.buy)
                 }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Buy Drobu for $14.99")
@@ -89,7 +87,7 @@ struct ActivationView: View {
             Spacer(minLength: 0)
 
             // Footer: support contact
-            Text("Already paid? Email \(Self.supportEmail) — we'll send your key.")
+            Text("Already paid? Email \(PurchaseLinks.supportEmail) — we'll send your key.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

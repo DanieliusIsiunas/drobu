@@ -16,8 +16,6 @@ public struct SettingsView: View {
     @State private var licenseSuccessVisible: Bool = false
     @State private var daemonStatus: DaemonStatus = .notRegistered
 
-    private static let stripeURL = URL(string: "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01")!
-
     public init() {}
 
     public var body: some View {
@@ -140,7 +138,7 @@ public struct SettingsView: View {
                         Text("Buy Drobu — $14.99")
                             .foregroundStyle(Color.accentColor)
                             .onTapGesture {
-                                NSWorkspace.shared.open(Self.stripeURL)
+                                NSWorkspace.shared.open(PurchaseLinks.buy)
                             }
                             .accessibilityLabel("Buy Drobu for $14.99")
                             .accessibilityAddTraits(.isButton)
@@ -149,7 +147,7 @@ public struct SettingsView: View {
                     licenseKeyRow
                 } else {
                     HStack {
-                        Text("Deactivate (for testing)")
+                        Text("Deactivate license")
                             .foregroundStyle(.secondary)
                             .font(.caption)
                             .onTapGesture {
@@ -157,7 +155,7 @@ public struct SettingsView: View {
                                 licenseKeyInput = ""
                                 licenseErrorMessage = nil
                             }
-                            .accessibilityLabel("Deactivate license — for testing")
+                            .accessibilityLabel("Deactivate license")
                             .accessibilityAddTraits(.isButton)
                         Spacer()
                     }
