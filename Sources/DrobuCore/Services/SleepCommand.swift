@@ -85,15 +85,29 @@ final class SleepCommand: SlashCommand {
             return
         }
         if id.hasPrefix("ka-"), let duration = Self.parseDuration(id: String(id.dropFirst(3))) {
-            // Mutual exclusion: stop Closed Lid first
-            if closedLidService.isActive { closedLidService.stop() }
+            // Mutual exclusion: Closed Lid must actually stop before Keep Awake
+            // starts. stop() is confirmed-by-readback — on an unconfirmed
+            // reversal (XPC failure) it stays .active and the daemon still holds
+            // pmset disablesleep, so starting Keep Awake on top would leave both
+            // modes engaged (the Mac held lid-closed-awake until the daemon
+            // watchdog). Surface the failure and bail instead of stacking.
+            if closedLidService.isActive {
+                await closedLidService.stop()
+                if closedLidService.isActive {
+                    Log.error("SleepCommand: Closed Lid stop unconfirmed — not starting Keep Awake (avoids stacking sleep modes)")
+                    NotificationCenter.default.post(
+                        name: .closedLidActivationFailed, object: nil,
+                        userInfo: ["message": "Couldn't switch to Keep Awake — Closed Lid is still stopping. Try again in a moment."])
+                    return
+                }
+            }
             caffeinateService.start(duration: duration)
             return
         }
 
         // Closed Lid actions
         if id == "cl-cancel" {
-            closedLidService.stop()
+            await closedLidService.stop()
             return
         }
         if id.hasPrefix("cl-"), let duration = Self.parseDuration(id: String(id.dropFirst(3))) {
@@ -101,19 +115,27 @@ final class SleepCommand: SlashCommand {
             if caffeinateService.isActive { caffeinateService.stop() }
             do {
                 try await closedLidService.start(duration: duration)
-            } catch let error as PrivilegedCommandError {
-                switch error {
-                case .userCancelled:
-                    Log.info("SleepCommand: user cancelled auth for Closed Lid mode")
-                case .executionFailed(let code, let message):
-                    Log.error("SleepCommand: Closed Lid activation failed: \(code) — \(message)")
-                case .scriptCreationFailed:
-                    Log.error("SleepCommand: script creation failed for Closed Lid mode")
-                }
+            } catch let error as ClosedLidError {
+                SleepCommand.handle(error)
             } catch {
-                Log.error("SleepCommand: unexpected error: \(error)")
+                Log.error("SleepCommand: unexpected Closed Lid error: \(error)")
             }
             return
+        }
+    }
+
+    /// Routes a `ClosedLidError` to its user-facing surface (the route mapping
+    /// itself lives on `ClosedLidError`; this performs the side effect). Unit
+    /// tested in `SleepCommandErrorMappingTests`.
+    static func handle(_ error: ClosedLidError) {
+        switch error.route {
+        case .silent:
+            Log.info("SleepCommand: Closed Lid activation cancelled")
+        case .guidance:
+            NotificationCenter.default.post(name: .daemonNotApproved, object: nil)
+        case .visibleFailure(let message):
+            NotificationCenter.default.post(
+                name: .closedLidActivationFailed, object: nil, userInfo: ["message": message])
         }
     }
 

@@ -12,9 +12,18 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [
+        // Leaf library shared by the app (DrobuCore) and the privileged daemon
+        // (DrobuDaemon): XPC protocol, protocol version, constants, deadline
+        // math, request validation, state-file codec. No dependencies — keeps
+        // GRDB/HotKey/Sparkle/SwiftUI out of the root daemon process.
+        .target(
+            name: "DrobuShared",
+            path: "Sources/DrobuShared"
+        ),
         .target(
             name: "DrobuCore",
             dependencies: [
+                "DrobuShared",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "HotKey", package: "HotKey"),
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -27,10 +36,20 @@ let package = Package(
             dependencies: ["DrobuCore"],
             path: "Sources/Drobu"
         ),
+        // Privileged root daemon. Thin wiring over DrobuShared; SPM does not
+        // embed the launchd plist (build.sh copies it into the bundle), so it
+        // is excluded from the source list.
+        .executableTarget(
+            name: "DrobuDaemon",
+            dependencies: ["DrobuShared"],
+            path: "Sources/DrobuDaemon",
+            exclude: ["com.danielius.ClipboardHistory.daemon.plist"]
+        ),
         .testTarget(
             name: "DrobuTests",
             dependencies: [
                 "DrobuCore",
+                "DrobuShared",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests"

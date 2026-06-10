@@ -28,6 +28,16 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 # Copy executable
 cp "$BUILD_DIR/release/${APP_NAME}" "$APP_BUNDLE/Contents/MacOS/${APP_NAME}"
 
+# Copy the privileged daemon executable + its launchd plist. SMAppService
+# .daemon(plistName:) resolves the plist from Contents/Library/LaunchDaemons/.
+DAEMON_NAME="DrobuDaemon"
+DAEMON_PLIST="com.danielius.ClipboardHistory.daemon.plist"
+DAEMON_IDENTIFIER="com.danielius.ClipboardHistory.daemon"
+cp "$BUILD_DIR/release/${DAEMON_NAME}" "$APP_BUNDLE/Contents/MacOS/${DAEMON_NAME}"
+mkdir -p "$APP_BUNDLE/Contents/Library/LaunchDaemons"
+cp "$SCRIPT_DIR/Sources/DrobuDaemon/${DAEMON_PLIST}" \
+    "$APP_BUNDLE/Contents/Library/LaunchDaemons/${DAEMON_PLIST}"
+
 # Copy Info.plist
 cp "$SCRIPT_DIR/Sources/DrobuCore/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 
@@ -90,6 +100,13 @@ find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B" \
     -exec codesign --force --sign "$CERT_NAME" --options runtime --timestamp {} \;
 codesign --force --sign "$CERT_NAME" --options runtime --timestamp \
     "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+# Sign the privileged daemon BEFORE the outer bundle (inside-out). Hardened
+# runtime + secure timestamp (notarization) + an explicit, stable --identifier
+# distinct from the app's bundle id, so the daemon does NOT satisfy its own
+# client XPC requirement (review finding M3). No --entitlements on the daemon.
+codesign --force --sign "$CERT_NAME" --options runtime --timestamp \
+    --identifier "$DAEMON_IDENTIFIER" \
+    "$APP_BUNDLE/Contents/MacOS/${DAEMON_NAME}"
 # Sign the app bundle last (with entitlements)
 codesign --force --sign "$CERT_NAME" --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
