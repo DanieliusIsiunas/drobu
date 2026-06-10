@@ -239,15 +239,34 @@ struct ClosedLidServiceTests {
                 == .visibleFailure("Closed Lid helper is still updating — try again in a moment."))
     }
 
-    @Test("unreachable daemon at handshake → daemonUnavailable before auth")
+    @Test("persistently unreachable daemon → one reinstall attempt, then daemonUnavailable before auth")
     func handshakeUnreachable() async {
         let daemon = MockDaemonControl(); daemon.versionToReturn = nil
         let auth = MockAuthGate()
-        let service = makeService(daemon: daemon, auth: auth)
+        let reg = MockRegistration(status: .enabled)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg)
         await #expect(throws: ClosedLidError.daemonUnavailable) {
             try await service.start(duration: 3600)
         }
+        #expect(reg.reinstallCallCount == 1)   // approved-but-unreachable triggers ONE bounce
         #expect(auth.callCount == 0)
+    }
+
+    @Test("approved-but-unreachable daemon (replaced-binary zombie) self-heals via reinstall")
+    func unreachableZombieSelfHeals() async throws {
+        // The post-update shape: the registration is .enabled but the running
+        // daemon's binary was swapped on disk, so the code-sign pin refuses it
+        // (protocolVersion → nil). After the bounce, the fresh daemon replies.
+        let daemon = MockDaemonControl()
+        daemon.versionSequence = [nil]   // unreachable once; current after reinstall
+        let auth = MockAuthGate()
+        let reg = MockRegistration(status: .enabled)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg)
+        try await service.start(duration: 3600)
+        #expect(reg.reinstallCallCount == 1)
+        #expect(service.isActive)
+        #expect(auth.callCount == 1)
+        #expect(daemon.enabledDurations == [3600])
     }
 
     @Test("XPC failure after auth → daemonUnavailable, idle, auth was consumed")

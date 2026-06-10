@@ -144,18 +144,24 @@ final class ClosedLidService {
         }
 
         // 2. Protocol-version handshake — never speak a newer protocol at an
-        //    older daemon. A mismatch means a STALE daemon process is still
-        //    running across an app update (launchd does not restart a running
-        //    daemon when the bundle on disk is replaced; register() alone never
-        //    bounces it). Self-heal: reinstall (unregister kills the old
+        //    older daemon. TWO stale-daemon shapes follow an app update
+        //    (launchd does not restart a running daemon when the bundle on
+        //    disk is replaced, and register() alone never bounces it):
+        //      - UNREACHABLE: the old process still runs but its backing
+        //        executable was swapped on disk, so the client's code-sign pin
+        //        refuses the peer before the version is even compared
+        //        (observed live on the 1.4.1→1.5 Sparkle update);
+        //      - MISMATCH: the old process replies with an older protocol.
+        //    Both self-heal the same way: reinstall (unregister kills the old
         //    process, register points launchd at the new binary), then
-        //    re-handshake once — the NSXPCConnection respawns the daemon on the
-        //    next message after the old process dies.
-        guard let daemonVersion = await daemon.protocolVersion() else {
-            throw ClosedLidError.daemonUnavailable
-        }
-        if daemonVersion != drobuDaemonProtocolVersion {
-            Log.info("ClosedLidService: daemon protocol \(daemonVersion) != \(drobuDaemonProtocolVersion) — reinstalling stale daemon")
+        //    re-handshake once — the NSXPCConnection respawns the daemon on
+        //    the next message after the old process dies.
+        var daemonVersion = await daemon.protocolVersion()
+        let staleDaemon = daemonVersion == nil
+            ? registrar.status == .enabled   // approved-but-unreachable = replaced-binary zombie
+            : daemonVersion != drobuDaemonProtocolVersion
+        if staleDaemon {
+            Log.info("ClosedLidService: stale daemon at handshake (version: \(daemonVersion.map(String.init) ?? "unreachable")) — reinstalling")
             switch await registrar.reinstall() {
             case .enabled:
                 break
@@ -175,12 +181,13 @@ final class ClosedLidService {
                 // under the test seam (mocks have no process to bounce).
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
-            guard let retried = await daemon.protocolVersion() else {
-                throw ClosedLidError.daemonUnavailable
-            }
-            guard retried == drobuDaemonProtocolVersion else {
-                throw ClosedLidError.protocolMismatch
-            }
+            daemonVersion = await daemon.protocolVersion()
+        }
+        guard let confirmedVersion = daemonVersion else {
+            throw ClosedLidError.daemonUnavailable
+        }
+        guard confirmedVersion == drobuDaemonProtocolVersion else {
+            throw ClosedLidError.protocolMismatch
         }
 
         // 3. Consent gate (Touch ID / Apple Watch / password). Cancel aborts
