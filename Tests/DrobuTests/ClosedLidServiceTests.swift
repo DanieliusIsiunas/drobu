@@ -354,13 +354,28 @@ struct ClosedLidServiceTests {
 
         daemon.displayOffResult = nil            // XPC unreachable
         await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 1) // the call was made, then tolerated
         #expect(service.isActive)
         #expect(stateChanges == 0)               // no state churn on failure
 
         daemon.displayOffResult = false          // daemon refused
         await service.handleClamshellChange(isClosed: true)
+        #expect(daemon.displayOffCallCount == 2) // not silently skipped
         #expect(service.isActive)
         #expect(stateChanges == 0)
+    }
+
+    @Test("rehydration against a stale (version-mismatched) daemon still adopts the session")
+    func rehydrateStaleDaemonStillAdopts() async {
+        let daemon = MockDaemonControl()
+        daemon.statusReply = DaemonStatusReply(active: true, remaining: 1200)
+        daemon.versionToReturn = drobuDaemonProtocolVersion - 1   // pre-update daemon
+        let service = makeService(daemon: daemon)
+        await service.rehydrate()
+        // Stay-awake adoption is NOT version-gated (the UI must not lie about a
+        // live session) — only the display-off companion is withheld.
+        #expect(service.isActive)
+        #expect((service.remainingTime ?? 0) == 1200)
     }
 
     @Test("Keep Awake is not stacked when Closed Lid stop is unconfirmed (Codex P2)")

@@ -79,6 +79,11 @@ the daemon, over SSH).
 4. **Re-open the lid.** Panel should wake on its own (lid/HID wake) — the simple
    path deliberately has no explicit restore; confirm none is needed.
 5. Also worth one repeat **on battery** (AC vs battery power-policy differences).
+6. **If you ever use an external display:** repeat once with it attached —
+   `displaysleepnow` may blank ALL displays, not just the internal panel.
+   The plan defers external-display handling, but this observation decides
+   whether a display-topology guard (skip displayOff when a non-builtin
+   display is online) is needed in the follow-up.
 
 **PASS:** dark for the full closed interval, wakes on open → ship simple path.
 **FAIL:** re-lights within seconds/minutes → record what fired in Watcher A/B, go to U1.2.

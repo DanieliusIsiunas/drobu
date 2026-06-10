@@ -199,7 +199,18 @@ final class ClosedLidService {
         guard let status = await daemon.status(), status.active, status.remaining > 0 else { return }
         state = .active(deadline: now().addingTimeInterval(status.remaining))
         startCaffeinate(seconds: status.remaining)
-        startClamshellMonitoring()
+        // Version-gate the display-off companion only: rehydrate can adopt a
+        // session held by a stale pre-update daemon (launchd keeps the old
+        // process running across a Sparkle update) whose v1 interface lacks
+        // displayOff — never send a newer selector at it (the reply may never
+        // fire, leaking the continuation). The session itself is still adopted:
+        // disable()/status() exist in every protocol version, and refusing
+        // adoption would make the UI lie about a live stay-awake session.
+        if await daemon.protocolVersion() == drobuDaemonProtocolVersion {
+            startClamshellMonitoring()
+        } else {
+            Log.info("ClosedLidService: rehydrated against a stale daemon — display-off disabled for this session")
+        }
         startReconciliationTimer()
         Log.info("ClosedLidService: rehydrated live session, \(Int(status.remaining))s remaining")
     }
@@ -337,7 +348,7 @@ final class ClosedLidService {
             clamshellService, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
         )?.takeRetainedValue()
         guard let edge = edgeDetector.ingest(parseClamshellState(raw)) else { return }
-        Task { await self.handleClamshellChange(isClosed: edge == .closed) }
+        Task { @MainActor [weak self] in await self?.handleClamshellChange(isClosed: edge == .closed) }
     }
 
     /// Edge dispatch — called once per lid transition (the detector swallows
