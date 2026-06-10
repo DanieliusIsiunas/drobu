@@ -20,6 +20,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+# Several induced-failure cases point --pre at the installed app for a real
+# signed/stapled bundle. Without it, six cases would fail for the wrong
+# reason (missing fixture, not the check under test) — precheck loudly.
+[[ -d /Applications/Drobu.app ]] || {
+    echo "✗ self-test requires Drobu installed at /Applications/Drobu.app (run ./build.sh --install)" >&2
+    exit 1
+}
+
 VERIFY="tools/verify-release.sh"
 APPCAST_URL="https://drobu.app/appcast.xml"
 DEAD_FEED="https://danieliusisiunas.github.io/clipboard-history/appcast.xml"
@@ -105,6 +113,40 @@ if xcrun stapler validate "$DMG" >/dev/null 2>&1; then
     echo "✓ pristine live DMG passes stapler validate"; PASS=$((PASS + 1))
 else
     echo "✗ pristine live DMG FAILED stapler validate"; FAIL=$((FAIL + 1))
+fi
+
+# Positive --pre coverage: a full --pre against the GOOD live artifacts
+# fails overall (R9: build == published max — that's the published release),
+# but EVERY local artifact check must show ✓. This is the only guard against
+# a false-blocking regression in a --pre check (the cardinal sin: a wrong
+# check that aborts a valid release). We assert the pass LINES, not the exit.
+PRE_OUT=$("$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
+    --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check 2>&1 || true)
+PRE_MISSING=()
+for want in \
+    "codesign --verify --deep --strict" \
+    "TeamIdentifier=" \
+    "hardened runtime + timestamp on app + nested Sparkle code" \
+    "stapler validate (app)" \
+    "stapler validate (DMG)" \
+    "length $LIVE_LENGTH == DMG byte size" \
+    "SUPublicEDKey matches the pinned key" \
+    "EdDSA signature verifies against the pinned key" \
+    "built bundle is v$LIVE_VERSION" \
+    "Sparkle Versions/Current is a symlink" \
+    "in-DMG app passes deep/strict verification" \
+    "in-DMG app carries its own staple ticket" \
+    "key continuity"; do
+    grep -qF "✓ $want" <<<"$PRE_OUT" || PRE_MISSING+=("$want")
+done
+if [[ ${#PRE_MISSING[@]} -eq 0 ]]; then
+    echo "✓ --pre passes every local artifact check on the good live release"
+    PASS=$((PASS + 1))
+else
+    echo "✗ --pre is FALSE-BLOCKING a valid artifact — these checks did not pass:"
+    printf '    - %s\n' "${PRE_MISSING[@]}"
+    FAIL=$((FAIL + 1))
 fi
 
 echo

@@ -104,7 +104,7 @@ jobs:
           enclosure_url=""
           for feed in "https://drobu.app/appcast.xml" "https://danieliusisiunas.github.io/drobu/appcast.xml"; do
             body=$(mktemp)
-            code=$(curl -sL -o "$body" -w '%{http_code}' --max-time 30 "${feed}?cb=$(date +%s)$RANDOM") || code=000
+            code=$(curl -sL -o "$body" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "${feed}?cb=$(date +%s)$RANDOM") || code=000
             echo "$feed -> $code"
             if [ "$code" != "200" ]; then
               echo "::error::appcast at $feed returned $code — installed clients silently see no updates (the v1.2 stranding class)"
@@ -125,13 +125,13 @@ jobs:
 
           # The latest enclosure must be downloadable, and the stable
           # latest/download alias (the website Download button) must redirect.
-          enc_code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$enclosure_url") || enc_code=000
+          enc_code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "$enclosure_url") || enc_code=000
           echo "enclosure HEAD: $enc_code ($enclosure_url)"
           if [ "$enc_code" != "200" ]; then
             echo "::error::latest enclosure ($enclosure_url) returned $enc_code — every Sparkle update download fails"
             exit 1
           fi
-          hop=$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 15 "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg") || hop=""
+          hop=$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 15 --retry 3 --retry-delay 2 --retry-all-errors "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg") || hop=""
           echo "latest/download first hop: $hop"
           case "$hop" in
             https://github.com/DanieliusIsiunas/drobu/releases/download/*) echo "alias OK" ;;

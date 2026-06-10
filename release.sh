@@ -280,7 +280,7 @@ post_publish_interrupt() {
     yellow ""
     yellow "! Interrupted after publish. Release $TAG is PUBLIC; verification is incomplete."
     yellow "  Finish verifying when ready:"
-    yellow "    tools/verify-release.sh --post --version $VERSION --build $BUILD"
+    yellow "    tools/verify-release.sh --post --version $VERSION --build $BUILD --local-dmg $DMG"
 }
 trap 'post_publish_interrupt; exit 130' INT
 trap 'post_publish_interrupt; exit 143' TERM
