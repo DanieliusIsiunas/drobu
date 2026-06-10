@@ -26,6 +26,12 @@ protocol DaemonControlling: Sendable {
     /// and move on — never unwind the session over it.
     func displayOff() async -> Bool?
     func status() async -> DaemonStatusReply?
+    /// Drop the cached XPC connection so the next call builds a fresh one.
+    /// Required after a daemon reinstall: the cached connection was created
+    /// against the OLD service instance (and may have already failed the
+    /// code-sign pin against the zombie), and it does not reliably recover
+    /// once the service is unregistered/re-registered underneath it.
+    func resetConnection()
     /// Bounded synchronous disable for the terminate path. The reply is
     /// delivered on a non-main queue, so a main-thread caller can block on the
     /// semaphore without deadlock (M7); a missed reply defers reversal to the
@@ -136,6 +142,16 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
             guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
             proxy.status { active, remaining in once.fire(DaemonStatusReply(active: active, remaining: remaining)) }
         }
+    }
+
+    func resetConnection() {
+        lock.lock()
+        let stale = connection
+        connection = nil
+        lock.unlock()
+        // invalidate() outside the lock — it can fire our invalidationHandler
+        // synchronously, which takes the same lock.
+        stale?.invalidate()
     }
 
     func disableBounded(timeout: TimeInterval) -> Bool {

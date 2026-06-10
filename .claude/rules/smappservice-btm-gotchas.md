@@ -50,6 +50,21 @@ self-heal misses this entirely — treat **approved-but-unreachable at
 handshake** as a stale daemon too and bounce it (`reinstall()`), exactly like a
 mismatch. Manual recovery: Settings → Remove Helper, then re-activate.
 
+## A cached NSXPCConnection does not survive an unregister/register cycle
+
+Observed live on the 1.5→1.5.1 update: the reinstall bounce succeeded (zombie
+killed, register → `.enabled`, fresh daemon running via RunAtLoad), yet the
+re-handshake on the **cached** `NSXPCConnection` still returned nil. A
+connection created against the old service instance — especially one whose
+`setCodeSigningRequirement` already failed against the zombie — does not
+reliably re-attach after the service is unregistered/re-registered underneath
+it, and the invalidation that would clear a connection cache may never fire in
+this sequence. **After any daemon reinstall, explicitly `invalidate()` and drop
+the cached connection** so the next call builds a fresh one
+(`DaemonClient.resetConnection()`). Also allow a settle retry on the
+re-handshake: the fresh daemon runs `startUp()` (file sweep + reconciliation
+with `pmset` subprocess reads) *before* resuming its listener.
+
 ## The Login Items toggle UI can lag reality
 
 System Settings can show the daemon's background toggle ON while the

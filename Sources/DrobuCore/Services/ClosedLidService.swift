@@ -175,6 +175,13 @@ final class ClosedLidService {
                 // The reinstall genuinely needs the user's approval again.
                 throw ClosedLidError.daemonNotApproved
             }
+            // Force a FRESH connection for the re-handshake: the cached one
+            // was created against the OLD service instance (and may already
+            // have failed the code-sign pin against the zombie). Observed live
+            // on the 1.5→1.5.1 update: reinstall succeeded and the new daemon
+            // was running, yet the re-handshake on the stale connection still
+            // returned nil.
+            daemon.resetConnection()
             if companionsEnabled {
                 // Give BTM a beat to finish tearing down the old process so the
                 // re-handshake spawns the new binary, not the dying one. Skipped
@@ -182,8 +189,19 @@ final class ClosedLidService {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             daemonVersion = await daemon.protocolVersion()
+            if daemonVersion == nil {
+                // The fresh daemon runs startUp() (legacy sweep + boot
+                // reconciliation, with pmset subprocess reads) BEFORE resuming
+                // its listener — allow one extra settle retry before refusing.
+                Log.info("ClosedLidService: re-handshake not ready after reinstall — one settle retry")
+                if companionsEnabled {
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                }
+                daemonVersion = await daemon.protocolVersion()
+            }
         }
         guard let confirmedVersion = daemonVersion else {
+            Log.error("ClosedLidService: daemon unreachable at handshake — activation refused (daemonUnavailable)")
             throw ClosedLidError.daemonUnavailable
         }
         guard confirmedVersion == drobuDaemonProtocolVersion else {

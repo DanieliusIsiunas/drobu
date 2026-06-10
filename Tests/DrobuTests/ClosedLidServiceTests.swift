@@ -20,6 +20,7 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     private(set) var disableCallCount = 0
     private(set) var displayOffCallCount = 0
     private(set) var statusCallCount = 0
+    private(set) var resetConnectionCallCount = 0
 
     func protocolVersion() async -> Int? {
         if !versionSequence.isEmpty { return versionSequence.removeFirst() }
@@ -34,6 +35,7 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     func displayOff() async -> Bool? { displayOffCallCount += 1; return displayOffResult }
     func status() async -> DaemonStatusReply? { statusCallCount += 1; return statusReply }
     func disableBounded(timeout: TimeInterval) -> Bool { disableCallCount += 1; return disableResult ?? false }
+    func resetConnection() { resetConnectionCallCount += 1 }
 }
 
 final class MockAuthGate: AuthGating, @unchecked Sendable {
@@ -264,6 +266,7 @@ struct ClosedLidServiceTests {
         let service = makeService(daemon: daemon, auth: auth, registration: reg)
         try await service.start(duration: 3600)
         #expect(reg.reinstallCallCount == 1)
+        #expect(daemon.resetConnectionCallCount == 1)   // stale connection dropped before re-handshake
         #expect(service.isActive)
         #expect(auth.callCount == 1)
         #expect(daemon.enabledDurations == [3600])
