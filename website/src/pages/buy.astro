@@ -1,0 +1,68 @@
+---
+// Static redirect to the Stripe Payment Link.
+//
+// Why a static page and not a server-side 302: drobu.app is served by
+// GitHub Pages (static), which cannot issue a 30x. The browser loads
+// this page over HTTPS (GitHub's cert satisfies the .app HSTS-preload
+// requirement) and the inline script forwards to Stripe instantly; the
+// meta-refresh and the visible link are fallbacks if JS is disabled.
+//
+// PERMANENT CONTRACT: this Stripe Payment Link is the single redirect
+// target and is baked into shipped binaries' history. Never deactivate
+// or rotate it — change the price on the existing link in the Stripe
+// dashboard. See docs/licensing.md and the price-change checklist in
+// CLAUDE.md.
+const stripeURL = "https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Redirecting to checkout…</title>
+    <meta http-equiv="refresh" content={`0; url=${stripeURL}`} />
+    <script is:inline define:vars={{ stripeURL }}>
+      window.location.replace(stripeURL);
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0a0a0a;
+        color: #e5e5e5;
+        font-family: system-ui, -apple-system, sans-serif;
+        text-align: center;
+        padding: 2rem;
+        line-height: 1.6;
+      }
+      a {
+        color: #d4715e;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.85rem;
+        margin-top: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Taking you to secure checkout…</p>
+      <p>
+        If you're not redirected automatically,
+        <a href={stripeURL}>continue to checkout</a>.
+      </p>
+      <p class="muted">
+        Trouble? Email <a href="mailto:support@drobu.app">support@drobu.app</a>
+      </p>
+    </main>
+  </body>
+</html>
