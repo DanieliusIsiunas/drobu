@@ -20,20 +20,24 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# Several induced-failure cases point --pre at the installed app for a real
-# signed/stapled bundle. Without it, six cases would fail for the wrong
-# reason (missing fixture, not the check under test) — precheck loudly.
-[[ -d /Applications/Drobu.app ]] || {
-    echo "✗ self-test requires Drobu installed at /Applications/Drobu.app (run ./build.sh --install)" >&2
-    exit 1
-}
+# The --pre cases need a real notarized+STAPLED app. We extract it from the
+# downloaded live DMG (a genuine released artifact) rather than depending on
+# an installed /Applications/Drobu.app — `./build.sh --install` signs but
+# does NOT notarize/staple, so an installed dev build would fail the
+# positive 'stapler validate (app)' assertion for the wrong reason. The
+# released DMG's app is the only self-contained, correct fixture.
 
 VERIFY="tools/verify-release.sh"
 APPCAST_URL="https://drobu.app/appcast.xml"
 DEAD_FEED="https://danieliusisiunas.github.io/clipboard-history/appcast.xml"
 
 SCRATCH=$(mktemp -d -t verify-selftest)
-trap 'rm -rf "$SCRATCH"' EXIT
+SELFTEST_MOUNT=""
+cleanup() {
+    [[ -n $SELFTEST_MOUNT ]] && hdiutil detach "$SELFTEST_MOUNT" >/dev/null 2>&1 || true
+    rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
 
 PASS=0
 FAIL=0
@@ -102,6 +106,22 @@ cp "$DMG" "$TAMPERED"
 dd if=/dev/zero of="$TAMPERED" bs=1 count=1 seek=2000000 conv=notrunc 2>/dev/null
 cmp -s "$DMG" "$TAMPERED" && { echo "✗ tampering no-op"; exit 1; }
 
+echo "— Extracting the stapled app fixture from the live DMG —"
+# ditto (not cp -r) preserves the symlinks AND the notarization staple
+# ticket. Mount once, copy out, detach immediately — verify-release.sh
+# mounts the DMG independently for its own R4 check, so we hold no mount
+# while it runs.
+ATTACH=$(hdiutil attach -plist -nobrowse -readonly "$DMG")
+SELFTEST_MOUNT=$(python3 -c "
+import plistlib, sys
+d = plistlib.loads(sys.stdin.buffer.read())
+print(next(e['mount-point'] for e in d.get('system-entities', []) if e.get('mount-point')))
+" <<<"$ATTACH")
+APP="$SCRATCH/Drobu.app"
+ditto "$SELFTEST_MOUNT/Drobu.app" "$APP"
+hdiutil detach "$SELFTEST_MOUNT" >/dev/null 2>&1 && SELFTEST_MOUNT=""
+[[ -d $APP ]] || { echo "✗ failed to extract app fixture from the DMG"; exit 1; }
+
 echo
 echo "— Positive paths (live artifacts) —"
 
@@ -120,7 +140,7 @@ fi
 # but EVERY local artifact check must show ✓. This is the only guard against
 # a false-blocking regression in a --pre check (the cardinal sin: a wrong
 # check that aborts a valid release). We assert the pass LINES, not the exit.
-PRE_OUT=$("$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+PRE_OUT=$("$VERIFY" --pre --app "$APP" --dmg "$DMG" \
     --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
     --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check 2>&1 || true)
 PRE_MISSING=()
@@ -165,14 +185,14 @@ fi
 # EdDSA: tampered bytes against the real published signature.
 run_case "tampered DMG fails EdDSA against the published signature" \
     "EdDSA signature does NOT verify" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$TAMPERED" \
+    "$VERIFY" --pre --app "$APP" --dmg "$TAMPERED" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check
 
 # Wrong pinned key against the pristine DMG (overridden via test flag).
 run_case "pristine DMG fails against a wrong pinned key" \
     "SUPublicEDKey in the built bundle" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    "$VERIFY" --pre --app "$APP" --dmg "$DMG" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check \
         --expected-key "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -180,28 +200,28 @@ run_case "pristine DMG fails against a wrong pinned key" \
 # Length off-by-one.
 run_case "length off-by-one fails" \
     "length mismatch" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    "$VERIFY" --pre --app "$APP" --dmg "$DMG" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$((LIVE_LENGTH + 1))" --skip-website-check
 
 # Strictly-greater build: == live max must fail (free negative test).
 run_case "build == published max fails the strictly-greater check" \
     "is not greater than the published max" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    "$VERIFY" --pre --app "$APP" --dmg "$DMG" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check
 
 # Version-in-3-places: a version the website does not show.
 run_case "bogus version fails the website consistency check" \
     "does not contain" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    "$VERIFY" --pre --app "$APP" --dmg "$DMG" \
         --version "9.9.9" --build "9999" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH"
 
 # Feed liveness: the actual v1.2 stranding URL as permanent fixture.
 run_case "dead pre-rename feed URL fails liveness" \
     "the v1.2 stranding class" \
-    "$VERIFY" --pre --app /Applications/Drobu.app --dmg "$DMG" \
+    "$VERIFY" --pre --app "$APP" --dmg "$DMG" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check \
         --feed-url "$DEAD_FEED"
