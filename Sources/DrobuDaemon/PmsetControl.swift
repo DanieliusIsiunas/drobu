@@ -8,19 +8,7 @@ enum PmsetControl {
     /// `pmset disablesleep 1|0`. Returns true on exit 0.
     @discardableResult
     static func setDisableSleep(_ disabled: Bool) -> Bool {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        proc.arguments = ["disablesleep", disabled ? "1" : "0"]
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            return proc.terminationStatus == 0
-        } catch {
-            DaemonLog.write("PmsetControl: pmset disablesleep run failed: \(error)")
-            return false
-        }
+        runPmset(["disablesleep", disabled ? "1" : "0"])
     }
 
     /// `pmset displaysleepnow` — immediate display sleep, the lid-close
@@ -28,9 +16,14 @@ enum PmsetControl {
     /// or HID wake relights the panel). Returns true on exit 0.
     @discardableResult
     static func displaySleepNow() -> Bool {
+        runPmset(["displaysleepnow"])
+    }
+
+    /// Run a no-output `pmset` mutation; true on exit 0.
+    private static func runPmset(_ arguments: [String]) -> Bool {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        proc.arguments = ["displaysleepnow"]
+        proc.arguments = arguments
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         do {
@@ -38,7 +31,7 @@ enum PmsetControl {
             proc.waitUntilExit()
             return proc.terminationStatus == 0
         } catch {
-            DaemonLog.write("PmsetControl: pmset displaysleepnow run failed: \(error)")
+            DaemonLog.write("PmsetControl: pmset \(arguments.first ?? "?") run failed: \(error)")
             return false
         }
     }
