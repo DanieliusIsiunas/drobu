@@ -16,25 +16,28 @@ on:
 
 jobs:
   buy-redirect:
-    name: drobu.app/buy 302 -> Stripe
+    name: drobu.app/buy -> Stripe (static redirect page)
     runs-on: ubuntu-latest
     steps:
-      - name: Assert 302 with a buy.stripe.com location
+      - name: Assert the /buy page loads and points at the contract link
         run: |
-          response=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-redirs 0 --max-time 15 https://drobu.app/buy)
-          echo "got: $response"
-          code=${response%% *}
-          location=${response#* }
-          if [ "$code" != "302" ]; then
-            echo "::error::expected 302 from drobu.app/buy, got '$code' — Buy buttons in shipped binaries are dead"
-            exit 1
-          fi
+          # /buy is a static page on GitHub Pages (drobu.app), not a server
+          # 302 — Pages can't issue a 30x. It meta-refresh/JS-redirects to
+          # the Stripe Payment Link. Follow the trailing-slash redirect,
+          # require 200, and pin the EXACT Stripe URL in the body so a
+          # hijacked or retargeted redirect alerts.
           expected="https://buy.stripe.com/14A7sL2rkeKx6sj3QNdnW01"
-          if [ "$location" != "$expected" ]; then
-            echo "::error::redirect target is '$location', not the contract Payment Link — a hijacked or retargeted redirect must alert (update this pin only on a deliberate contract change)"
+          code=$(curl -sL -o /tmp/buy.html -w '%{http_code}' --max-time 15 https://drobu.app/buy)
+          echo "got: $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::drobu.app/buy returned '$code', not 200 — Buy buttons in shipped binaries are dead"
             exit 1
           fi
-          echo "redirect target OK"
+          if ! grep -qF "$expected" /tmp/buy.html; then
+            echo "::error::/buy does not contain the contract Payment Link — a hijacked or retargeted redirect must alert (update this pin only on a deliberate contract change)"
+            exit 1
+          fi
+          echo "buy page + target OK"
 
   stripe-link:
     name: bare Stripe link alive (never-deactivate contract)
@@ -70,11 +73,11 @@ jobs:
     name: support@drobu.app MX records
     runs-on: ubuntu-latest
     steps:
-      - name: Assert Cloudflare Email Routing MX
+      - name: Assert Hostinger email MX
         run: |
           mx=$(dig +short MX drobu.app)
           echo "MX: $mx"
-          echo "$mx" | grep -q "mx.cloudflare.net" || {
-            echo "::error::drobu.app MX records missing or not Cloudflare Email Routing — support mail (printed in shipped binaries) will bounce"
+          echo "$mx" | grep -q "hostinger.com" || {
+            echo "::error::drobu.app MX records missing or not Hostinger email — support mail (printed in shipped binaries) will bounce"
             exit 1
           }
