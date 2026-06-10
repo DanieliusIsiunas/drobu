@@ -15,7 +15,36 @@ enum Log {
         return f
     }()
 
+    /// True when running inside the test bundle. Tests construct real services
+    /// (e.g. ClosedLidService) that log through this type; without this guard
+    /// those writes land in the SHARED production `app.log`, interleaving
+    /// fixture artifacts (StubError, 2001-dated deadlines, deliberately-exercised
+    /// failure paths) with real session history and corrupting on-machine
+    /// debugging. Detected via the XCTest-harness signals SwiftPM sets for
+    /// `swift test` (Swift Testing still runs inside the .xctest bundle).
+    static let isRunningInTests: Bool = {
+        let env = ProcessInfo.processInfo.environment
+        // Xcode / XCTest-based runs set these.
+        if env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestBundlePath"] != nil
+            || env["XCTestSessionIdentifier"] != nil
+            || NSClassFromString("XCTestCase") != nil {
+            return true
+        }
+        // SwiftPM `swift test` (incl. Swift Testing) sets NONE of the above —
+        // it runs the bundle inside `swiftpm-testing-helper` (verified on this
+        // toolchain) or the `xctest` tool. Match the host process instead.
+        let proc = ProcessInfo.processInfo.processName
+        if proc == "swiftpm-testing-helper" || proc == "xctest" { return true }
+        let arg0 = ProcessInfo.processInfo.arguments.first ?? ""
+        return arg0.contains("swiftpm-testing-helper")
+            || arg0.hasSuffix("/xctest")
+            || arg0.contains(".xctest/")
+    }()
+
     private static let fileHandle: FileHandle? = {
+        // Never write the production log from a test run.
+        if isRunningInTests { return nil }
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
