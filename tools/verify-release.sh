@@ -47,10 +47,13 @@ EXPECTED_ED_KEY="XmiKqgGJ6dSmGbT3ehj6B9IUkn87vRhKbe16rTWGP54="
 TEAM_ID="TGL69S88MD"
 MIN_SYSTEM_VERSION="14.0"
 REPO="DanieliusIsiunas/drobu"
-# Canonical feed (custom domain). Shipped binaries bake the legacy
-# github.io URL, which 301s here — R8 probes whatever the BUILT BUNDLE
-# carries, so both contracts stay covered.
+# Canonical feed (custom domain) and the LEGACY feed baked as SUFeedURL
+# into every shipped binary (it 301s to canonical). --post must confirm the
+# release is live on the LEGACY URL too — that is the feed real clients
+# actually fetch; if its 301 chain breaks, installed clients are stranded
+# even while canonical stays green.
 CANONICAL_APPCAST="https://drobu.app/appcast.xml"
+LEGACY_APPCAST="https://danieliusisiunas.github.io/drobu/appcast.xml"
 RAW_APPCAST="https://raw.githubusercontent.com/$REPO/main/website/public/appcast.xml"
 DMG_NAME="Drobu.dmg"
 
@@ -623,6 +626,27 @@ run_post() {
 
     if [[ $state == "live" ]]; then
         pass "live appcast's latest item is v$expected_version (build $expected_build)"
+
+        # The feed REAL clients fetch is the baked SUFeedURL (legacy
+        # github.io), which 301s to canonical. Confirm the release is live
+        # THERE too, followed exactly as Sparkle would — if the 301 chain is
+        # broken or the legacy feed is stale, every installed client is
+        # stranded even though canonical (checked above) is current.
+        local legacy_body="$SCRATCH/legacy.xml" legacy_vals legacy_short legacy_build
+        fetch "${LEGACY_APPCAST}?$(cb)" "$legacy_body"
+        if [[ $FETCH_CODE != 200 ]]; then
+            check_fail "the baked SUFeedURL ($LEGACY_APPCAST) returned $FETCH_CODE following redirects — installed clients fetch THIS url and would silently see 'no updates' (the 301 chain to drobu.app may be broken)"
+        elif ! legacy_vals=$(parse_appcast "$legacy_body" 2>/dev/null); then
+            check_fail "the baked SUFeedURL serves unparseable XML — installed clients see 'no updates'"
+        else
+            legacy_short=$(sed -n 's/^APPCAST_SHORT=//p' <<<"$legacy_vals")
+            legacy_build=$(sed -n 's/^APPCAST_VERSION=//p' <<<"$legacy_vals")
+            if [[ $legacy_short == "$expected_version" && $legacy_build == "$expected_build" ]]; then
+                pass "baked SUFeedURL (legacy github.io) also serves v$expected_version — installed clients see the release"
+            else
+                check_fail "baked SUFeedURL serves v$legacy_short (build $legacy_build), not v$expected_version — installed clients are stranded on a stale feed while canonical is current"
+            fi
+        fi
 
         # Content checks on what a real client consumes.
         local min_os enc_url enc_length enc_sig
