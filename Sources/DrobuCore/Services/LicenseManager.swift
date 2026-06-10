@@ -12,7 +12,7 @@ import Security
 ///   the floating panel in this state.
 /// `activated` — a valid license key is stored. The trial timer is
 ///   irrelevant. Always wins over the trial state.
-public enum LicenseStatus: Equatable {
+public enum LicenseStatus: Equatable, Sendable {
     case trialActive(daysRemaining: Int)
     case trialExpired
     case activated

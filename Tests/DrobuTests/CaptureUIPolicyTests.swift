@@ -128,4 +128,38 @@ struct CaptureUIPolicyTests {
     ) {
         #expect(CaptureUIPolicy.panelToggleAllowed(gif: gif, video: video) == expected)
     }
+
+    // MARK: - Capture-start license gate
+
+    // A capture may start unless the trial has expired. trialActive (any day
+    // count) and activated both pass; only .trialExpired blocks. Two
+    // trialActive rows pin that the day count is irrelevant.
+    static let captureStartMatrix: [(LicenseStatus, Bool)] = [
+        (.trialActive(daysRemaining: 14), true),
+        (.trialActive(daysRemaining: 1), true),
+        (.trialExpired, false),
+        (.activated, true),
+    ]
+
+    // Exhaustive switch with no `default`: adding a LicenseStatus case fails
+    // compilation here, forcing the matrix above to be revisited. This is the
+    // license-gate analogue of the state-matrix count guards above (a flat
+    // count can't guard an enum with an associated value).
+    private static func kind(of status: LicenseStatus) -> String {
+        switch status {
+        case .trialActive: return "trialActive"
+        case .trialExpired: return "trialExpired"
+        case .activated: return "activated"
+        }
+    }
+
+    @Test func captureStartGateCoversEveryLicenseKind() {
+        let kinds = Set(Self.captureStartMatrix.map { Self.kind(of: $0.0) })
+        #expect(kinds == ["trialActive", "trialExpired", "activated"])
+    }
+
+    @Test(arguments: captureStartMatrix)
+    func captureStartAllowedMatchesTruthTable(license: LicenseStatus, expected: Bool) {
+        #expect(CaptureUIPolicy.captureStartAllowed(license: license) == expected)
+    }
 }
