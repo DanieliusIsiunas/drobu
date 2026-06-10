@@ -7,6 +7,10 @@ import Testing
 final class MockDaemonServiceControl: DaemonServiceControlling {
     var rawStatus: SMAppService.Status
     var registerError: Error?
+    /// When non-empty, register() consumes one entry per call (nil = success) —
+    /// models the BTM teardown race where the first register attempts fail
+    /// with EPERM and a later retry succeeds.
+    var registerErrorSequence: [Error?] = []
     var unregisterError: Error?
     /// Status the mock transitions to after a successful `register()` — models
     /// BTM creating the approval toggle (notRegistered → requiresApproval).
@@ -20,7 +24,11 @@ final class MockDaemonServiceControl: DaemonServiceControlling {
 
     func register() throws {
         registerCallCount += 1
-        if let registerError { throw registerError }
+        if !registerErrorSequence.isEmpty {
+            if let error = registerErrorSequence.removeFirst() { throw error }
+        } else if let registerError {
+            throw registerError
+        }
         if let statusAfterRegister { rawStatus = statusAfterRegister }
     }
 
@@ -143,22 +151,52 @@ struct DaemonRegistrarTests {
     }
 
     @Test("reinstall unregisters then registers — the stale-daemon bounce")
-    func reinstallBounces() {
+    func reinstallBounces() async {
         let control = MockDaemonServiceControl(status: .enabled)
         control.statusAfterRegister = .enabled
-        let registrar = DaemonRegistrar(control: control)
-        #expect(registrar.reinstall() == .enabled)
+        let registrar = DaemonRegistrar(control: control, retryBaseDelayNs: 0)
+        #expect(await registrar.reinstall() == .enabled)
         #expect(control.unregisterCallCount == 1)
         #expect(control.registerCallCount == 1)
     }
 
     @Test("reinstall proceeds to register even when unregister fails (orphan tolerance)")
-    func reinstallToleratesUnregisterFailure() {
+    func reinstallToleratesUnregisterFailure() async {
         let control = MockDaemonServiceControl(status: .enabled)
         control.unregisterError = StubError()
         control.statusAfterRegister = .enabled
-        let registrar = DaemonRegistrar(control: control)
-        #expect(registrar.reinstall() == .enabled)   // register still attempted
+        let registrar = DaemonRegistrar(control: control, retryBaseDelayNs: 0)
+        #expect(await registrar.reinstall() == .enabled)   // register still attempted
+        #expect(control.registerCallCount == 1)
+    }
+
+    @Test("reinstall retries register through the BTM teardown race (EPERM then success)")
+    func reinstallRetriesThroughTeardownRace() async {
+        let control = MockDaemonServiceControl(status: .enabled)
+        // First two register() calls fail (BTM still tearing down), third succeeds.
+        control.registerErrorSequence = [StubError(), StubError(), nil]
+        control.statusAfterRegister = .enabled
+        let registrar = DaemonRegistrar(control: control, retryBaseDelayNs: 0)
+        #expect(await registrar.reinstall() == .enabled)
+        #expect(control.registerCallCount == 3)
+    }
+
+    @Test("reinstall gives up as .failed when the race outlasts every retry")
+    func reinstallExhaustsRetries() async {
+        let control = MockDaemonServiceControl(status: .enabled)
+        control.registerError = StubError()   // fails forever
+        let registrar = DaemonRegistrar(control: control, retryBaseDelayNs: 0)
+        let result = await registrar.reinstall()
+        if case .failed = result {} else { Issue.record("expected .failed, got \(result)") }
+        #expect(control.registerCallCount == 4)   // bounded — no infinite loop
+    }
+
+    @Test("reinstall returns requiresApproval immediately — a user decision, not a race to retry")
+    func reinstallNoRetryOnRequiresApproval() async {
+        let control = MockDaemonServiceControl(status: .enabled)
+        control.statusAfterRegister = .requiresApproval
+        let registrar = DaemonRegistrar(control: control, retryBaseDelayNs: 0)
+        #expect(await registrar.reinstall() == .requiresApproval)
         #expect(control.registerCallCount == 1)
     }
 }

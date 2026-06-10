@@ -75,7 +75,7 @@ final class MockRegistration: DaemonRegistration {
         statusValue = registerResult
         return registerResult
     }
-    func reinstall() -> DaemonStatus {
+    func reinstall() async -> DaemonStatus {
         reinstallCallCount += 1
         statusValue = reinstallResult
         return reinstallResult
@@ -224,6 +224,19 @@ struct ClosedLidServiceTests {
         }
         #expect(reg.reinstallCallCount == 1)
         #expect(!service.isActive)
+    }
+
+    @Test("reinstall register-failure (BTM teardown race) is 'still updating', not approval guidance")
+    func reinstallFailureRoutesToStillUpdating() async {
+        let daemon = MockDaemonControl(); daemon.versionToReturn = drobuDaemonProtocolVersion + 1
+        let reg = MockRegistration(status: .enabled, reinstallResult: .failed("Operation not permitted"))
+        let service = makeService(daemon: daemon, registration: reg)
+        await #expect(throws: ClosedLidError.protocolMismatch) {
+            try await service.start(duration: 3600)
+        }
+        // The route carries the truthful retry message — not the approval alert.
+        #expect(ClosedLidError.protocolMismatch.route
+                == .visibleFailure("Closed Lid helper is still updating — try again in a moment."))
     }
 
     @Test("unreachable daemon at handshake → daemonUnavailable before auth")

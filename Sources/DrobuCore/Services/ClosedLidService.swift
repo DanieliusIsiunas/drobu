@@ -156,9 +156,17 @@ final class ClosedLidService {
         }
         if daemonVersion != drobuDaemonProtocolVersion {
             Log.info("ClosedLidService: daemon protocol \(daemonVersion) != \(drobuDaemonProtocolVersion) — reinstalling stale daemon")
-            guard registrar.reinstall() == .enabled else {
-                // BTM dropped the approval across the reinstall — the approval
-                // guidance is now genuinely the right message.
+            switch await registrar.reinstall() {
+            case .enabled:
+                break
+            case .failed:
+                // BTM teardown race outlasted the retries — registration state
+                // is transient, not an approval problem. "Try again in a
+                // moment" (the protocolMismatch route) is the truthful message;
+                // the approval alert would point at a toggle that fixes nothing.
+                throw ClosedLidError.protocolMismatch
+            case .notRegistered, .notFound, .requiresApproval:
+                // The reinstall genuinely needs the user's approval again.
                 throw ClosedLidError.daemonNotApproved
             }
             if companionsEnabled {

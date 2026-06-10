@@ -47,7 +47,7 @@ public final class SMAppServiceDaemonControl: DaemonServiceControlling {
 public protocol DaemonRegistration: AnyObject {
     var status: DaemonStatus { get }
     @discardableResult func register() -> DaemonStatus
-    @discardableResult func reinstall() -> DaemonStatus
+    @discardableResult func reinstall() async -> DaemonStatus
 }
 
 /// Wraps daemon registration: status mapping, `register`/`unregister`, the
@@ -56,9 +56,14 @@ public protocol DaemonRegistration: AnyObject {
 @MainActor
 public final class DaemonRegistrar: DaemonRegistration {
     private let control: DaemonServiceControlling
+    /// Base backoff for `reinstall()`'s register retries (doubles per attempt).
+    /// Injectable so tests don't sleep.
+    private let retryBaseDelayNs: UInt64
 
-    public init(control: DaemonServiceControlling = SMAppServiceDaemonControl()) {
+    public init(control: DaemonServiceControlling = SMAppServiceDaemonControl(),
+                retryBaseDelayNs: UInt64 = 300_000_000) {
         self.control = control
+        self.retryBaseDelayNs = retryBaseDelayNs
     }
 
     public var status: DaemonStatus { Self.map(control.rawStatus) }
@@ -107,11 +112,27 @@ public final class DaemonRegistrar: DaemonRegistration {
     /// `register()` alone is a no-op on an already-registered service and never
     /// bounces the running process, so a protocol-mismatched daemon would
     /// otherwise survive every retry until reboot.
+    ///
+    /// BTM processes the unregister ASYNCHRONOUSLY — `unregister()` returns
+    /// (and `status` even reads `.notRegistered`) before the record is fully
+    /// torn down, and a register issued in that window fails with
+    /// `SMAppServiceErrorDomain Code=1 "Operation not permitted"` (observed
+    /// live on macOS 26.3). Retry with backoff; a genuine `.requiresApproval`
+    /// result returns immediately (no retry — that's the user's decision, not
+    /// a race).
     @discardableResult
-    public func reinstall() -> DaemonStatus {
+    public func reinstall() async -> DaemonStatus {
         let afterUnregister = unregister()
         Log.info("DaemonRegistrar: reinstall — unregister → \(afterUnregister)")
-        return register()
+        var delayNs = retryBaseDelayNs
+        for attempt in 1...4 {
+            let result = register()
+            guard case .failed = result, attempt < 4 else { return result }
+            Log.info("DaemonRegistrar: reinstall register attempt \(attempt) failed — retrying (BTM teardown race)")
+            try? await Task.sleep(nanoseconds: delayNs)
+            delayNs *= 2
+        }
+        return status
     }
 
     public func openApprovalSettings() {
