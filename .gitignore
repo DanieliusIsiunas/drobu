@@ -31,6 +31,10 @@ sparkle_private_key*
 # Per-customer license issuance audit log
 tools/license-log.csv
 
+# Private operational docs (support runbook, licensing internals,
+# plans/audits touching trial-gate mechanics) — never in the public repo
+docs/private/
+
 # Debug artifacts from Claude/MCP sessions
 .playwright-mcp/
 

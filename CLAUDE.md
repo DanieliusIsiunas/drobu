@@ -106,7 +106,7 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 
 **Private key:** developer's login Keychain (account `drobu-license-ed25519`, service `com.danielius.ClipboardHistory.license-signing`). Never enters the repo, never enters CI. Back up via Keychain Access → File → Export.
 
-**Customer state:** stored in user's Keychain (service `com.danielius.ClipboardHistory.license`, accounts `trial-start` and `active-license`). Survives `defaults delete`. Wipe with `security delete-generic-password -s "com.danielius.ClipboardHistory.license" -a <account>`.
+**Customer state:** stored in the user's Keychain (service `com.danielius.ClipboardHistory.license`; accounts `trial-start`, `active-license`, and `last-seen` — the clock-rollback anchor). Survives `defaults delete`. Reset and diagnostic procedures live in the private support runbook (`docs/private/support-runbook.md` — local only, gitignored).
 
 **Issuing keys (manual workflow for early customers):**
 ```bash
@@ -114,7 +114,17 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 ```
 Prints the key. Email it. The script appends to `tools/license-log.csv` (gitignored) for audit trail. The Stripe webhook automation that replaces this manual step is out of scope until traffic justifies it.
 
-**Operational runbook:** `docs/licensing.md` covers threat model, refund/revocation, key rotation, and the future webhook plan.
+**Operational runbook:** `docs/licensing.md` covers the public model, key rotation, the payment-link contract, and the future webhook plan. Support diagnostics, reset procedures, and the detailed threat model live in `docs/private/support-runbook.md` (gitignored). **Plans and audits touching licensing internals go to `docs/private/`, not `docs/plans/`** — this repo is public.
+
+**Price is set in many places — change all of them in the same pass (mirror the version checklist):**
+1. The Stripe Payment Link — edit the price on the **existing** link in the dashboard; never create a new link and deactivate the old one (shipped binaries point at the old URL forever)
+2. `Sources/DrobuCore/Views/ActivationView.swift` — 3 strings (subtitle, Buy button, accessibility label)
+3. `Sources/DrobuCore/Views/SettingsView.swift` — 2 strings (Buy row + accessibility label)
+4. `website/src/components/Hero.astro`
+5. `website/src/components/DownloadCTA.astro`
+6. `website/src/layouts/Landing.astro` — meta description **and** JSON-LD `"price"`
+7. `website/src/pages/terms.astro`
+8. This file (the Pricing line above)
 
 ## Debugging
 

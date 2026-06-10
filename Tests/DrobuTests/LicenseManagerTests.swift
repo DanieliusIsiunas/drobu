@@ -31,6 +31,21 @@ struct LicenseManagerTests {
         Data((0..<32).map { _ in UInt8.random(in: 0...255) })
     }
 
+    /// Store double simulating the real Keychain's silent write-failure
+    /// mode: `set` is a no-op for the configured keys (matching
+    /// KeychainLicenseStore, which surfaces failures only via Log).
+    private final class WriteFailingLicenseStore: LicenseStore {
+        private var storage: [String: String] = [:]
+        private let failingKeys: Set<String>
+        init(failingKeys: Set<String>) { self.failingKeys = failingKeys }
+        func get(_ key: String) -> String? { storage[key] }
+        func set(_ key: String, _ value: String) {
+            guard !failingKeys.contains(key) else { return }
+            storage[key] = value
+        }
+        func delete(_ key: String) { storage.removeValue(forKey: key) }
+    }
+
     // MARK: - Trial state
 
     @Test func freshLaunchStartsTrialAtFullDuration() {
@@ -96,6 +111,276 @@ struct LicenseManagerTests {
         let store = InMemoryLicenseStore()
         let mgr = LicenseManager(publicKey: testPublicKey, store: store)
         #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func failedTrialStartWriteStaysFailClosed() {
+        // If the Keychain silently swallows the trial-start write, the
+        // read-back sees nil and the gate stays closed — the degraded
+        // mode is fail-closed (and logged), never a free pass.
+        let store = WriteFailingLicenseStore(failingKeys: ["trial-start"])
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        mgr.recordFirstLaunchIfNeeded()
+        #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func storedButInvalidLicenseFallsBackToTrialState() {
+        // An active-license entry that reads but fails verification must
+        // not activate — status falls through to the underlying trial.
+        let store = InMemoryLicenseStore()
+        store.set("active-license", "DROBU-bm90LXJlYWw.bm90LWEtc2lnbmF0dXJl")
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        mgr.recordFirstLaunchIfNeeded()
+        #expect(mgr.status == .trialActive(daysRemaining: 14))
+    }
+
+    // MARK: - Clock-rollback anchor
+
+    private func iso(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: date)
+    }
+
+    @Test func rollbackDoesNotRegainDays() {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(5 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 9))
+
+        // Roll the clock back 10 days — status must stay clamped to day 5.
+        currentTime = start.addingTimeInterval(-5 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 9))
+    }
+
+    @Test func rollbackPastExpiryStaysExpired() {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(15 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialExpired)
+
+        // Rolling back into the trial window must not reopen the gate.
+        currentTime = start.addingTimeInterval(5 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func forwardExcursionThenCorrectionBurnsTrial() {
+        // The accepted trade-off: a forward clock excursion advances the
+        // anchor permanently; correcting the clock does not restore days.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(20 * 86400)
+        mgr.refresh()
+        currentTime = start.addingTimeInterval(1 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialExpired)
+    }
+
+    @Test func migrationWithoutAnchorBehavesAsTodayAndCreatesAnchor() {
+        // Existing installs have trial-start but no last-seen: the first
+        // recompute must not change their status, and must create the anchor.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        store.set("trial-start", iso(start))
+        let nowDate = start.addingTimeInterval(5 * 86400)
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { nowDate })
+        #expect(mgr.status == .trialActive(daysRemaining: 9))
+        #expect(store.get("last-seen") == iso(nowDate))
+    }
+
+    @Test func futureTrialStartGatesThenSelfHeals() {
+        // A future-dated trial-start is a delayed trial, not a permanent
+        // brick: gated (fail-closed) until the clock passes it, then the
+        // full window opens. The anchor is persisted even while gated.
+        let store = InMemoryLicenseStore()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        store.set("trial-start", iso(base.addingTimeInterval(10 * 86400)))
+        var currentTime = base
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        #expect(mgr.status == .trialExpired)
+        #expect(store.get("last-seen") == iso(base))
+
+        currentTime = base.addingTimeInterval(11 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 13))
+    }
+
+    @Test func corruptAnchorSelfHeals() {
+        // Unparseable last-seen is treated as missing (status computed
+        // from the raw clock) and overwritten with a valid value.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        store.set("trial-start", iso(start))
+        store.set("last-seen", "garbage")
+        let nowDate = start.addingTimeInterval(2 * 86400)
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { nowDate })
+        #expect(mgr.status == .trialActive(daysRemaining: 12))
+        #expect(store.get("last-seen") == iso(nowDate))
+    }
+
+    @Test func corruptTrialStartStaysClosedAndIsNotOverwritten() {
+        let store = InMemoryLicenseStore()
+        store.set("trial-start", "garbage")
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        #expect(mgr.status == .trialExpired)
+        mgr.recordFirstLaunchIfNeeded()
+        mgr.refresh()
+        #expect(mgr.status == .trialExpired)
+        #expect(store.get("trial-start") == "garbage")
+    }
+
+    @Test func staleAnchorWriteFailureDegradesToPreAnchorBehavior() {
+        // If the Keychain silently swallows last-seen writes, the clamp
+        // degrades to today's behavior (rollback works) without crashing —
+        // the U3 logging makes the degraded mode observable in production.
+        let store = WriteFailingLicenseStore(failingKeys: ["last-seen"])
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(5 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 9))
+
+        currentTime = start.addingTimeInterval(3 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 11))
+    }
+
+    @Test func activatedNeverTouchesAnchor() throws {
+        // While a valid license is active, recomputes neither read nor
+        // write last-seen — no Keychain churn for paying customers.
+        let store = InMemoryLicenseStore()
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        mgr.refresh()
+        mgr.refresh()
+        #expect(mgr.status == .activated)
+        #expect(store.get("last-seen") == nil)
+    }
+
+    @Test func anchorPersistsAcrossManagerInstances() {
+        // A fresh manager against the same store inherits the anchor —
+        // restarting the app with a rolled-back clock stays clamped.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var time1 = start
+        let mgr1 = LicenseManager(publicKey: testPublicKey, store: store, now: { time1 })
+        mgr1.recordFirstLaunchIfNeeded()
+        time1 = start.addingTimeInterval(5 * 86400)
+        mgr1.refresh()
+
+        let rolledBack = start.addingTimeInterval(1 * 86400)
+        let mgr2 = LicenseManager(publicKey: testPublicKey, store: store, now: { rolledBack })
+        #expect(mgr2.status == .trialActive(daysRemaining: 9))
+    }
+
+    @Test func anchorWinsAfterDeactivateWhenClockRolledBelowIt() throws {
+        // Complement of the accepted-residual deactivate test: when the
+        // pre-activation anchor is AHEAD of the rolled-back clock, the
+        // clamp engages — deactivate computes from the anchor, not raw now.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(10 * 86400)
+        mgr.refresh()  // anchor advances to day 10
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+
+        currentTime = start.addingTimeInterval(5 * 86400)  // roll below the anchor
+        mgr.deactivate()
+        #expect(mgr.status == .trialActive(daysRemaining: 4))
+    }
+
+    @Test func anchorFreezesAtPreActivationValueWhileActivated() throws {
+        // A non-nil anchor created by the trial path must stop advancing
+        // once activated — activatedNeverTouchesAnchor only covers the
+        // starts-nil-stays-nil case, which a buggy always-write would pass.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(3 * 86400)
+        mgr.refresh()
+        let frozen = store.get("last-seen")
+        #expect(frozen == iso(currentTime))
+
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        currentTime = start.addingTimeInterval(9 * 86400)
+        mgr.refresh()
+        mgr.refresh()
+        #expect(mgr.status == .activated)
+        #expect(store.get("last-seen") == frozen)
+    }
+
+    // MARK: - Accepted tamper residuals (acceptance tests)
+    //
+    // These pin the *chosen* limits of the anchor (it closes clock
+    // rollback without Keychain tampering, nothing more) so any future
+    // change to these behaviors is deliberate, not accidental.
+
+    @Test func acceptedResidual_anchorWipeReopensTrial() {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(15 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialExpired)
+
+        store.delete("last-seen")
+        currentTime = start.addingTimeInterval(5 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .trialActive(daysRemaining: 9))
+    }
+
+    @Test func acceptedResidual_trialStartWipeGrantsFreshTrial() {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(5 * 86400)
+        mgr.refresh()
+
+        store.delete("trial-start")
+        mgr.recordFirstLaunchIfNeeded()  // logs tamper evidence, proceeds
+        #expect(mgr.status == .trialActive(daysRemaining: 14))
+    }
+
+    @Test func acceptedResidual_deactivateAfterRollbackUsesFrozenAnchor() throws {
+        // The anchor is frozen while activated, so deactivating after a
+        // rollback computes from max(now, pre-activation anchor). Only
+        // someone who already owns a valid license can reach this state.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var currentTime = start
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        mgr.recordFirstLaunchIfNeeded()
+        currentTime = start.addingTimeInterval(2 * 86400)
+        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        currentTime = start.addingTimeInterval(20 * 86400)
+        mgr.refresh()
+        #expect(mgr.status == .activated)
+
+        currentTime = start.addingTimeInterval(6 * 86400)
+        mgr.deactivate()
+        #expect(mgr.status == .trialActive(daysRemaining: 8))
     }
 
     // MARK: - Activation

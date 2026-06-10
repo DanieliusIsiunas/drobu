@@ -69,7 +69,7 @@ On every launch and during the panel-show flow, Drobu checks two things in order
 When the user invokes the global hotkey:
 
 - **Trial active** or **Activated** → floating clipboard panel opens.
-- **Trial expired** without a key → `ActivationPanel` opens instead. The user sees the Buy button (deep-links to Stripe) and a paste-key field. Activation closes the panel; next hotkey press opens the normal clipboard panel.
+- **Trial expired** without a key → `ActivationPanel` opens instead. The user sees the Buy button (opens `drobu.app/buy` → Stripe) and a paste-key field. Activation closes the panel; next hotkey press opens the normal clipboard panel.
 
 The clipboard monitor (background polling of `NSPasteboard`) runs regardless of license state. The user's data is preserved across the trial→expired transition and reappears as soon as they activate.
 
@@ -77,25 +77,19 @@ The clipboard monitor (background polling of `NSPasteboard`) runs regardless of 
 
 | Item | Where | Why Keychain not UserDefaults |
 |---|---|---|
-| Trial-start timestamp | Keychain (`com.danielius.ClipboardHistory.license` / `trial-start`) | Survives `defaults delete` and most pref-reset attempts. Determined users with Keychain Access can still wipe it, but the bar is meaningfully higher. |
-| Active license key | Keychain (`com.danielius.ClipboardHistory.license` / `active-license`) | Same protection. Also: storing it in Keychain makes it easy to share across Macs (Keychain sync) for the same user. |
+| Trial-start timestamp | Keychain (`com.danielius.ClipboardHistory.license` / `trial-start`) | Survives `defaults delete` and most pref-reset attempts. |
+| Last-seen clock anchor | Keychain (same service / `last-seen`) | Clamps trial math to the latest moment ever observed, so rolling the system clock back can't regain trial days. |
+| Active license key | Keychain (`com.danielius.ClipboardHistory.license` / `active-license`) | Same protection. Note: Keychain does **not** sync these items across Macs (the store doesn't set `kSecAttrSynchronizable`) — and it doesn't need to: one key activates any number of the customer's Macs; paste it on each machine. |
 | Ed25519 public key | App `Info.plist` | Baked into the binary at build time. Never changes during the life of a major version. Tampering with the binary breaks the code signature, which Sparkle refuses to update past. |
 | Ed25519 private key (developer) | Developer's Keychain | Same threat model as your Sparkle signing key. Back up via Keychain Access → File → Export. |
 
-## Threat model: what this defends against, what it doesn't
+## Threat model (summary)
 
-**It defends against:**
+Drobu's licensing favors paying-customer experience over DRM strength: verification is fully offline, there is no phone-home, and enforcement aims to keep honest users honest rather than stop determined crackers. The trial gate defends against casual non-payment, including trial extension via clock rollback (the persisted clock anchor clamps the trial math). One key deliberately activates any number of the customer's Macs. The detailed threat model — limits of the scheme, diagnostics, and reset procedures for legitimate support cases — lives in the private support runbook, not in this public repo.
 
-- Casual non-payers who download the binary directly and try to use it past 14 days — they're hard-gated.
-- Users who try to extend the trial by `defaults delete`-ing — the timestamp is in Keychain.
-- Tampered binaries with the verification call patched out — they fail Sparkle's signature check on update, so they get stuck on the version they cracked while paying users get new features and bug fixes.
-- Replay attacks — every key is unique random bytes.
+## Payment-link contract
 
-**It does NOT defend against:**
-
-- A determined cracker who reverse-engineers Drobu, patches the `isValidSignature` call to always return true, and redistributes. This is true for **every** licensing system at the indie scale; it's not worth solving until you have evidence of actual sharing. The right next step then is per-device online activation, not making the offline check stronger.
-- Customers sharing their key with a friend — the same key works on any number of machines. If this becomes a real problem, the upgrade path is per-device activation (online check), tracked in `Out of scope` below.
-- Side-loading source compilation — anyone with Xcode can build Drobu from source. The friction (signing setup, Sparkle key, etc.) keeps this <1%.
+The bare Stripe Payment Link URL shipped inside binaries v1.2–v1.5.2 is a **permanent public contract**: never deactivate that link and never rotate it to a new one — installed apps' Buy buttons point at it forever, and Sparkle updates are optional. Price changes edit the existing link in place (see the price-change checklist in CLAUDE.md). Later binaries point at `https://drobu.app/buy`, a redirect under our control — that URL is the next permanent contract; never move it without a forward. Both URLs (and the `drobu.app` MX records) are watched by the daily `payment-links-monitor` workflow and the `release.sh` preflight.
 
 ## Future automation
 
@@ -115,7 +109,7 @@ Total ongoing cost: ~$0/month at low volume (Cloudflare free tier + email free t
 
 **A customer says their key doesn't work**: ask them to copy the entire key including the `DROBU-` prefix and paste it without trailing spaces. If activation still fails, the most likely cause is line-wrapping in their email — re-send the key with `<pre>` formatting or in a code block.
 
-**A customer wants a refund / I want to revoke a key**: Drobu doesn't ship revocation today; the customer's key keeps working. Note their email in `tools/license-log.csv` and add the payload hex to a future `revoked-keys.txt` shipped via Sparkle. Implementation of the revocation check itself is out of scope for v1.
+**A customer wants a refund**: handle the payment side in the Stripe dashboard; note their email in `tools/license-log.csv`. The revocation posture is documented in the private support runbook.
 
 **I lost my private key**: the Sparkle pattern applies — back up via Keychain Access → File → Export *before* you have a crisis. If lost without backup, you'll need to generate a new keypair (see [The keypair](#the-keypair)), ship a new Drobu version with the new public key, re-issue keys to every existing customer. Painful but tractable.
 

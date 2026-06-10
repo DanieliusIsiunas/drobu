@@ -49,11 +49,25 @@ public struct KeychainLicenseStore: LicenseStore {
         ]
         var item: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard status == errSecSuccess, let data = item as? Data else {
+            // notFound is the normal miss (every trial-mode recompute queries
+            // active-license) — only real denials are signal. An ACL denial
+            // here is what gates a paying customer (the "Never Deny" mode).
+            if status != errSecItemNotFound {
+                Log.error("KeychainLicenseStore: SecItemCopyMatching failed for \(key): \(status) (\(Self.describe(status)))")
+            }
+            return nil
+        }
+        guard let string = String(data: data, encoding: .utf8) else {
+            Log.error("KeychainLicenseStore: item for \(key) read OK but is not valid UTF-8 (\(data.count) bytes)")
+            return nil
+        }
+        return string
     }
 
     public func set(_ key: String, _ value: String) {
+        // `value` is secret on the active-license path (the raw license key)
+        // — it must never appear in any log interpolation below.
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -61,11 +75,19 @@ public struct KeychainLicenseStore: LicenseStore {
             kSecAttrAccount as String: key,
         ]
         let attrs: [String: Any] = [kSecValueData as String: data]
-        let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
-        if updateStatus == errSecItemNotFound {
+        var status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+        if status == errSecItemNotFound {
             var insertQuery = query
             insertQuery[kSecValueData as String] = data
-            _ = SecItemAdd(insertQuery as CFDictionary, nil)
+            status = SecItemAdd(insertQuery as CFDictionary, nil)
+            if status == errSecDuplicateItem {
+                // Two app instances raced past the not-found check — the
+                // item exists now, so this is a benign race, not corruption.
+                status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+            }
+        }
+        if status != errSecSuccess {
+            Log.error("KeychainLicenseStore: write failed for \(key): \(status) (\(Self.describe(status)))")
         }
     }
 
@@ -75,7 +97,14 @@ public struct KeychainLicenseStore: LicenseStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        _ = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Log.error("KeychainLicenseStore: SecItemDelete failed for \(key): \(status) (\(Self.describe(status)))")
+        }
+    }
+
+    private static func describe(_ status: OSStatus) -> String {
+        (SecCopyErrorMessageString(status, nil) as String?) ?? "unknown"
     }
 }
 
@@ -102,6 +131,12 @@ public final class LicenseManager: ObservableObject {
 
     private static let trialStartKey = "trial-start"
     private static let activeLicenseKey = "active-license"
+    /// Monotonic clock anchor: the latest moment this manager has ever
+    /// observed. Clamps trial math so rolling the system clock back
+    /// cannot regain trial days. Maintained only in the trial branch —
+    /// never read or written while `.activated` (no Keychain churn or
+    /// ACL prompts for paying customers).
+    private static let lastSeenKey = "last-seen"
 
     @Published public private(set) var status: LicenseStatus = .trialExpired
 
@@ -150,8 +185,23 @@ public final class LicenseManager: ObservableObject {
     /// this once during `applicationDidFinishLaunching`.
     public func recordFirstLaunchIfNeeded() {
         guard store.get(Self.trialStartKey) == nil else { return }
+        // The anchor can only legitimately exist after trial-start was
+        // written, so finding it alone is tamper evidence (trial-start
+        // wiped) — but a Keychain-ACL-denied read of trial-start looks
+        // identical, so log and proceed with the fresh trial rather than
+        // failing closed and bricking a real user.
+        if store.get(Self.lastSeenKey) != nil {
+            Log.error("LicenseManager: last-seen present without trial-start — possible trial reset (or ACL-denied read)")
+        }
         let iso = Self.isoFormatter.string(from: now())
         store.set(Self.trialStartKey, iso)
+        // Read-back: a silently failed Keychain write here means the user
+        // sees "trial ended" on day 0. The failure happens at launch, so
+        // this line is always in the current session's truncate-on-launch
+        // log — the smoking gun for that support-ticket shape.
+        if store.get(Self.trialStartKey) == nil {
+            Log.error("LicenseManager: trial-start write did not persist (read-back nil) — user will be gated")
+        }
         recomputeStatus()
     }
 
@@ -160,6 +210,8 @@ public final class LicenseManager: ObservableObject {
     /// to `.activated` synchronously.
     public func activate(keyString: String) throws {
         try verifyKey(keyString)
+        // keyString is the customer's license key — the store must never
+        // log this value (see KeychainLicenseStore.set).
         store.set(Self.activeLicenseKey, keyString)
         recomputeStatus()
     }
@@ -182,23 +234,68 @@ public final class LicenseManager: ObservableObject {
 
     private func recomputeStatus() {
         // Activated wins regardless of trial state.
-        if let activeKey = store.get(Self.activeLicenseKey),
-           (try? verifyKey(activeKey)) != nil {
-            status = .activated
-            return
+        if let activeKey = store.get(Self.activeLicenseKey) {
+            do {
+                try verifyKey(activeKey)
+                status = .activated
+                return
+            } catch {
+                // A stored key that reads but fails verification is the one
+                // gated-paying-customer case OSStatus logging alone misses
+                // (bitrot, truncated write, public-key change). Never log
+                // the key material itself — the error case carries no key
+                // bytes.
+                Log.error("LicenseManager: stored active-license failed verification (\(error)) — falling back to trial state")
+            }
         }
 
-        guard let startIso = store.get(Self.trialStartKey),
-              let trialStart = Self.isoFormatter.date(from: startIso) else {
+        guard let startIso = store.get(Self.trialStartKey) else {
             // First launch hasn't been recorded yet. Treat as expired
             // so the gate is closed by default — `recordFirstLaunchIfNeeded`
             // flips it open on app startup.
             status = .trialExpired
             return
         }
+        guard let trialStart = Self.isoFormatter.date(from: startIso) else {
+            // Non-nil but unparseable: permanently gated, because
+            // recordFirstLaunchIfNeeded never overwrites a non-nil value.
+            Log.error("LicenseManager: trial-start is unparseable — trial stays gated")
+            status = .trialExpired
+            return
+        }
+
+        // Clock-rollback anchor: clamp the effective clock to the latest
+        // moment ever observed, so setting the clock back never regains
+        // trial days. An unparseable anchor is treated as missing and
+        // overwritten with a valid value below (self-heal).
+        let rawNow = now()
+        var anchor: Date?
+        if let anchorIso = store.get(Self.lastSeenKey) {
+            anchor = Self.isoFormatter.date(from: anchorIso)
+            if anchor == nil {
+                Log.error("LicenseManager: last-seen anchor is unparseable — resetting it")
+            }
+        }
+        let effectiveNow = max(rawNow, anchor ?? rawNow)
+        if let anchor, rawNow < anchor {
+            Log.info("LicenseManager: clock rollback clamped (now \(Self.isoFormatter.string(from: rawNow)) < last-seen \(Self.isoFormatter.string(from: anchor)))")
+        }
+        if anchor.map({ effectiveNow > $0 }) ?? true {
+            store.set(Self.lastSeenKey, Self.isoFormatter.string(from: effectiveNow))
+        }
+
+        // Future-dated trialStart fails closed but self-heals: the trial
+        // activates with its full window once the real clock passes it.
+        // The anchor was persisted above, so forward observations are
+        // recorded even while gated.
+        if trialStart > effectiveNow {
+            Log.error("LicenseManager: trial-start is in the future — gated until the clock catches up")
+            status = .trialExpired
+            return
+        }
 
         let expiresAt = trialStart.addingTimeInterval(Self.trialDuration)
-        let secondsRemaining = expiresAt.timeIntervalSince(now())
+        let secondsRemaining = expiresAt.timeIntervalSince(effectiveNow)
         if secondsRemaining > 0 {
             // Round up so "23 hours 59 minutes left" displays as 1 day.
             let daysRemaining = max(1, Int(ceil(secondsRemaining / 86400)))
