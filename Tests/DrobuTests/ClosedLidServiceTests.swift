@@ -93,11 +93,13 @@ struct ClosedLidServiceTests {
 
     private func makeService(daemon: MockDaemonControl = MockDaemonControl(),
                              auth: any AuthGating = MockAuthGate(),
-                             registration: MockRegistration = MockRegistration(status: .enabled))
+                             registration: MockRegistration = MockRegistration(status: .enabled),
+                             handshakeMaxAttempts: Int = 5)
     -> ClosedLidService {
         ClosedLidService(daemon: daemon, auth: auth, registrar: registration,
                          now: { Date(timeIntervalSinceReferenceDate: 1_000_000) },
-                         companionsEnabled: false)
+                         companionsEnabled: false,
+                         handshakeMaxAttempts: handshakeMaxAttempts)
     }
 
     @Test("happy path: enabled + version match + auth success → active exactly once, correct duration")
@@ -241,35 +243,51 @@ struct ClosedLidServiceTests {
                 == .visibleFailure("Closed Lid helper is still updating — try again in a moment."))
     }
 
-    @Test("persistently unreachable daemon → one reinstall attempt, then daemonUnavailable before auth")
+    @Test("transient unreachable heals via handshake retry — NO reinstall, no auth delay")
+    func transientUnreachableHealedByRetry() async throws {
+        // The real post-update shape: one (or a few) nil replies during the
+        // launchd bundle-swap window, then the daemon answers. The bounded
+        // retry rides it out without the heavy reinstall.
+        let daemon = MockDaemonControl()
+        daemon.versionSequence = [nil, nil]   // unreachable twice; current on the 3rd attempt
+        let auth = MockAuthGate()
+        let reg = MockRegistration(status: .enabled)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg)
+        try await service.start(duration: 3600)
+        #expect(reg.reinstallCallCount == 0)            // retry handled it — no reinstall
+        #expect(daemon.resetConnectionCallCount == 2)   // dropped the stale connection between tries
+        #expect(service.isActive)
+        #expect(auth.callCount == 1)
+        #expect(daemon.enabledDurations == [3600])
+    }
+
+    @Test("persistently unreachable daemon → retry exhausts, escalates to ONE reinstall, then daemonUnavailable")
     func handshakeUnreachable() async {
-        let daemon = MockDaemonControl(); daemon.versionToReturn = nil
+        let daemon = MockDaemonControl(); daemon.versionToReturn = nil   // never answers
         let auth = MockAuthGate()
         let reg = MockRegistration(status: .enabled)
         let service = makeService(daemon: daemon, auth: auth, registration: reg)
         await #expect(throws: ClosedLidError.daemonUnavailable) {
             try await service.start(duration: 3600)
         }
-        #expect(reg.reinstallCallCount == 1)   // approved-but-unreachable triggers ONE bounce
+        #expect(reg.reinstallCallCount == 1)   // retry exhausted → one escalation bounce
         #expect(auth.callCount == 0)
     }
 
-    @Test("approved-but-unreachable daemon (replaced-binary zombie) self-heals via reinstall")
-    func unreachableZombieSelfHeals() async throws {
-        // The post-update shape: the registration is .enabled but the running
-        // daemon's binary was swapped on disk, so the code-sign pin refuses it
-        // (protocolVersion → nil). After the bounce, the fresh daemon replies.
+    @Test("unreachable that persists through retries but answers after a reinstall bounce")
+    func persistentUnreachableHealedByReinstall() async throws {
+        // No-retry seam (handshakeMaxAttempts: 1): the first handshake is a
+        // single nil → escalate to reinstall → fresh daemon answers.
         let daemon = MockDaemonControl()
-        daemon.versionSequence = [nil]   // unreachable once; current after reinstall
+        daemon.versionSequence = [nil]   // first (only) attempt nil; versionToReturn (current) after
         let auth = MockAuthGate()
         let reg = MockRegistration(status: .enabled)
-        let service = makeService(daemon: daemon, auth: auth, registration: reg)
+        let service = makeService(daemon: daemon, auth: auth, registration: reg, handshakeMaxAttempts: 1)
         try await service.start(duration: 3600)
         #expect(reg.reinstallCallCount == 1)
-        #expect(daemon.resetConnectionCallCount == 1)   // stale connection dropped before re-handshake
+        #expect(daemon.resetConnectionCallCount == 1)   // clean dial after the reinstall
         #expect(service.isActive)
         #expect(auth.callCount == 1)
-        #expect(daemon.enabledDurations == [3600])
     }
 
     @Test("XPC failure after auth → daemonUnavailable, idle, auth was consumed")

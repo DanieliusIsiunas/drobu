@@ -3,6 +3,40 @@
 Learned shipping the privileged daemon (PR #31) and the display-off follow-up
 (protocol v2). All observed live on macOS 26.3, Apple Silicon.
 
+## A binary swap does NOT make a running daemon unreachable (the "zombie" model was wrong)
+
+Tested empirically 2026-06-10: `./build.sh --install` over a running daemon —
+even with a genuinely different on-disk cdhash (forced via a `daemonBuildVersion`
+bump) — does **not** reproduce the "stale daemon at handshake (unreachable)"
+field failure. The handshake succeeds straight through, every time. Reason:
+the daemon runs `dispatchMain()` and never exits, so it has **no KeepAlive**,
+only `RunAtLoad` + `MachServices`. A running Unix process keeps its **original
+inode mapped** after the file is overwritten, so its code-signature stays valid
+against its own loaded bytes regardless of what is written to disk — the
+client's identity pin (identifier + team + Apple anchor, NOT cdhash) still
+passes. There is no persistent "replaced-binary zombie."
+
+**Implication:** the real field "unreachable" right after a Sparkle update is a
+**transient** state — during bundle replacement launchd briefly has no provider
+for the mach service (the job reloads against the swapped bundle), and a fresh
+client connection in that window fails. It resolves on its own; the correct
+primary fix is a **bounded handshake retry**, not the heavy
+unregister/register reinstall (PRs #33/#34 were built on the wrong root-cause
+model — not harmful, but heavier than needed and themselves only validatable
+against a real update).
+
+**How to actually reproduce / test the unreachable path locally:** force the
+daemon genuinely down while it stays registered (`sudo launchctl kill SIGKILL
+system/com.danielius.ClipboardHistory.daemon`, or `sudo kill -9 <pid>`) and
+immediately activate Closed Lid. If MachServices on-demand relaunch fires, the
+client reaches a fresh daemon (self-recovery, no heal needed); if not, the
+unreachable→retry/reinstall path engages and can be watched in app.log. The
+only fully faithful test of the post-update window is a genuine Sparkle update.
+
+**Process lesson:** don't claim an update-path fix is validated by a method
+that doesn't actually reproduce the failure. Confirm the repro triggers the bug
+*before* trusting that a green run proves the fix.
+
 ## Replacing the app bundle does NOT restart a running daemon
 
 `build.sh --install` (or a Sparkle update) replaces the binary on disk, but
