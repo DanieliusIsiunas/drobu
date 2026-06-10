@@ -220,12 +220,12 @@ End-to-end smoke test, run after all units land:
 
 1. **Keypair setup (one-time)**: run `tools/generate-license-keypair.sh`. Verify `security find-generic-password -a drobu-license-ed25519 -w` succeeds. Commit the new `Info.plist`.
 2. **Fresh-install trial path**:
-   - `defaults delete com.danielius.ClipboardHistory && security delete-generic-password -a com.danielius.ClipboardHistory.trial-start 2>/dev/null` to fully reset
+   - Reset customer state (procedure in the private support runbook)
    - Build + launch
    - Settings → License section shows "Free trial — 14 days remaining"
    - Hit hotkey → clipboard panel opens normally
 3. **Trial-expired gate**:
-   - Manually edit the trial-start Keychain entry to 15 days ago (or add a debug-only test hook)
+   - Back-date the trial state (procedure in the private support runbook)
    - Hit hotkey → `ActivationPanel` appears, not `FloatingPanel`
    - Verify clipboard monitoring continues — copy some text, confirm it's in SQLite (`sqlite3 ~/Library/Application\ Support/ClipboardHistory/clipboard.sqlite`)
 4. **License activation**:
