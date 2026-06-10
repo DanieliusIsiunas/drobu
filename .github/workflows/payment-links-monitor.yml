@@ -81,3 +81,62 @@ jobs:
             echo "::error::drobu.app MX records missing or not Hostinger email — support mail (printed in shipped binaries) will bounce"
             exit 1
           }
+
+  appcast-health:
+    name: Sparkle appcast reachable on both feed URLs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert both appcast URLs serve a parseable feed
+        run: |
+          # Sparkle treats an appcast load failure as "no update available"
+          # with NO error UI — a dead feed strands every installed client
+          # silently (this exact class went unnoticed for weeks after the
+          # repo rename stranded v1.2). Two URLs are contracts:
+          #   canonical:  https://drobu.app/appcast.xml
+          #   legacy:     https://danieliusisiunas.github.io/drobu/appcast.xml
+          # The legacy URL is the SUFeedURL baked into EVERY shipped binary
+          # (Sources/DrobuCore/Info.plist) and survives only via the
+          # custom-domain 301 — if that chain breaks, all installed clients
+          # go dark even while the canonical URL stays green.
+          # Cache-busted per request (Pages sits behind Fastly, max-age=600;
+          # each query-string variant is itself cached).
+          set -euo pipefail
+          enclosure_url=""
+          for feed in "https://drobu.app/appcast.xml" "https://danieliusisiunas.github.io/drobu/appcast.xml"; do
+            body=$(mktemp)
+            code=$(curl -sL -o "$body" -w '%{http_code}' --max-time 30 "${feed}?cb=$(date +%s)$RANDOM") || code=000
+            echo "$feed -> $code"
+            if [ "$code" != "200" ]; then
+              echo "::error::appcast at $feed returned $code — installed clients silently see no updates (the v1.2 stranding class)"
+              exit 1
+            fi
+            url=$(python3 - "$body" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          tree = ET.parse(sys.argv[1])
+          enc = tree.findall(".//item")[0].find("enclosure")
+          print(enc.get("url"))
+          PY
+            ) || {
+              echo "::error::appcast at $feed does not parse as XML — to Sparkle clients a broken appcast is indistinguishable from 'no updates'"
+              exit 1
+            }
+            enclosure_url="$url"
+          done
+
+          # The latest enclosure must be downloadable, and the stable
+          # latest/download alias (the website Download button) must redirect.
+          enc_code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$enclosure_url") || enc_code=000
+          echo "enclosure HEAD: $enc_code ($enclosure_url)"
+          if [ "$enc_code" != "200" ]; then
+            echo "::error::latest enclosure ($enclosure_url) returned $enc_code — every Sparkle update download fails"
+            exit 1
+          fi
+          hop=$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 15 "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg") || hop=""
+          echo "latest/download first hop: $hop"
+          case "$hop" in
+            https://github.com/DanieliusIsiunas/drobu/releases/download/*) echo "alias OK" ;;
+            *)
+              echo "::error::releases/latest/download/Drobu.dmg has no version-bearing redirect — the website Download button is broken"
+              exit 1
+              ;;
+          esac
