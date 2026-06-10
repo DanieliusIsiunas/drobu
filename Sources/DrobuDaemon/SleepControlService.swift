@@ -146,7 +146,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         reply(Self.daemonBuildVersion)
     }
 
-    private static let daemonBuildVersion = "1.5"
+    private static let daemonBuildVersion = "1.5.1"
 
     /// On a failed `pmset` reversal, re-arm the watchdog this far out to retry,
     /// keeping the daemon in charge of recovery instead of orphaning the state.
