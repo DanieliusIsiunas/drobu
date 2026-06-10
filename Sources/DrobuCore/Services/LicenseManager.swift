@@ -127,6 +127,12 @@ public final class LicenseManager: ObservableObject {
 
     private static let trialStartKey = "trial-start"
     private static let activeLicenseKey = "active-license"
+    /// Monotonic clock anchor: the latest moment this manager has ever
+    /// observed. Clamps trial math so rolling the system clock back
+    /// cannot regain trial days. Maintained only in the trial branch —
+    /// never read or written while `.activated` (no Keychain churn or
+    /// ACL prompts for paying customers).
+    private static let lastSeenKey = "last-seen"
 
     @Published public private(set) var status: LicenseStatus = .trialExpired
 
@@ -175,6 +181,14 @@ public final class LicenseManager: ObservableObject {
     /// this once during `applicationDidFinishLaunching`.
     public func recordFirstLaunchIfNeeded() {
         guard store.get(Self.trialStartKey) == nil else { return }
+        // The anchor can only legitimately exist after trial-start was
+        // written, so finding it alone is tamper evidence (trial-start
+        // wiped) — but a Keychain-ACL-denied read of trial-start looks
+        // identical, so log and proceed with the fresh trial rather than
+        // failing closed and bricking a real user.
+        if store.get(Self.lastSeenKey) != nil {
+            Log.error("LicenseManager: last-seen present without trial-start — possible trial reset (or ACL-denied read)")
+        }
         let iso = Self.isoFormatter.string(from: now())
         store.set(Self.trialStartKey, iso)
         // Read-back: a silently failed Keychain write here means the user
@@ -228,17 +242,53 @@ public final class LicenseManager: ObservableObject {
             Log.error("LicenseManager: stored active-license failed verification — falling back to trial state")
         }
 
-        guard let startIso = store.get(Self.trialStartKey),
-              let trialStart = Self.isoFormatter.date(from: startIso) else {
+        guard let startIso = store.get(Self.trialStartKey) else {
             // First launch hasn't been recorded yet. Treat as expired
             // so the gate is closed by default — `recordFirstLaunchIfNeeded`
             // flips it open on app startup.
             status = .trialExpired
             return
         }
+        guard let trialStart = Self.isoFormatter.date(from: startIso) else {
+            // Non-nil but unparseable: permanently gated, because
+            // recordFirstLaunchIfNeeded never overwrites a non-nil value.
+            Log.error("LicenseManager: trial-start is unparseable — trial stays gated")
+            status = .trialExpired
+            return
+        }
+
+        // Clock-rollback anchor: clamp the effective clock to the latest
+        // moment ever observed, so setting the clock back never regains
+        // trial days. An unparseable anchor is treated as missing and
+        // overwritten with a valid value below (self-heal).
+        let rawNow = now()
+        var anchor: Date?
+        if let anchorIso = store.get(Self.lastSeenKey) {
+            anchor = Self.isoFormatter.date(from: anchorIso)
+            if anchor == nil {
+                Log.error("LicenseManager: last-seen anchor is unparseable — resetting it")
+            }
+        }
+        let effectiveNow = max(rawNow, anchor ?? rawNow)
+        if let anchor, rawNow < anchor {
+            Log.info("LicenseManager: clock rollback clamped (now \(Self.isoFormatter.string(from: rawNow)) < last-seen \(Self.isoFormatter.string(from: anchor)))")
+        }
+        if anchor == nil || effectiveNow > anchor! {
+            store.set(Self.lastSeenKey, Self.isoFormatter.string(from: effectiveNow))
+        }
+
+        // Future-dated trialStart fails closed but self-heals: the trial
+        // activates with its full window once the real clock passes it.
+        // The anchor was persisted above, so forward observations are
+        // recorded even while gated.
+        if trialStart > effectiveNow {
+            Log.error("LicenseManager: trial-start is in the future — gated until the clock catches up")
+            status = .trialExpired
+            return
+        }
 
         let expiresAt = trialStart.addingTimeInterval(Self.trialDuration)
-        let secondsRemaining = expiresAt.timeIntervalSince(now())
+        let secondsRemaining = expiresAt.timeIntervalSince(effectiveNow)
         if secondsRemaining > 0 {
             // Round up so "23 hours 59 minutes left" displays as 1 day.
             let daysRemaining = max(1, Int(ceil(secondsRemaining / 86400)))
