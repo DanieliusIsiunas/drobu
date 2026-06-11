@@ -103,6 +103,26 @@ rm -f "$STRIPE_BODY"
 dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
 
+# License-fulfillment webhook health (mirrors the daily monitor's
+# webhook-health job — the documented backstop for GitHub auto-disabling
+# idle scheduled workflows). The function URL derives from the supabase CLI
+# link on this machine; before the fulfillment rollout that link doesn't
+# exist yet, and the check self-skips with a note rather than blocking
+# unrelated releases.
+if [[ -f supabase/.temp/project-ref ]]; then
+    WEBHOOK_HEALTH_URL="https://$(cat supabase/.temp/project-ref).supabase.co/functions/v1/stripe-webhook/health"
+    HEALTH_BODY=$(mktemp)
+    HEALTH_CODE=$(curl -s -o "$HEALTH_BODY" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "${WEBHOOK_HEALTH_URL}?cb=$(date +%s)$RANDOM") || HEALTH_CODE=000
+    [[ $HEALTH_CODE == "200" ]] \
+        || { rm -f "$HEALTH_BODY"; red "Fulfillment webhook health returned '$HEALTH_CODE' — paying customers are not receiving license keys. Fix before shipping anything (runbook: Automated fulfillment)."; exit 1; }
+    POOL_BUCKET=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pool",""))' "$HEALTH_BODY" 2>/dev/null) || POOL_BUCKET=""
+    rm -f "$HEALTH_BODY"
+    [[ $POOL_BUCKET == "ok" ]] \
+        || { red "License pool bucket is '$POOL_BUCKET' — refill with tools/mint-license-pool.sh before shipping (empty pool strands paying customers on Stripe retries)."; exit 1; }
+else
+    echo "  (note) supabase project not linked on this machine — fulfillment webhook check skipped (pre-rollout state)."
+fi
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $BRANCH == "main" ]] || { red "Not on main (on $BRANCH)."; exit 1; }
 
