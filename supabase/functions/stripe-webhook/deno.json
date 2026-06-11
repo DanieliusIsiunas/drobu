@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "stripe": "npm:stripe@17.7.0",
+    "nodemailer": "npm:nodemailer@6.9.16",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.45.4"
+  }
+}
