@@ -42,22 +42,23 @@ This is destructive — running it invalidates every key you've ever issued, bec
 
 After generation, the script prints the new base64-encoded public key. Paste it into `Sources/DrobuCore/Info.plist` under `DrobuLicensePublicKey` and commit. The next build embeds the new public key; subsequent builds will verify keys signed by the new private key.
 
-## Issuing keys to customers (manual flow)
+## Issuing keys to customers
 
-Today's flow is manual — fine for the first 5-20 customers, then we'll automate via a Stripe webhook (see [Future automation](#future-automation) below).
+Fulfillment is **automated**: a Stripe payment triggers a webhook (a Supabase Edge Function) that vends one pre-signed key from a pool and emails it to the customer within about a minute. See [Automated fulfillment](#automated-fulfillment) below for the architecture; operational procedures live in the private support runbook.
 
-For each customer who pays:
+The **manual fallback** remains for outages and support cases:
 
-1. Stripe emails you the standard `payment_intent.succeeded` notification with the customer's email.
+1. Find the customer's email (and checkout session id, `cs_...`) in the Stripe dashboard.
 2. Run:
    ```bash
-   ./tools/issue-license-key.sh customer@example.com
+   ./tools/issue-license-key.sh customer@example.com --session cs_XXXX
    ```
+   `--session` first checks whether that purchase already has a vended key (one payment must never yield two keys) and records the hand-issued key upstream so a later webhook retry returns the same key. Omit it only for non-Stripe issuance (gifts, replacements after key rotation).
 3. The script reads your private key from Keychain, signs a fresh random payload, and prints the formatted license key.
 4. Copy the key, email it to the customer with a "Welcome to Drobu" message.
 5. The script appends a row to `tools/license-log.csv` (gitignored) for your audit trail.
 
-The log columns are `timestamp,email,payload_hex`. Keep this CSV — it's your record of who has a valid key if you ever need to issue a refund, revoke a leaked key, or look up a customer's purchase later.
+The log columns are `timestamp,email,payload_hex` (pool batches log with `POOL` as the email until vended). Keep this CSV — it's one input of the reconciliation join, and your record of who has a valid key if you ever need to issue a refund, revoke a leaked key, or look up a customer's purchase later.
 
 ## Verification path inside the app
 
@@ -91,21 +92,23 @@ Drobu's licensing favors paying-customer experience over DRM strength: verificat
 
 The bare Stripe Payment Link URL shipped inside binaries v1.2–v1.5.2 is a **permanent public contract**: never deactivate that link and never rotate it to a new one — installed apps' Buy buttons point at it forever, and Sparkle updates are optional. Price changes edit the existing link in place (see the price-change checklist in CLAUDE.md). Later binaries point at `https://drobu.app/buy`, a redirect under our control — that URL is the next permanent contract; never move it without a forward. Both URLs (and the `drobu.app` MX records) are watched by the daily `payment-links-monitor` workflow and the `release.sh` preflight.
 
-## Future automation
+## Automated fulfillment
 
-The manual issuance flow is the floor; the ceiling is a Stripe webhook that auto-emails keys. Roughly:
+A Stripe payment triggers `supabase/functions/stripe-webhook`, which vends a **pre-signed** key from a Postgres pool and emails it via SMTP. The deliberate design decision — replacing an earlier sketch that would have exported the private key to a cloud secret store — is that **the Ed25519 private key never leaves the developer's Keychain**: keys are minted offline in batches (`tools/mint-license-pool.sh`) and the cloud only ever stores finished, opaque key strings. A cloud compromise leaks a bounded batch of unclaimed keys, never the ability to forge.
 
-1. **Cloudflare Worker** (~50 lines TS) deployed at `webhook.drobu.app/stripe`.
-2. **Webhook listens for `checkout.session.completed`** from Stripe.
-3. **Worker generates a license key** using a private key stored in Cloudflare's secrets store (the same Ed25519 private key, exported once).
-4. **Worker emails the key** to the customer via Resend / Postmark / similar.
-5. **Worker logs the issuance** in a Cloudflare D1 row or KV entry for audit.
+The moving parts:
 
-Total ongoing cost: ~$0/month at low volume (Cloudflare free tier + email free tier). Setup: ~1 day. This lands in a separate plan when you're ready to stop emailing keys by hand.
+1. **Stripe webhook** (live mode) delivers `checkout.session.completed` / `checkout.session.async_payment_succeeded` / `checkout.session.async_payment_failed` to the Edge Function. Every request is authenticated by Stripe's HMAC signature; vending is gated on `payment_status` (delayed payment methods fulfill on the later success event).
+2. **Atomic, idempotent vend**: one key per checkout session, enforced by a unique constraint + `FOR UPDATE SKIP LOCKED` claim in Postgres. Stripe retries (up to 72h) always receive the *same* key, and a retry after a transient email failure re-sends rather than re-vends.
+3. **Email** goes out from the Drobu mailbox over SMTP, with the key on its own line / in a `<pre>` block (line-wrapped keys are the top historical activation failure).
+4. **Monitoring**: the daily `payment-links-monitor` workflow checks the function's health route, the pool depth, and the Stripe endpoint's configuration (a disabled endpoint delivers nothing, silently); `release.sh`'s preflight mirrors the health check.
+5. **Audit**: every claim records the session id, email, and `payload_hex`; `tools/export-license-claims.sh` exports them for the reconciliation join against Stripe's payment list and the local CSV.
+
+Operational procedures (secrets, failure playbooks, reconciliation cadence, key-rotation interplay with the pool) live in the private support runbook — not in this public document.
 
 ## Operational runbook
 
-**A customer paid but I haven't sent them a key**: run `./tools/issue-license-key.sh their-email@example.com`, copy the output, email it.
+**A customer paid but no key arrived** (webhook outage, bounced email): grab the checkout session id from the Stripe dashboard and run `./tools/issue-license-key.sh their-email@example.com --session cs_XXXX`, copy the output, email it. If the session already has a vended key, the script prints that key instead of minting a second one.
 
 **A customer says their key doesn't work**: ask them to copy the entire key including the `DROBU-` prefix and paste it without trailing spaces. If activation still fails, the most likely cause is line-wrapping in their email — re-send the key with `<pre>` formatting or in a code block.
 
