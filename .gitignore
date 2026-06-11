@@ -31,6 +31,10 @@ sparkle_private_key*
 # Per-customer license issuance audit log
 tools/license-log.csv
 
+# In-flight license-pool mint batch (contains VALID pre-signed keys; born
+# 0600 via umask, deleted after confirmed upload + CSV append)
+tools/license-pool-batch*
+
 # Private operational docs (support runbook, licensing internals,
 # plans/audits touching trial-gate mechanics) — never in the public repo
 docs/private/
