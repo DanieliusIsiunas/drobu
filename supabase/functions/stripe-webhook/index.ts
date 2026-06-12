@@ -98,7 +98,10 @@ const deps: HandlerDeps = {
     port: Number(Deno.env.get("SMTP_PORT") ?? "465"),
     username: requireEnv("SMTP_USERNAME"),
     password: requireEnv("SMTP_PASSWORD"),
-    from: Deno.env.get("MAIL_FROM") ?? "Drobu <license@drobu.app>",
+    // support@ is the single Hostinger mailbox (Starter plan, 1-mailbox
+    // limit) — sender, reply-to, and bounce destination are all the same
+    // address the developer already reads.
+    from: Deno.env.get("MAIL_FROM") ?? "Drobu <support@drobu.app>",
     replyTo: Deno.env.get("MAIL_REPLY_TO") ?? "support@drobu.app",
   }),
 
