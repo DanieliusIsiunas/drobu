@@ -111,9 +111,14 @@ jobs:
             exit 1
           fi
           pool=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pool",""))' "$body") || pool=""
-          echo "pool bucket: $pool"
+          stuck=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("stuck",""))' "$body") || stuck=""
+          echo "pool bucket: $pool, stuck vends: $stuck"
           if [ "$pool" != "ok" ]; then
-            echo "::error::license pool bucket is '$pool' — refill NOW with tools/mint-license-pool.sh (an empty pool strands paying customers on Stripe retries)"
+            echo "::error::license pool bucket is '$pool' (low = ~48h runway left, empty = customers actively stranded on Stripe retries) — refill NOW with tools/mint-license-pool.sh"
+            exit 1
+          fi
+          if [ "$stuck" != "False" ] && [ "$stuck" != "false" ]; then
+            echo "::error::stuck vends detected (claimed >30 min, never emailed) — SMTP delivery is failing while everything else looks healthy; check function logs + Hostinger SMTP (runbook: Automated fulfillment)"
             exit 1
           fi
 
@@ -134,7 +139,10 @@ jobs:
           fi
           endpoint_url="${health_url%/health}"
           resp=$(mktemp)
-          code=$(curl -s -o "$resp" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors -u "${key}:" "https://api.stripe.com/v1/webhook_endpoints?limit=100") || code=000
+          # plain --retry (no --retry-all-errors): transient 5xx/timeouts
+          # retry, but a 401 (rotated key) fails fast instead of burning
+          # ~14s retrying a permanent auth error.
+          code=$(curl -s -o "$resp" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 -u "${key}:" "https://api.stripe.com/v1/webhook_endpoints?limit=100") || code=000
           echo "stripe api: $code"
           if [ "$code" = "401" ]; then
             echo "::error::Stripe rejected the monitor key (401) — STRIPE_MONITOR_KEY was rotated or revoked; re-create the restricted read-only key and update the GitHub secret"

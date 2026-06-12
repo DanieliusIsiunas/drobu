@@ -127,7 +127,7 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 6. `website/src/layouts/Landing.astro` — meta description **and** JSON-LD `"price"`
 7. `website/src/pages/terms.astro`
 8. This file (the Pricing line above)
-9. The fulfillment webhook's `AMOUNT_FLOOR` Supabase secret (`supabase secrets set AMOUNT_FLOOR=<minor units>`) — the log-only sanity floor must stay below the lowest legitimate localized price
+9. The fulfillment webhook's `AMOUNT_FLOOR` Supabase secret (`supabase secrets set AMOUNT_FLOOR=<minor units>`) — a log-only sanity signal that never blocks fulfillment; set it below the lowest legitimate localized price so below-floor transactions leave a visible breadcrumb
 
 ## Debugging
 

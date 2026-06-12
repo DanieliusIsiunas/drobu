@@ -63,11 +63,18 @@ export interface HandlerDeps {
   markEmailSent(sessionId: string): Promise<void>;
   sendMail(to: string, key: string): Promise<void>;
   poolDepth(): Promise<"ok" | "low" | "empty">;
+  // True when a vend claimed >30 min ago still has no email_sent_at — the
+  // delivery-failure state nothing else surfaces.
+  stuckVends(): Promise<boolean>;
   config: HandlerConfig;
   log(line: string): void;
 }
 
-const FULFILL_EVENTS = [
+// Events whose sessions may vend (gated on payment_status below).
+// checkout.session.async_payment_failed is subscribed in Stripe (see the
+// monitor's event-set pin) but handled separately above this list — it must
+// NEVER appear here.
+const VEND_EVENTS = [
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
 ];
@@ -81,6 +88,9 @@ function json(status: number, body: Record<string, unknown>): Response {
 
 // The function sees paths like /stripe-webhook and /stripe-webhook/health
 // when deployed (and the same shape under `supabase functions serve`).
+// IMPORTANT: the prefix literal must equal the function directory name —
+// renaming supabase/functions/stripe-webhook/ requires updating this string
+// (and the Stripe endpoint URL) in the same change.
 function route(pathname: string): "webhook" | "health" | "unknown" {
   const p = pathname.replace(/^\/stripe-webhook/, "").replace(/\/+$/, "");
   if (p === "" || p === "/") return "webhook";
@@ -100,17 +110,25 @@ export async function handleRequest(
     if (req.method !== "GET") return json(405, { error: "method not allowed" });
     try {
       const pool = await deps.poolDepth();
-      return json(200, { ok: true, pool });
+      const stuck = await deps.stuckVends();
+      return json(200, { ok: true, pool, stuck });
     } catch (e) {
       // A DB outage must read as unreachable to the monitor, never healthy.
-      deps.log(`StripeWebhook: health pool_depth failed: ${e}`);
+      deps.log(`StripeWebhook: health probe failed: ${e}`);
       return json(500, { ok: false });
     }
   }
 
   if (req.method !== "POST") return json(405, { error: "method not allowed" });
 
-  const rawBody = await req.text();
+  let rawBody: string;
+  try {
+    rawBody = await req.text();
+  } catch (e) {
+    // Interrupted delivery mid-stream; 500 → Stripe retries.
+    deps.log(`StripeWebhook: body read failed: ${e}`);
+    return json(500, { error: "body read failed" });
+  }
   let event: EventLike;
   try {
     event = await deps.verifyEvent(
@@ -129,12 +147,24 @@ export async function handleRequest(
     return json(200, { received: true });
   }
 
-  if (!FULFILL_EVENTS.includes(event.type)) {
+  if (!VEND_EVENTS.includes(event.type)) {
     deps.log(`StripeWebhook: ignoring event type ${event.type} (${event.id})`);
     return json(200, { received: true });
   }
 
   const session = event.data.object;
+
+  // Shape guard: the verified payload is cast, not validated. A Stripe API
+  // version change that reshapes the session must surface as a loud 500
+  // (retryable, visible in Stripe's dashboard) — not flow through the gates
+  // as a silent 200 no-vend that strands a paying customer.
+  if (typeof session?.id !== "string" || typeof session.payment_status !== "string") {
+    deps.log(
+      `StripeWebhook: MALFORMED SESSION SHAPE on ${event.type} (event ${event.id}) — Stripe API drift? Inspect the event payload`,
+    );
+    return json(500, { error: "unexpected payload shape" });
+  }
+
   const tag = `session ${session.id}, event ${event.id}`;
 
   if (session.livemode !== deps.config.expectedLivemode) {
@@ -157,18 +187,19 @@ export async function handleRequest(
     );
   }
 
+  if (session.payment_status === "unpaid") {
+    // Normal for delayed payment methods: completed arrives unpaid, the
+    // later async_payment_succeeded fulfills. Checked before the email gate
+    // so the vend-manually alarm below only fires for actually-paid sessions.
+    deps.log(`StripeWebhook: payment_status unpaid — deferring (${tag})`);
+    return json(200, { received: true });
+  }
+
   const email = session.customer_details?.email ?? null;
   if (!email) {
     deps.log(
       `StripeWebhook: NO CUSTOMER EMAIL on paid session — cannot fulfill automatically; vend manually from the Stripe dashboard (${tag})`,
     );
-    return json(200, { received: true });
-  }
-
-  if (session.payment_status === "unpaid") {
-    // Normal for delayed payment methods: completed arrives unpaid, the
-    // later async_payment_succeeded fulfills.
-    deps.log(`StripeWebhook: payment_status unpaid — deferring (${tag})`);
     return json(200, { received: true });
   }
 

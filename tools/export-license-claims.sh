@@ -15,6 +15,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Temp files below hold customer emails + key strings — owner-only at birth.
+umask 0077
+
 SR_ACCOUNT="drobu-supabase-service-role"
 SR_SERVICE="com.danielius.ClipboardHistory.supabase"
 
@@ -34,13 +37,16 @@ SR_KEY=$(security find-generic-password -a "$SR_ACCOUNT" -s "$SR_SERVICE" -w 2>/
 }
 
 BODY=$(mktemp)
-trap 'rm -f "$BODY"' EXIT
+HDRS=$(mktemp)
+trap 'rm -f "$BODY" "$HDRS"' EXIT
+# Auth via curl config file: the key never appears on a ps-visible argv.
+printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' \
+    "$SR_KEY" "$SR_KEY" > "$HDRS"
 
 HTTP_CODE=$(curl -s -o "$BODY" -w '%{http_code}' \
     --max-time 60 --retry 3 --retry-delay 2 --retry-all-errors \
-    "${SUPABASE_URL}/rest/v1/license_keys?claimed_at=not.is.null&select=claimed_at,email,stripe_session_id,payload_hex,key_version,amount_total,currency,email_sent_at,refunded_at&order=claimed_at.asc" \
-    -H "apikey: ${SR_KEY}" \
-    -H "Authorization: Bearer ${SR_KEY}") || HTTP_CODE=000
+    -K "$HDRS" \
+    "${SUPABASE_URL}/rest/v1/license_keys?claimed_at=not.is.null&select=claimed_at,email,stripe_session_id,payload_hex,key_version,amount_total,currency,email_sent_at,refunded_at&order=claimed_at.asc") || HTTP_CODE=000
 
 if [[ $HTTP_CODE != 200 ]]; then
     echo "✗ Export failed (HTTP $HTTP_CODE):" >&2
@@ -51,6 +57,15 @@ fi
 python3 - "$BODY" <<'PY'
 import csv, json, sys
 rows = json.load(open(sys.argv[1]))
+# PostgREST silently caps responses at its max-rows setting (commonly 1000).
+# A capped export would make the reconciliation diff go blind to the newest
+# claims while looking complete — refuse instead of truncating silently.
+if len(rows) >= 1000:
+    sys.stderr.write(
+        "✗ Export returned >= 1000 rows — likely capped by PostgREST "
+        "max-rows. Paginate with Range headers before trusting this export.\n"
+    )
+    sys.exit(1)
 cols = ["claimed_at", "email", "stripe_session_id", "payload_hex",
         "key_version", "amount_total", "currency", "email_sent_at",
         "refunded_at"]

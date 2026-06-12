@@ -49,6 +49,12 @@ fi
 
 umask 0077
 
+# Scratch space (0700 under the umask) for curl header config, request body,
+# and response capture — keeps the service-role key and the key batch off
+# ps-visible command lines and out of fixed /tmp paths.
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
 # --- Resolve the Supabase project URL -------------------------------------
 # `supabase link` records the project ref locally; fall back to an env var.
 SUPABASE_URL="${DROBU_SUPABASE_URL:-}"
@@ -130,16 +136,19 @@ for _ in 0..<n {
         exit 1
     fi
 
-    # Durable batch BEFORE upload: key,payload_hex,key_version,minted_at
-    : > "$BATCH"
+    # Durable batch BEFORE upload: key,payload_hex,key_version,minted_at.
+    # Written to a .tmp and moved into place atomically, so a crash mid-write
+    # never leaves a torn batch file that a resume would half-ingest.
+    : > "$BATCH.tmp"
     while read -r PAYLOAD SIG HEX; do
-        echo "DROBU-${PAYLOAD}.${SIG},${HEX},${KEY_VERSION},${MINTED_AT}" >> "$BATCH"
+        echo "DROBU-${PAYLOAD}.${SIG},${HEX},${KEY_VERSION},${MINTED_AT}" >> "$BATCH.tmp"
     done <<< "$OUT"
+    mv "$BATCH.tmp" "$BATCH"
     echo "✓ Batch written ($BATCH, $N keys)"
 fi
 
 # --- Upload (idempotent on payload_hex) ------------------------------------
-BATCH_JSON=$(python3 - "$BATCH" <<'PY'
+python3 - "$BATCH" > "$WORK/batch.json" <<'PY'
 import csv, json, sys
 rows = []
 with open(sys.argv[1], newline="") as f:
@@ -148,20 +157,24 @@ with open(sys.argv[1], newline="") as f:
                      "key_version": key_version, "minted_at": minted_at})
 print(json.dumps(rows))
 PY
-)
 
-HTTP_CODE=$(curl -s -o /tmp/mint-upload-response.txt -w '%{http_code}' \
+# Auth headers via a curl config file (-K): the service-role key must never
+# appear on a ps-visible command line (.claude/rules/keychain-and-crypto.md).
+printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' \
+    "$SR_KEY" "$SR_KEY" > "$WORK/curl-headers"
+
+UPLOAD_RESP="$WORK/upload-response.txt"
+HTTP_CODE=$(curl -s -o "$UPLOAD_RESP" -w '%{http_code}' \
     --max-time 60 --retry 3 --retry-delay 2 --retry-all-errors \
+    -K "$WORK/curl-headers" \
     -X POST "${SUPABASE_URL}/rest/v1/license_keys?on_conflict=payload_hex" \
-    -H "apikey: ${SR_KEY}" \
-    -H "Authorization: Bearer ${SR_KEY}" \
     -H "Content-Type: application/json" \
     -H "Prefer: resolution=ignore-duplicates,return=minimal" \
-    -d "$BATCH_JSON") || HTTP_CODE=000
+    -d @"$WORK/batch.json") || HTTP_CODE=000
 
 if [[ $HTTP_CODE != 2* ]]; then
     echo "✗ Upload failed (HTTP $HTTP_CODE) — batch file kept for resume:" >&2
-    sed 's/^/    /' /tmp/mint-upload-response.txt >&2 || true
+    sed 's/^/    /' "$UPLOAD_RESP" >&2 || true
     echo "  Re-run this script to resume; no CSV rows were appended." >&2
     exit 1
 fi

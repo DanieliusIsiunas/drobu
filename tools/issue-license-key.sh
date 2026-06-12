@@ -36,6 +36,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Temp files in the --session path hold key strings — owner-only at birth.
+umask 0077
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
 ACCOUNT="drobu-license-ed25519"
 SERVICE="com.danielius.ClipboardHistory.license-signing"
 SR_ACCOUNT="drobu-supabase-service-role"
@@ -81,23 +86,24 @@ if [[ -n $SESSION_ID ]]; then
         echo "✗ Supabase service-role key not in Keychain (account: $SR_ACCOUNT)." >&2
         exit 1
     }
+    # Auth via curl config file: the key never appears on a ps-visible argv.
+    printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' \
+        "$SR_KEY" "$SR_KEY" > "$WORK/curl-headers"
 
     # One payment, one key: if this session already has a claim, print it.
-    EXISTING_BODY=$(mktemp)
+    EXISTING_BODY="$WORK/existing.json"
     HTTP_CODE=$(curl -s -o "$EXISTING_BODY" -w '%{http_code}' \
         --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors \
-        "${SUPABASE_URL}/rest/v1/license_keys?stripe_session_id=eq.${SESSION_ID}&select=key" \
-        -H "apikey: ${SR_KEY}" -H "Authorization: Bearer ${SR_KEY}") || HTTP_CODE=000
+        -K "$WORK/curl-headers" \
+        "${SUPABASE_URL}/rest/v1/license_keys?stripe_session_id=eq.${SESSION_ID}&select=key") || HTTP_CODE=000
     if [[ $HTTP_CODE != 200 ]]; then
         echo "✗ Could not check the pool for session ${SESSION_ID} (HTTP $HTTP_CODE) — refusing to mint blind." >&2
-        rm -f "$EXISTING_BODY"
         exit 1
     fi
     EXISTING_KEY=$(python3 -c '
 import json, sys
 rows = json.load(open(sys.argv[1]))
 print(rows[0]["key"] if rows else "")' "$EXISTING_BODY")
-    rm -f "$EXISTING_BODY"
     if [[ -n $EXISTING_KEY ]]; then
         echo
         echo "! Session ${SESSION_ID} already has a vended key — minting NOTHING."
@@ -165,32 +171,38 @@ fi
 KEY="DROBU-${PAYLOAD_B64URL}.${SIG_B64URL}"
 
 # --- Record the claim upstream (--session only) ------------------------------
+# Deliberately NOT the claim_license_key RPC: that vends from the pool, but
+# this key was freshly minted OUTSIDE the pool — calling the RPC would burn a
+# pool key AND leave this one unrecorded. A direct insert of an
+# already-claimed row is the correct shape for the manual path.
 if [[ -n $SESSION_ID ]]; then
     KEY_VERSION=$(plutil -extract DrobuLicensePublicKey raw "$INFO_PLIST" | base64 -d | shasum -a 256 | cut -c1-8)
     NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    CLAIM_BODY=$(python3 -c '
-import json, sys
+    # Key material reaches python via env, and curl via a body file — never
+    # a ps-visible argv.
+    DROBU_K="$KEY" DROBU_H="$PAYLOAD_HEX" DROBU_V="$KEY_VERSION" \
+    DROBU_T="$NOW" DROBU_S="$SESSION_ID" DROBU_E="$EMAIL" python3 -c '
+import json, os
+e = os.environ
 print(json.dumps({
-    "key": sys.argv[1], "payload_hex": sys.argv[2], "key_version": sys.argv[3],
-    "minted_at": sys.argv[4], "claimed_at": sys.argv[4],
-    "stripe_session_id": sys.argv[5], "email": sys.argv[6],
-}))' "$KEY" "$PAYLOAD_HEX" "$KEY_VERSION" "$NOW" "$SESSION_ID" "$EMAIL")
-    RESP=$(mktemp)
+    "key": e["DROBU_K"], "payload_hex": e["DROBU_H"], "key_version": e["DROBU_V"],
+    "minted_at": e["DROBU_T"], "claimed_at": e["DROBU_T"],
+    "stripe_session_id": e["DROBU_S"], "email": e["DROBU_E"],
+}))' > "$WORK/claim-body.json"
+    RESP="$WORK/claim-response.txt"
     HTTP_CODE=$(curl -s -o "$RESP" -w '%{http_code}' \
         --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors \
+        -K "$WORK/curl-headers" \
         -X POST "${SUPABASE_URL}/rest/v1/license_keys" \
-        -H "apikey: ${SR_KEY}" -H "Authorization: Bearer ${SR_KEY}" \
         -H "Content-Type: application/json" -H "Prefer: return=minimal" \
-        -d "$CLAIM_BODY") || HTTP_CODE=000
+        -d @"$WORK/claim-body.json") || HTTP_CODE=000
     if [[ $HTTP_CODE != 2* ]]; then
         echo "✗ Failed to record the claim upstream (HTTP $HTTP_CODE):" >&2
         sed 's/^/    /' "$RESP" >&2 || true
         echo "  If this races a concurrent webhook vend, re-run with the same --session:" >&2
         echo "  the existing-claim check will print the winning key." >&2
-        rm -f "$RESP"
         exit 1
     fi
-    rm -f "$RESP"
     echo "✓ Claim recorded upstream for ${SESSION_ID} (webhook retries will return this key)"
 fi
 

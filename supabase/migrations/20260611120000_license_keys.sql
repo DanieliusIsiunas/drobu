@@ -40,7 +40,7 @@ create table public.license_keys (
 
 alter table public.license_keys enable row level security;
 -- Zero policies on purpose: anon/authenticated have no path to this table.
-revoke all on table public.license_keys from anon, authenticated;
+revoke all on table public.license_keys from public, anon, authenticated;
 
 -- Atomic, idempotent vend.
 --   * Known session id -> return the already-claimed key (Stripe retries and
@@ -108,22 +108,34 @@ $$;
 
 revoke execute on function public.claim_license_key(text, text, bigint, text)
     from public, anon, authenticated;
+-- Explicit (not platform-default-privilege-dependent): the Edge Function's
+-- role must keep EXECUTE after the PUBLIC revoke.
+grant execute on function public.claim_license_key(text, text, bigint, text)
+    to service_role;
 
 -- Stamps delivery after a successful SMTP send. Kept as an RPC (rather than
--- a PostgREST table update) so table privileges stay fully sealed.
+-- a PostgREST table update) so table privileges stay fully sealed. Raises on
+-- an unknown session id: a silent zero-row no-op would leave the row stuck
+-- looking claimed-but-never-emailed while the handler reports success.
 create or replace function public.mark_email_sent(p_session_id text)
 returns void
-language sql
+language plpgsql
 security definer
 set search_path = public
 as $$
+begin
     update public.license_keys
        set email_sent_at = now()
      where stripe_session_id = p_session_id;
+    if not found then
+        raise exception 'mark_email_sent: no row for session %', p_session_id;
+    end if;
+end;
 $$;
 
 revoke execute on function public.mark_email_sent(text)
     from public, anon, authenticated;
+grant execute on function public.mark_email_sent(text) to service_role;
 
 -- Bucketed pool depth for the public health route: ordinal only, no counts.
 -- Thresholds: empty = 0, low <= 5 (covers ~48h of plausible sales against
@@ -143,3 +155,27 @@ $$;
 
 revoke execute on function public.pool_depth()
     from public, anon, authenticated;
+grant execute on function public.pool_depth() to service_role;
+
+-- True when any vend claimed > 30 minutes ago still has no email_sent_at —
+-- the one delivery-failure state no other check can see (SMTP failing while
+-- the function, pool, and Stripe config all look healthy). Surfaced as a
+-- boolean on the health route; the daily monitor reds on it.
+create or replace function public.stuck_vends()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+    select exists (
+        select 1 from public.license_keys
+         where claimed_at is not null
+           and claimed_at < now() - interval '30 minutes'
+           and email_sent_at is null
+           and refunded_at is null
+    );
+$$;
+
+revoke execute on function public.stuck_vends()
+    from public, anon, authenticated;
+grant execute on function public.stuck_vends() to service_role;

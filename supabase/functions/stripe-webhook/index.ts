@@ -18,6 +18,31 @@ function requireEnv(name: string): string {
   return v;
 }
 
+// Strict boot-time config validation. A typo'd EXPECTED_LIVEMODE would
+// otherwise silently flip production into a permanent 200-no-vend state —
+// every live payment acknowledged, no key sent, no Stripe retry, monitor
+// green. Failing the boot makes the function (and /health) loudly
+// unreachable instead.
+function parseExpectedLivemode(): boolean {
+  const v = requireEnv("EXPECTED_LIVEMODE");
+  if (v !== "true" && v !== "false") {
+    throw new Error(
+      `EXPECTED_LIVEMODE must be exactly "true" or "false", got: ${v}`,
+    );
+  }
+  return v === "true";
+}
+
+function parseAmountFloor(): number | null {
+  const v = Deno.env.get("AMOUNT_FLOOR");
+  if (!v) return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`AMOUNT_FLOOR must be a non-negative integer, got: ${v}`);
+  }
+  return n;
+}
+
 // Webhook-only client: no Stripe API calls are made, so no real API key is
 // needed — constructEventAsync only uses the signing secret.
 const stripe = new Stripe(Deno.env.get("STRIPE_API_KEY") ?? "sk_unused");
@@ -86,12 +111,16 @@ const deps: HandlerDeps = {
     return data;
   },
 
+  async stuckVends() {
+    const { data, error } = await supabase.rpc("stuck_vends");
+    if (error) throw new Error(`stuck_vends: ${error.message}`);
+    return data === true;
+  },
+
   config: {
-    expectedLivemode: (Deno.env.get("EXPECTED_LIVEMODE") ?? "true") === "true",
+    expectedLivemode: parseExpectedLivemode(),
     paymentLinkId: Deno.env.get("PAYMENT_LINK_ID") || null,
-    amountFloor: Deno.env.get("AMOUNT_FLOOR")
-      ? Number(Deno.env.get("AMOUNT_FLOOR"))
-      : null,
+    amountFloor: parseAmountFloor(),
   },
 
   log: (line) => console.log(line),

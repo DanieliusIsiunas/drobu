@@ -84,7 +84,12 @@ function event(type: string, s: SessionLike): Record<string, unknown> {
 }
 
 interface Calls {
-  claims: Array<{ sessionId: string; email: string }>;
+  claims: Array<{
+    sessionId: string;
+    email: string;
+    amount: number | null;
+    currency: string | null;
+  }>;
   sends: Array<{ to: string; key: string }>;
   marks: string[];
   logs: string[];
@@ -95,6 +100,7 @@ function makeDeps(opts: {
   sendError?: Error;
   markError?: Error;
   pool?: "ok" | "low" | "empty" | Error;
+  stuck?: boolean | Error;
   config?: Partial<HandlerConfig>;
 } = {}): { deps: HandlerDeps; calls: Calls } {
   const calls: Calls = { claims: [], sends: [], marks: [], logs: [] };
@@ -111,8 +117,8 @@ function makeDeps(opts: {
       return ev as unknown as EventLike;
     },
     // deno-lint-ignore require-await
-    async claimKey(sessionId, email) {
-      calls.claims.push({ sessionId, email });
+    async claimKey(sessionId, email, amount, currency) {
+      calls.claims.push({ sessionId, email, amount, currency });
       const v = opts.vend ??
         { key: "DROBU-testpayload.testsig", payloadHex: "ab01", emailSentAt: null };
       if (v instanceof Error) throw v;
@@ -133,6 +139,12 @@ function makeDeps(opts: {
       const p = opts.pool ?? "ok";
       if (p instanceof Error) throw p;
       return p;
+    },
+    // deno-lint-ignore require-await
+    async stuckVends() {
+      const s = opts.stuck ?? false;
+      if (s instanceof Error) throw s;
+      return s;
     },
     config: {
       expectedLivemode: false, // local-dev shape; fixtures are livemode:false
@@ -168,6 +180,8 @@ Deno.test("valid completed+paid event vends, emails, marks, 200", async () => {
   assertEquals(res.status, 200, "status");
   assertEquals(calls.claims.length, 1, "one claim");
   assertEquals(calls.claims[0].email, "customer@example.com", "claim email");
+  assertEquals(calls.claims[0].amount, 1499, "amount forwarded");
+  assertEquals(calls.claims[0].currency, "eur", "currency forwarded");
   assertEquals(calls.sends.length, 1, "one send");
   assert(
     calls.sends[0].key === "DROBU-testpayload.testsig",
@@ -176,6 +190,10 @@ Deno.test("valid completed+paid event vends, emails, marks, 200", async () => {
   assertEquals(calls.marks.length, 1, "marked sent");
   const bodyText = await res.text();
   assert(!bodyText.includes("DROBU-"), "response body carries no key");
+  assert(
+    !calls.logs.some((l) => l.includes("DROBU-")),
+    "log breadcrumbs carry no key material",
+  );
 });
 
 Deno.test("corrupted signature -> 400, claim never called", async () => {
@@ -190,16 +208,28 @@ Deno.test("corrupted signature -> 400, claim never called", async () => {
   assertEquals(calls.claims.length, 0, "no claim");
 });
 
-Deno.test("stale timestamp outside tolerance -> 400", async () => {
+Deno.test("timestamp just past the 300s tolerance -> 400", async () => {
   const { deps, calls } = makeDeps();
   const res = await handleRequest(
     await signedPost(event("checkout.session.completed", session()), {
-      timestamp: Math.floor(Date.now() / 1000) - 3600,
+      timestamp: Math.floor(Date.now() / 1000) - 301,
     }),
     deps,
   );
   assertEquals(res.status, 400, "status");
   assertEquals(calls.claims.length, 0, "no claim");
+});
+
+Deno.test("aged-but-within-tolerance timestamp (-200s) verifies and vends", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handleRequest(
+    await signedPost(event("checkout.session.completed", session()), {
+      timestamp: Math.floor(Date.now() / 1000) - 200,
+    }),
+    deps,
+  );
+  assertEquals(res.status, 200, "status");
+  assertEquals(calls.claims.length, 1, "vended");
 });
 
 Deno.test("missing signature header -> 400", async () => {
@@ -239,6 +269,7 @@ Deno.test("async_payment_succeeded + paid vends", async () => {
   assertEquals(res.status, 200, "status");
   assertEquals(calls.claims.length, 1, "claimed");
   assertEquals(calls.sends.length, 1, "sent");
+  assertEquals(calls.marks.length, 1, "marked sent");
 });
 
 Deno.test("async_payment_failed -> 200, no claim", async () => {
@@ -408,7 +439,7 @@ Deno.test("unknown event type -> 200, no claim", async () => {
   assertEquals(calls.claims.length, 0, "no claim");
 });
 
-Deno.test("GET /health buckets: empty / low / ok", async () => {
+Deno.test("GET /health buckets: empty / low / ok, stuck false", async () => {
   for (const pool of ["empty", "low", "ok"] as const) {
     const { deps } = makeDeps({ pool });
     const res = await handleRequest(
@@ -419,11 +450,34 @@ Deno.test("GET /health buckets: empty / low / ok", async () => {
     const body = await res.json();
     assertEquals(body.pool, pool, "bucket");
     assertEquals(body.ok, true, "ok flag");
+    assertEquals(body.stuck, false, "stuck flag");
   }
 });
 
-Deno.test("GET /health with pool_depth failure -> 500", async () => {
+Deno.test("GET /health surfaces stuck vends", async () => {
+  const { deps } = makeDeps({ stuck: true });
+  const res = await handleRequest(
+    new Request("http://localhost/stripe-webhook/health"),
+    deps,
+  );
+  assertEquals(res.status, 200, "status");
+  const body = await res.json();
+  assertEquals(body.stuck, true, "stuck flag raised");
+});
+
+Deno.test("GET /health with pool_depth failure -> 500 with ok:false", async () => {
   const { deps } = makeDeps({ pool: new Error("db down") });
+  const res = await handleRequest(
+    new Request("http://localhost/stripe-webhook/health"),
+    deps,
+  );
+  assertEquals(res.status, 500, "status");
+  const body = await res.json();
+  assertEquals(body.ok, false, "ok flag false on failure");
+});
+
+Deno.test("GET /health with stuck_vends failure -> 500", async () => {
+  const { deps } = makeDeps({ stuck: new Error("db down") });
   const res = await handleRequest(
     new Request("http://localhost/stripe-webhook/health"),
     deps,
@@ -452,4 +506,89 @@ Deno.test("POST to /health -> 405; unknown path -> 404", async () => {
     deps,
   );
   assertEquals(r2.status, 404, "unknown path");
+});
+
+Deno.test("retry after send failure: cleared transient -> same key sent and marked", async () => {
+  // First delivery: claim succeeds, SMTP fails -> 500 (covered elsewhere).
+  // This is the follow-on Stripe retry: claim returns the SAME key (still
+  // unmarked), send now succeeds, row gets marked.
+  const { deps, calls } = makeDeps({
+    vend: { key: "DROBU-already.claimed", payloadHex: "ab02", emailSentAt: null },
+  });
+  const res = await handleRequest(
+    await signedPost(event("checkout.session.completed", session())),
+    deps,
+  );
+  assertEquals(res.status, 200, "status");
+  assertEquals(calls.sends.length, 1, "sent on retry");
+  assertEquals(calls.sends[0].key, "DROBU-already.claimed", "same key");
+  assertEquals(calls.marks.length, 1, "marked on retry");
+});
+
+Deno.test("customer_details entirely null -> 200, no claim", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handleRequest(
+    await signedPost(
+      event(
+        "checkout.session.completed",
+        session({ customer_details: null }),
+      ),
+    ),
+    deps,
+  );
+  assertEquals(res.status, 200, "status");
+  assertEquals(calls.claims.length, 0, "no claim");
+});
+
+Deno.test("malformed session shape (missing payment_status) -> 500, no claim", async () => {
+  const { deps, calls } = makeDeps();
+  const s = session() as unknown as Record<string, unknown>;
+  delete s.payment_status;
+  const res = await handleRequest(
+    await signedPost(event("checkout.session.completed", s as never)),
+    deps,
+  );
+  assertEquals(res.status, 500, "status");
+  assertEquals(calls.claims.length, 0, "no claim");
+  assert(
+    calls.logs.some((l) => l.includes("MALFORMED SESSION SHAPE")),
+    "loud drift breadcrumb",
+  );
+});
+
+Deno.test("unpaid gate fires before the email gate (breadcrumb accuracy)", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handleRequest(
+    await signedPost(
+      event(
+        "checkout.session.completed",
+        session({ payment_status: "unpaid", customer_details: null }),
+      ),
+    ),
+    deps,
+  );
+  assertEquals(res.status, 200, "status");
+  assert(
+    calls.logs.some((l) => l.includes("unpaid")),
+    "deferring breadcrumb",
+  );
+  assert(
+    !calls.logs.some((l) => l.includes("NO CUSTOMER EMAIL")),
+    "no false vend-manually alarm for an unpaid session",
+  );
+});
+
+Deno.test("buildLicenseEmail: key on its own line in text, inside <pre> in html", async () => {
+  const { buildLicenseEmail } = await import("../stripe-webhook/email.ts");
+  const key = "DROBU-somepayload.somesignature";
+  const msg = buildLicenseEmail(key);
+  assert(
+    msg.text.split("\n").some((l) => l.trim() === key),
+    "text part carries the key as an entire line",
+  );
+  assert(
+    /<pre[^>]*>[^<]*DROBU-somepayload\.somesignature[^<]*<\/pre>/.test(msg.html),
+    "html part carries the key inside <pre>",
+  );
+  assert(msg.subject.length > 0, "subject present");
 });

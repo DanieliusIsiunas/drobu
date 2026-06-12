@@ -80,13 +80,37 @@ export function createSender(
 
   return async (to: string, key: string) => {
     const msg = buildLicenseEmail(key);
-    await transporter.sendMail({
-      from: cfg.from,
-      to,
-      replyTo: cfg.replyTo,
-      subject: msg.subject,
-      text: msg.text,
-      html: msg.html,
-    });
+    // nodemailer's socketTimeout is per SMTP command, not per send — a slow
+    // server can stack commands past Stripe's delivery window. The hard
+    // deadline bounds the whole send; on timeout the handler 500s and the
+    // idempotent retry chain re-attempts (same key, no double-vend).
+    await withDeadline(
+      transporter.sendMail({
+        from: cfg.from,
+        to,
+        replyTo: cfg.replyTo,
+        subject: msg.subject,
+        text: msg.text,
+        html: msg.html,
+      }),
+      15_000,
+      "SMTP send exceeded 15s deadline",
+    );
   };
+}
+
+function withDeadline<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(msg)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }

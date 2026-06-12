@@ -116,9 +116,12 @@ if [[ -f supabase/.temp/project-ref ]]; then
     [[ $HEALTH_CODE == "200" ]] \
         || { rm -f "$HEALTH_BODY"; red "Fulfillment webhook health returned '$HEALTH_CODE' — paying customers are not receiving license keys. Fix before shipping anything (runbook: Automated fulfillment)."; exit 1; }
     POOL_BUCKET=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pool",""))' "$HEALTH_BODY" 2>/dev/null) || POOL_BUCKET=""
+    STUCK_VENDS=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("stuck",""))' "$HEALTH_BODY" 2>/dev/null) || STUCK_VENDS=""
     rm -f "$HEALTH_BODY"
     [[ $POOL_BUCKET == "ok" ]] \
-        || { red "License pool bucket is '$POOL_BUCKET' — refill with tools/mint-license-pool.sh before shipping (empty pool strands paying customers on Stripe retries)."; exit 1; }
+        || { red "License pool bucket is '$POOL_BUCKET' (low = ~48h runway, empty = active outage) — refill with tools/mint-license-pool.sh before shipping."; exit 1; }
+    [[ $STUCK_VENDS == "false" || $STUCK_VENDS == "False" ]] \
+        || { red "Stuck vends detected (claimed >30 min, never emailed) — SMTP delivery is failing; fix before shipping (runbook: Automated fulfillment)."; exit 1; }
 else
     echo "  (note) supabase project not linked on this machine — fulfillment webhook check skipped (pre-rollout state)."
 fi
