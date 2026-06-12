@@ -82,6 +82,100 @@ jobs:
             exit 1
           }
 
+  webhook-health:
+    name: license-fulfillment webhook + pool + Stripe endpoint config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert webhook health and pool depth
+        run: |
+          # The fulfillment webhook vends pre-signed license keys on Stripe
+          # payments. Two silent-death classes are checked here:
+          #   1. this step — function unreachable / pool starving
+          #   2. next step — Stripe-side endpoint config drift (the failure
+          #      no self-health-check can see: a disabled endpoint delivers
+          #      NOTHING, forever, silently)
+          # DROBU_WEBHOOK_HEALTH_URL is a repo *variable* (the URL is not a
+          # secret); set during the fulfillment rollout. Missing config is
+          # RED, not skipped — an unmonitored payment path must be loud.
+          set -euo pipefail
+          url="${{ vars.DROBU_WEBHOOK_HEALTH_URL }}"
+          if [ -z "$url" ]; then
+            echo "::error::DROBU_WEBHOOK_HEALTH_URL repo variable not set — the fulfillment webhook is unmonitored (set it to https://<project-ref>.supabase.co/functions/v1/stripe-webhook/health per the rollout checklist)"
+            exit 1
+          fi
+          body=$(mktemp)
+          code=$(curl -s -o "$body" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "${url}?cb=$(date +%s)$RANDOM") || code=000
+          echo "health: $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::fulfillment webhook health returned $code — paying customers stop receiving license keys (Stripe retries 72h; runbook: Automated fulfillment)"
+            exit 1
+          fi
+          pool=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pool",""))' "$body") || pool=""
+          stuck=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("stuck",""))' "$body") || stuck=""
+          echo "pool bucket: $pool, stuck vends: $stuck"
+          if [ "$pool" != "ok" ]; then
+            echo "::error::license pool bucket is '$pool' (low = ~48h runway left, empty = customers actively stranded on Stripe retries) — refill NOW with tools/mint-license-pool.sh"
+            exit 1
+          fi
+          if [ "$stuck" != "False" ] && [ "$stuck" != "false" ]; then
+            echo "::error::stuck vends detected (claimed >30 min, never emailed) — SMTP delivery is failing while everything else looks healthy; check function logs + Hostinger SMTP (runbook: Automated fulfillment)"
+            exit 1
+          fi
+
+      - name: Assert Stripe webhook endpoint config (drift detection)
+        run: |
+          # A restricted READ-ONLY Stripe key (scope: Webhook Endpoints,
+          # read) — the deliberate, narrow exception to the no-secrets-in-CI
+          # posture. It buys detection of the one failure class that is
+          # invisible from our side: Stripe disabling, deleting, or
+          # re-pointing the endpoint. An auth failure is RED, never skipped —
+          # a rotated-away monitor key must not silently disable this check.
+          set -euo pipefail
+          key="${{ secrets.STRIPE_MONITOR_KEY }}"
+          health_url="${{ vars.DROBU_WEBHOOK_HEALTH_URL }}"
+          if [ -z "$key" ] || [ -z "$health_url" ]; then
+            echo "::error::STRIPE_MONITOR_KEY secret or DROBU_WEBHOOK_HEALTH_URL variable not set — Stripe endpoint drift is undetected (set both per the rollout checklist)"
+            exit 1
+          fi
+          endpoint_url="${health_url%/health}"
+          resp=$(mktemp)
+          # plain --retry (no --retry-all-errors): transient 5xx/timeouts
+          # retry, but a 401 (rotated key) fails fast instead of burning
+          # ~14s retrying a permanent auth error.
+          code=$(curl -s -o "$resp" -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 2 -u "${key}:" "https://api.stripe.com/v1/webhook_endpoints?limit=100") || code=000
+          echo "stripe api: $code"
+          if [ "$code" = "401" ]; then
+            echo "::error::Stripe rejected the monitor key (401) — STRIPE_MONITOR_KEY was rotated or revoked; re-create the restricted read-only key and update the GitHub secret"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "::error::Stripe webhook_endpoints list returned $code — endpoint drift is unverifiable right now"
+            exit 1
+          fi
+          python3 - "$resp" "$endpoint_url" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          target = sys.argv[2]
+          eps = [e for e in data.get("data", []) if e.get("url") == target]
+          if len(eps) != 1:
+              print(f"::error::expected exactly one Stripe endpoint at {target}, found {len(eps)} — fulfillment events are not being delivered as configured")
+              sys.exit(1)
+          ep = eps[0]
+          if ep.get("status") != "enabled":
+              print(f"::error::Stripe endpoint at {target} is '{ep.get('status')}', not enabled — NO fulfillment events are delivered (customers pay, no key arrives); re-enable in the Stripe dashboard and resend missed events")
+              sys.exit(1)
+          want = sorted([
+              "checkout.session.completed",
+              "checkout.session.async_payment_succeeded",
+              "checkout.session.async_payment_failed",
+          ])
+          got = sorted(ep.get("enabled_events", []))
+          if got != want:
+              print(f"::error::Stripe endpoint event set drifted: {got} != {want} — delayed-payment fulfillment may silently break")
+              sys.exit(1)
+          print("endpoint enabled, URL pinned, event set exact")
+          PY
+
   appcast-health:
     name: Sparkle appcast reachable on both feed URLs
     runs-on: ubuntu-latest

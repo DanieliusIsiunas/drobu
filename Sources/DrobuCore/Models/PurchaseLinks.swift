@@ -9,7 +9,7 @@ import Foundation
 /// mutable indirection so the checkout target can change without
 /// stranding installed apps (see docs/licensing.md).
 enum PurchaseLinks {
-    /// HTTPS 302 at the Cloudflare edge → the live Stripe Payment Link.
+    /// Static redirect page on GitHub Pages → the live Stripe Payment Link.
     static let buy = URL(string: "https://drobu.app/buy")!
 
     /// Support mailbox shown in the activation panel footer and docs.

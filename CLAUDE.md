@@ -110,13 +110,13 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 
 **Customer state:** stored in the user's Keychain (service `com.danielius.ClipboardHistory.license`; accounts `trial-start`, `active-license`, and `last-seen` — the clock-rollback anchor). Survives `defaults delete`. Reset and diagnostic procedures live in the private support runbook (`docs/private/support-runbook.md` — local only, gitignored).
 
-**Issuing keys (manual workflow for early customers):**
+**Issuing keys:** fulfillment is **automated** — a Stripe payment hits `supabase/functions/stripe-webhook`, which vends a pre-signed key from a Postgres pool (minted offline via `./tools/mint-license-pool.sh`; the Ed25519 private key never leaves the dev Keychain) and emails it within ~1 minute. Manual fallback for outages/support:
 ```bash
-./tools/issue-license-key.sh customer@example.com
+./tools/issue-license-key.sh customer@example.com --session cs_XXXX
 ```
-Prints the key. Email it. The script appends to `tools/license-log.csv` (gitignored) for audit trail. The Stripe webhook automation that replaces this manual step is out of scope until traffic justifies it.
+`--session` keeps one-payment-one-key idempotency intact (checks for an existing vend first, records the claim upstream). Both paths append to `tools/license-log.csv` (gitignored) for the audit trail.
 
-**Operational runbook:** `docs/licensing.md` covers the public model, key rotation, the payment-link contract, and the future webhook plan. Support diagnostics, reset procedures, and the detailed threat model live in `docs/private/support-runbook.md` (gitignored). **Plans and audits touching licensing internals go to `docs/private/`, not `docs/plans/`** — this repo is public.
+**Operational runbook:** `docs/licensing.md` covers the public model, key rotation, the payment-link contract, and the automated-fulfillment architecture. Support diagnostics, reset procedures, fulfillment failure playbooks, and the detailed threat model live in `docs/private/support-runbook.md` (gitignored). **Plans and audits touching licensing internals go to `docs/private/`, not `docs/plans/`** — this repo is public.
 
 **Price is set in many places — change all of them in the same pass (mirror the version checklist):**
 1. The Stripe Payment Link — edit the price on the **existing** link in the dashboard; never create a new link and deactivate the old one (shipped binaries point at the old URL forever)
@@ -127,6 +127,7 @@ Prints the key. Email it. The script appends to `tools/license-log.csv` (gitigno
 6. `website/src/layouts/Landing.astro` — meta description **and** JSON-LD `"price"`
 7. `website/src/pages/terms.astro`
 8. This file (the Pricing line above)
+9. The fulfillment webhook's `AMOUNT_FLOOR` Supabase secret (`supabase secrets set AMOUNT_FLOOR=<minor units>`) — a log-only sanity signal that never blocks fulfillment; set it below the lowest legitimate localized price so below-floor transactions leave a visible breadcrumb
 
 ## Debugging
 

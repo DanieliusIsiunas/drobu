@@ -34,3 +34,19 @@ jobs:
           restore-keys: ${{ runner.os }}-spm-${{ github.event.repository.name }}-
 
       - run: swift test
+
+  # Fulfillment-webhook handler tests (Deno, no network: the suite signs and
+  # verifies Stripe events locally and injects every other dependency). NOT
+  # part of the required `test` check — a green deno job is extra signal, a
+  # red one is a real regression in the payment path.
+  deno-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - run: deno test --allow-env --config supabase/functions/stripe-webhook/deno.json supabase/functions/tests/
