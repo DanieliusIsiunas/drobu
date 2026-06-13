@@ -6,7 +6,14 @@ import ServiceManagement
 /// the uninstall flow share one testable path. Mirrors `DaemonServiceControlling`.
 @MainActor
 protocol LaunchAgentControlling: AnyObject {
+    /// True only when the login item is actively enabled — drives the toggle's
+    /// on/off display.
     var isEnabled: Bool { get }
+    /// True when a registration record EXISTS (`.enabled` OR `.requiresApproval`)
+    /// — i.e. there is something for uninstall to remove. A `.requiresApproval`
+    /// item is not enabled but still shows in Login Items and can't be removed
+    /// from the UI, so uninstall must unregister it (mirrors the daemon path).
+    var hasRegistration: Bool { get }
     func register() throws
     func unregister() throws
 }
@@ -16,6 +23,10 @@ protocol LaunchAgentControlling: AnyObject {
 final class MainAppLaunchAgentControl: LaunchAgentControlling {
     init() {}
     var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    var hasRegistration: Bool {
+        let status = SMAppService.mainApp.status
+        return status == .enabled || status == .requiresApproval
+    }
     func register() throws { try SMAppService.mainApp.register() }
     func unregister() throws { try SMAppService.mainApp.unregister() }
 }

@@ -54,20 +54,24 @@ final class UninstallRegistrationMock: DaemonRegistration {
 final class UninstallLaunchAgentMock: LaunchAgentControlling {
     let log: StepLog
     private var enabled: Bool
+    private var registered: Bool
     private let throwOnUnregister: Error?
     private let enabledAfterThrow: Bool
-    init(log: StepLog, enabled: Bool, throwOnUnregister: Error? = nil, enabledAfterThrow: Bool = false) {
+    init(log: StepLog, enabled: Bool, registered: Bool? = nil,
+         throwOnUnregister: Error? = nil, enabledAfterThrow: Bool = false) {
         self.log = log
         self.enabled = enabled
+        self.registered = registered ?? enabled
         self.throwOnUnregister = throwOnUnregister
         self.enabledAfterThrow = enabledAfterThrow
     }
     var isEnabled: Bool { enabled }
+    var hasRegistration: Bool { registered }
     func register() throws { log.record("launchRegister") }
     func unregister() throws {
         log.record("launchUnregister")
-        if let throwOnUnregister { enabled = enabledAfterThrow; throw throwOnUnregister }
-        enabled = false
+        if let throwOnUnregister { enabled = enabledAfterThrow; registered = enabledAfterThrow; throw throwOnUnregister }
+        enabled = false; registered = false
     }
 }
 
@@ -101,6 +105,7 @@ struct UninstallServiceTests {
         teardownResult: Bool? = true,
         unregisterResult: DaemonStatus = .notRegistered,
         loginEnabled: Bool = true,
+        loginRegistered: Bool? = nil,
         loginThrow: Error? = nil,
         loginEnabledAfterThrow: Bool = false,
         eraseThrow: Error? = nil
@@ -109,7 +114,7 @@ struct UninstallServiceTests {
         let service = UninstallService(
             daemon: UninstallDaemonMock(log: log, disableResult: disableResult, teardownResult: teardownResult),
             registrar: UninstallRegistrationMock(log: log, status: daemonStatus, unregisterResult: unregisterResult),
-            launchAgent: UninstallLaunchAgentMock(log: log, enabled: loginEnabled,
+            launchAgent: UninstallLaunchAgentMock(log: log, enabled: loginEnabled, registered: loginRegistered,
                                                   throwOnUnregister: loginThrow, enabledAfterThrow: loginEnabledAfterThrow),
             dataEraser: UninstallEraserMock(log: log, throwError: eraseThrow),
             trasher: UninstallTrasherMock(log: log),
@@ -177,12 +182,20 @@ struct UninstallServiceTests {
         #expect(h.log.steps.contains("launchUnregister"))
     }
 
-    @Test("launch-at-login not enabled → skipped, no unregister call")
+    @Test("launch-at-login never registered → skipped, no unregister call")
     func loginNotEnabledSkips() async {
         let h = makeHarness(loginEnabled: false)
         let result = await h.service.run(options: UninstallOptions(deleteData: false))
         #expect(result.launchAtLoginUnregister == .skipped)
         #expect(!h.log.steps.contains("launchUnregister"))
+    }
+
+    @Test("launch-at-login awaiting approval (registered, not enabled) is still unregistered")
+    func loginRequiresApprovalStillUnregisters() async {
+        let h = makeHarness(loginEnabled: false, loginRegistered: true)
+        let result = await h.service.run(options: UninstallOptions(deleteData: false))
+        #expect(h.log.steps.contains("launchUnregister"))   // a registration record exists → remove it
+        #expect(result.launchAtLoginUnregister == .ok)
     }
 
     @Test("daemon unregister failure → .failed, hadRegistrationFailure, residual summary; later steps still run")

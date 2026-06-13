@@ -149,15 +149,19 @@ final class UninstallService {
         //    daemon instance and does not recover after unregister.
         daemon.resetConnection()
 
-        // 5. Unregister launch-at-login. A login item that was never enabled is
-        //    success (nothing to remove), not a failure.
+        // 5. Unregister launch-at-login. Unregister whenever a registration
+        //    RECORD exists (.enabled OR .requiresApproval) — a still-awaiting-
+        //    approval login item is not enabled but still shows in Login Items
+        //    and can't be removed from the UI, so it must be torn down too
+        //    (mirrors the daemon's hasRegistration gate). A login item that was
+        //    never registered is success (nothing to remove), not a failure.
         let launchAtLoginUnregister: UninstallStepOutcome
-        if launchAgent.isEnabled {
+        if launchAgent.hasRegistration {
             do {
                 try launchAgent.unregister()
                 launchAtLoginUnregister = .ok
             } catch {
-                launchAtLoginUnregister = launchAgent.isEnabled
+                launchAtLoginUnregister = launchAgent.hasRegistration
                     ? .failed(error.localizedDescription) : .ok
             }
         } else {
