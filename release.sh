@@ -102,6 +102,11 @@ STRIPE_SIZE=${STRIPE_OUT#* }
 rm -f "$STRIPE_BODY"
 dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
+# DMARC must stay enforced (quarantine/reject) — a regression to p=none
+# reopens the spoofed-support@ phishing surface for license/support mail.
+DMARC_TXT=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
+echo "$DMARC_TXT" | grep -qE "v=DMARC1.*p=(quarantine|reject)" \
+    || { red "drobu.app DMARC is not enforced (got '$DMARC_TXT') — set p=quarantine or p=reject before shipping."; exit 1; }
 
 # License-fulfillment webhook health (mirrors the daily monitor's
 # webhook-health job — the documented backstop for GitHub auto-disabling
