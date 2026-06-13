@@ -1,0 +1,109 @@
+import AppKit
+import ApplicationServices
+import CoreGraphics
+
+/// The macOS permissions Drobu can request, surfaced by onboarding and the
+/// Settings "Setup & Permissions" section.
+enum Permission: CaseIterable, Hashable {
+    case accessibility       // paste-anywhere (CGEvent Cmd+V)
+    case screenRecording     // GIF + video capture
+    case pasteboard          // clipboard capture; macOS 15.4+ only
+    case closedLidHelper     // privileged daemon, approved in Login Items
+    case launchAtLogin       // optional convenience
+
+    /// True for permissions whose grant only takes effect after an app restart:
+    /// the TCC check flips to "granted" immediately, but the functional API
+    /// (CGEventTap for paste, the capture stream) doesn't actually work until
+    /// the process relaunches. Modelling this is what lets onboarding show an
+    /// honest "Restart to activate" instead of a false green check.
+    var requiresRestart: Bool {
+        switch self {
+        case .accessibility, .screenRecording: return true
+        case .pasteboard, .closedLidHelper, .launchAtLogin: return false
+        }
+    }
+}
+
+/// Live state of a single permission.
+enum PermissionState: Equatable {
+    case granted          // active and working now
+    case pendingRestart   // granted this session, needs an app restart to take effect
+    case notGranted       // not granted
+    case notApplicable    // doesn't exist on this OS (e.g. pasteboard < macOS 15.4)
+}
+
+/// Injectable probe over the real OS permission checks, so `PermissionsService`'s
+/// status mapping is unit-testable without touching TCC / SMAppService. Mirrors
+/// `DaemonServiceControlling`. `@MainActor` because the production probe reaches
+/// the main-actor `DaemonRegistrar` / `MainAppLaunchAgentControl`.
+@MainActor
+protocol PermissionProbing {
+    /// `nil` means the permission does not exist on this OS (→ `.notApplicable`).
+    func isGranted(_ permission: Permission) -> Bool?
+}
+
+/// Production probe wrapping the real platform APIs.
+@MainActor
+struct SystemPermissionProbe: PermissionProbing {
+    func isGranted(_ permission: Permission) -> Bool? {
+        switch permission {
+        case .accessibility:
+            return AXIsProcessTrusted()
+        case .screenRecording:
+            return CGPreflightScreenCaptureAccess()
+        case .pasteboard:
+            // macOS 15.4+ only; below that the selector is absent → notApplicable.
+            // accessBehavior == 0 means unrestricted (granted); anything else
+            // restricted/denied (matches ClipboardMonitor / checkPasteboardPrivacy).
+            let pb = NSPasteboard.general
+            guard pb.responds(to: NSSelectorFromString("accessBehavior")) else { return nil }
+            let raw = pb.value(forKey: "accessBehavior") as? Int ?? 0
+            return raw == 0
+        case .closedLidHelper:
+            return DaemonRegistrar().status == .enabled
+        case .launchAtLogin:
+            return MainAppLaunchAgentControl().isEnabled
+        }
+    }
+}
+
+/// Reports the live state of every Drobu permission, applying the restart-aware
+/// rule. Captures a launch baseline at init so a restart-requiring permission
+/// that was NOT granted at launch but is granted now reports `.pendingRestart`
+/// (never a false `.granted`). Injectable probe → fully unit-testable.
+@MainActor
+final class PermissionsService {
+    private let probe: PermissionProbing
+    /// granted-at-launch snapshot per permission (not-applicable / unknown → false).
+    private let grantedAtLaunch: [Permission: Bool]
+
+    init(probe: PermissionProbing = SystemPermissionProbe()) {
+        self.probe = probe
+        var baseline: [Permission: Bool] = [:]
+        for permission in Permission.allCases {
+            baseline[permission] = probe.isGranted(permission) ?? false
+        }
+        self.grantedAtLaunch = baseline
+    }
+
+    func state(for permission: Permission) -> PermissionState {
+        guard let grantedNow = probe.isGranted(permission) else { return .notApplicable }
+        guard grantedNow else { return .notGranted }
+        guard permission.requiresRestart else { return .granted }
+        // Granted now AND restart-requiring: it works only if it was already
+        // granted at launch; a grant made this session needs a relaunch.
+        return (grantedAtLaunch[permission] ?? false) ? .granted : .pendingRestart
+    }
+
+    /// True when every required permission is granted or pending-restart (the
+    /// user has done their part — a restart is mechanical). `.notApplicable`
+    /// counts as satisfied (the permission doesn't exist on this OS).
+    func requiredSatisfied(required: [Permission]) -> Bool {
+        required.allSatisfy { permission in
+            switch state(for: permission) {
+            case .granted, .pendingRestart, .notApplicable: return true
+            case .notGranted: return false
+            }
+        }
+    }
+}
