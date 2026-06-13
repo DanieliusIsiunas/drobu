@@ -86,15 +86,21 @@ jobs:
           # a regression to p=none would silently reopen the spoofed-support@
           # phishing surface. Hardened from p=none on 2026-06-13.
           dmarc=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
-          echo "DMARC: $dmarc"
-          echo "$dmarc" | grep -q "v=DMARC1" || {
-            echo "::error::_dmarc.drobu.app missing — mail from drobu.app has no spoofing protection"
+          echo "DMARC TXT: $dmarc"
+          # Require EXACTLY ONE DMARC record. Per RFC 7489 §6.6.3, when more
+          # than one v=DMARC1 record exists (e.g. a stale p=none lingering
+          # beside a new p=reject mid-edit), receivers apply NO policy at all
+          # — so a substring match against the combined dig output could read
+          # green while spoofing protection is actually off.
+          dmarc_count=$(echo "$dmarc" | grep -cE '^[[:space:]]*v=DMARC1' || true)
+          if [ "$dmarc_count" -ne 1 ]; then
+            echo "::error::_dmarc.drobu.app has $dmarc_count DMARC records — 0 = missing, >1 = RFC 7489 §6.6.3 means no policy is applied. Fix the Hostinger DNS zone."
             exit 1
-          }
-          # Match the `p` tag at a tag boundary — the `sp=` subdomain-policy
-          # tag also contains "p=...", so an unanchored match would let
-          # "p=none; sp=reject" pass while the real policy is still none.
-          echo "$dmarc" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
+          fi
+          # Match the `p` tag at a tag boundary on that single record — the
+          # `sp=` subdomain-policy tag also contains "p=...", so an unanchored
+          # match would let "p=none; sp=reject" pass with the real policy none.
+          echo "$dmarc" | grep -E '^[[:space:]]*v=DMARC1' | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
             echo "::error::DMARC policy regressed to p=none — spoofed support@drobu.app mail would reach inboxes. Restore p=quarantine or p=reject in the Hostinger DNS zone."
             exit 1
           }

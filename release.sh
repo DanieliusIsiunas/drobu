@@ -104,12 +104,15 @@ dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
 # DMARC must stay enforced (quarantine/reject) — a regression to p=none
 # reopens the spoofed-support@ phishing surface for license/support mail.
-# Match the `p` tag at a tag boundary: the `sp=` subdomain-policy tag also
-# contains "p=...", so an unanchored match would let "p=none; sp=reject"
-# pass while the real policy is still none.
+# Require EXACTLY ONE DMARC record: per RFC 7489 §6.6.3, multiple v=DMARC1
+# records (e.g. a stale p=none beside a new p=reject mid-edit) make receivers
+# apply NO policy. And match the `p` tag at a tag boundary so the `sp=`
+# subdomain-policy tag can't masquerade as an enforced policy.
 DMARC_TXT=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
-{ echo "$DMARC_TXT" | grep -q "v=DMARC1" \
-  && echo "$DMARC_TXT" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)'; } \
+DMARC_COUNT=$(echo "$DMARC_TXT" | grep -cE '^[[:space:]]*v=DMARC1' || true)
+[[ "$DMARC_COUNT" -eq 1 ]] \
+    || { red "drobu.app DMARC: expected exactly one record, found $DMARC_COUNT (0 = missing; >1 = RFC 7489 §6.6.3 applies no policy). Fix the DNS zone before shipping."; exit 1; }
+echo "$DMARC_TXT" | grep -E '^[[:space:]]*v=DMARC1' | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' \
     || { red "drobu.app DMARC is not enforced (got '$DMARC_TXT') — set p=quarantine or p=reject before shipping."; exit 1; }
 
 # License-fulfillment webhook health (mirrors the daily monitor's
