@@ -213,6 +213,51 @@ struct UninstallServiceTests {
         #expect(Array(h.log.steps.suffix(2)) == ["scheduleTrash", "terminate"])
     }
 
+    @Test("a registered-but-unapproved daemon (.requiresApproval) still gets unregistered, no disable/teardown")
+    func requiresApprovalStillUnregisters() async {
+        let h = makeHarness(daemonStatus: .requiresApproval)
+        let result = await h.service.run(options: UninstallOptions(deleteData: false))
+        #expect(!h.log.steps.contains("disable"))     // not running — no session to reverse
+        #expect(!h.log.steps.contains("teardown"))    // not running — nothing to erase via XPC
+        #expect(h.log.steps.contains("unregister"))   // but the orphan-able record IS removed
+        #expect(result.sessionReversal == .skipped)
+        #expect(result.daemonStateTeardown == .skipped)
+        #expect(result.daemonUnregister == .ok)
+    }
+
+    @Test("disable() returning false (not nil) is a failed reversal, not skipped — unregister still proceeds")
+    func disableFalseIsFailure() async {
+        let h = makeHarness(disableResult: false)
+        let result = await h.service.run(options: UninstallOptions(deleteData: false))
+        #expect(result.sessionReversal == .failed("session reversal unconfirmed"))
+        #expect(result.daemonUnregister == .ok)
+    }
+
+    @Test("launch-at-login unregister throws while still enabled → failed + residual summary")
+    func loginUnregisterThrowsStillEnabled() async {
+        let h = makeHarness(loginThrow: StubError(), loginEnabledAfterThrow: true)
+        let result = await h.service.run(options: UninstallOptions(deleteData: false))
+        if case .failed = result.launchAtLoginUnregister {} else { Issue.record("expected .failed launchAtLoginUnregister") }
+        #expect(result.hadRegistrationFailure)
+        #expect(result.residualSummary != nil)
+    }
+
+    @Test("launch-at-login throws but is gone afterward → treated as success")
+    func loginUnregisterThrowsButRemoved() async {
+        let h = makeHarness(loginThrow: StubError(), loginEnabledAfterThrow: false)
+        let result = await h.service.run(options: UninstallOptions(deleteData: false))
+        #expect(result.launchAtLoginUnregister == .ok)
+        #expect(!result.hadRegistrationFailure)
+    }
+
+    @Test("data-erase failure surfaces as .failed and is not a registration failure")
+    func eraseFailureIsFailed() async {
+        let h = makeHarness(eraseThrow: StubError())
+        let result = await h.service.run(options: UninstallOptions(deleteData: true))
+        if case .failed = result.dataErase {} else { Issue.record("expected .failed dataErase") }
+        #expect(!result.hadRegistrationFailure)   // a data-wipe failure leaves no orphaned registration
+    }
+
     @Test("checkbox state maps to UninstallOptions.deleteData")
     func optionsMapping() {
         #expect(UninstallOptions(deleteData: true).deleteData == true)

@@ -4,7 +4,7 @@ import ServiceManagement
 import Combine
 
 public struct SettingsView: View {
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var launchAtLogin = MainAppLaunchAgentControl().isEnabled
     @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
     @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
     @State private var videoCaptureHotkeyCombo: KeyCombo? = VideoCaptureHotkeyDefaults.load()
@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
     @State private var daemonStatus: DaemonStatus = .notRegistered
+    @State private var isUninstalling = false
 
     public init() {}
 
@@ -172,13 +173,18 @@ public struct SettingsView: View {
                 HStack {
                     Text("Uninstall Drobu…")
                         .foregroundStyle(.red)
-                        .contentShape(Rectangle())
-                        .onTapGesture { confirmAndUninstall() }
-                        .accessibilityLabel("Uninstall Drobu")
-                        .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
-                        .accessibilityAddTraits(.isButton)
                     Spacer()
                 }
+                // Whole-row tap target; one VoiceOver element with an explicit
+                // label + hint + button trait (children: .ignore avoids
+                // unpredictable concatenation), mirroring daemonActionLabel.
+                .contentShape(Rectangle())
+                .onTapGesture { confirmAndUninstall() }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Uninstall Drobu")
+                .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
+                .accessibilityAddTraits(.isButton)
+
                 Text("Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -449,7 +455,12 @@ public struct SettingsView: View {
     // MARK: - Uninstall
 
     private func confirmAndUninstall() {
-        guard let window = NSApp.keyWindow else { return }
+        guard !isUninstalling else { return }
+        guard let window = NSApp.keyWindow else {
+            Log.error("SettingsView: Uninstall tapped but no key window — cannot present confirmation")
+            return
+        }
+        isUninstalling = true
 
         let alert = NSAlert()
         alert.messageText = "Uninstall Drobu?"
@@ -465,7 +476,7 @@ public struct SettingsView: View {
         alert.accessoryView = checkbox
 
         alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
+            guard response == .alertFirstButtonReturn else { isUninstalling = false; return }
             let deleteData = checkbox.state == .on
             Task { @MainActor in
                 let service = UninstallService()

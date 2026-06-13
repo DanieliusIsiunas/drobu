@@ -140,29 +140,45 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
 
     func teardown(reply: @escaping (Bool) -> Void) {
         lock.lock()
+        // Defensive reversal: restore sleep and cancel the watchdog even though
+        // the client calls `disable` before this — if that disable reply was lost
+        // (XPC race), `unregister` is about to SIGKILL the only owner that can
+        // reverse `pmset disablesleep`, which would otherwise persist. Idempotent
+        // if already off.
+        let sleepReversed = PmsetControl.setDisableSleep(false)
+        watchdog.cancel()
         // Remove our own root-owned files first (state file before log so a
-        // post-teardown log write can't resurrect the dir ahead of its removal),
-        // then the now-empty support directory. The client calls `disable`
-        // before this in the uninstall ordering, so pmset is already reversed —
-        // teardown never touches the power state.
+        // post-teardown write can't resurrect the dir ahead of its removal), then
+        // the now-empty support directory. Collect diagnostics WITHOUT logging in
+        // here: logging under the lock both diverges from the unlock-then-log
+        // discipline and could recreate daemon.log between the file and dir
+        // removals.
+        var refused: [String] = []
+        var errored: [String] = []
         DaemonTeardown.removeFiles(
             [DaemonConstants.stateFilePath, DaemonConstants.logFilePath],
             exists: { FileManager.default.fileExists(atPath: $0) },
             isSafe: FileGuards.isRootOwnedPrivateRegularFile,
             remove: { try FileManager.default.removeItem(atPath: $0) },
-            onRefused: { DaemonLog.write("SleepControlService: teardown refused non-private path \($0)") },
-            onError: { DaemonLog.write("SleepControlService: teardown failed to remove \($0): \($1)") }
+            onRefused: { refused.append($0) },
+            onError: { path, _ in errored.append(path) }
         )
-        // After the directory is gone, DaemonLog.write no-ops (createFile won't
-        // recreate the missing parent), so no residue is recreated in the brief
-        // window before `unregister` reaps the process.
         let dir = DaemonConstants.supportDirectory
+        var dirRemoved = true
         if FileManager.default.fileExists(atPath: dir), FileGuards.isRootOwnedSafeDirectory(dir) {
             do { try FileManager.default.removeItem(atPath: dir) }
-            catch { DaemonLog.write("SleepControlService: teardown failed to remove support dir: \(error)") }
+            catch { dirRemoved = false }
         }
         lock.unlock()
-        reply(true)
+
+        // Best-effort logging after the lock and after the dir is gone (the write
+        // may no-op once the parent is removed — acceptable; the client logs the
+        // teardown outcome too).
+        if !sleepReversed { DaemonLog.write("SleepControlService: teardown — pmset reversal failed") }
+        for path in refused { DaemonLog.write("SleepControlService: teardown refused non-private path \(path)") }
+        for path in errored { DaemonLog.write("SleepControlService: teardown failed to remove \(path)") }
+
+        reply(refused.isEmpty && errored.isEmpty && dirRemoved)
     }
 
     func protocolVersion(reply: @escaping (Int) -> Void) {
@@ -173,7 +189,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         reply(Self.daemonBuildVersion)
     }
 
-    private static let daemonBuildVersion = "1.5.2"
+    private static let daemonBuildVersion = "1.6.0"
 
     /// On a failed `pmset` reversal, re-arm the watchdog this far out to retry,
     /// keeping the daemon in charge of recovery instead of orphaning the state.

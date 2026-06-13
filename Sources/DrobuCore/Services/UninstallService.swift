@@ -18,11 +18,11 @@ enum UninstallStepOutcome: Equatable, Sendable {
 /// Structured result of an uninstall run, so the UI can surface partial failures
 /// before the app quits.
 struct UninstallResult: Equatable, Sendable {
-    var sessionReversal: UninstallStepOutcome
-    var daemonStateTeardown: UninstallStepOutcome
-    var daemonUnregister: UninstallStepOutcome
-    var launchAtLoginUnregister: UninstallStepOutcome
-    var dataErase: UninstallStepOutcome
+    let sessionReversal: UninstallStepOutcome
+    let daemonStateTeardown: UninstallStepOutcome
+    let daemonUnregister: UninstallStepOutcome
+    let launchAtLoginUnregister: UninstallStepOutcome
+    let dataErase: UninstallStepOutcome
 
     /// A registration step failed → orphaned residue the user can't see may
     /// remain. (A failed session reversal or data wipe is logged but does not
@@ -57,6 +57,10 @@ final class UninstallService {
     private let trasher: BundleTrashing
     private let bundleURL: URL
     private let terminate: () -> Void
+    /// Upper bound on each daemon XPC call. The XPC error handler only fires on
+    /// connection loss, not on a live-but-wedged daemon, so an unbounded await
+    /// could freeze the Settings sheet forever — cap it.
+    private let daemonCallTimeout: TimeInterval
 
     init(daemon: DaemonControlling = DaemonClient(),
          registrar: DaemonRegistration = DaemonRegistrar(),
@@ -64,6 +68,7 @@ final class UninstallService {
          dataEraser: DataErasing = DataEraser(),
          trasher: BundleTrashing = BundleTrasher(),
          bundleURL: URL = Bundle.main.bundleURL,
+         daemonCallTimeout: TimeInterval = 3.0,
          terminate: @escaping () -> Void = { NSApp.terminate(nil) }) {
         self.daemon = daemon
         self.registrar = registrar
@@ -71,22 +76,49 @@ final class UninstallService {
         self.dataEraser = dataEraser
         self.trasher = trasher
         self.bundleURL = bundleURL
+        self.daemonCallTimeout = daemonCallTimeout
         self.terminate = terminate
+    }
+
+    /// Race an async daemon call against a timeout so a wedged-but-connected
+    /// daemon cannot hang the uninstall. Returns nil on timeout (treated as an
+    /// unconfirmed/skipped step, same as an unreachable daemon).
+    private func boundedDaemonCall(_ op: @escaping @Sendable () async -> Bool?) async -> Bool? {
+        let timeout = daemonCallTimeout
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { await op() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Run the teardown. Does NOT trash the bundle or quit — the caller shows any
     /// residual summary first, then calls `scheduleSelfDeleteAndQuit()`.
     @discardableResult
     func run(options: UninstallOptions) async -> UninstallResult {
-        // Capture once: the unregister below changes this, and every daemon step
-        // gates on whether there was a daemon to act on in the first place.
-        let daemonRegistered = registrar.status == .enabled
+        // Capture once: the unregister below changes this. A *running* daemon
+        // (.enabled) may hold an active session and root state to erase; a
+        // .requiresApproval daemon isn't running but still has a registration
+        // RECORD that shows in Login Items and that the user cannot remove from
+        // the UI — so `unregister()` must run for it too, even though disable and
+        // teardown (which need a live daemon) do not.
+        let daemonStatus = registrar.status
+        let daemonRunning = daemonStatus == .enabled
+        let hasRegistration = daemonStatus == .enabled || daemonStatus == .requiresApproval
+        let daemonRef = daemon
 
         // 1. Reverse an active session FIRST (R14) so `pmset disablesleep` is not
-        //    left applied with its reversal owner about to be removed.
+        //    left applied with its reversal owner about to be removed. (The daemon
+        //    teardown in step 2 also reverses pmset defensively, in case this
+        //    reply is lost.)
         let sessionReversal: UninstallStepOutcome
-        if daemonRegistered {
-            sessionReversal = (await daemon.disable() == true)
+        if daemonRunning {
+            sessionReversal = (await boundedDaemonCall { await daemonRef.disable() } == true)
                 ? .ok : .failed("session reversal unconfirmed")
         } else {
             sessionReversal = .skipped
@@ -95,15 +127,16 @@ final class UninstallService {
         // 2. Best-effort root-state teardown (R3). An old daemon without the
         //    selector — or an unreachable one — returns nil → skipped, not failed.
         let daemonStateTeardown: UninstallStepOutcome
-        if daemonRegistered {
-            daemonStateTeardown = (await daemon.teardown() == true) ? .ok : .skipped
+        if daemonRunning {
+            daemonStateTeardown = (await boundedDaemonCall { await daemonRef.teardown() } == true) ? .ok : .skipped
         } else {
             daemonStateTeardown = .skipped
         }
 
-        // 3. Unregister the daemon (BTM terminates the running process).
+        // 3. Unregister the daemon (BTM terminates a running process; for
+        //    .requiresApproval it removes the orphan-able registration record).
         let daemonUnregister: UninstallStepOutcome
-        if daemonRegistered {
+        if hasRegistration {
             if case .failed(let message) = registrar.unregister() {
                 daemonUnregister = .failed(message)
             } else {
