@@ -104,8 +104,12 @@ dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
 # DMARC must stay enforced (quarantine/reject) — a regression to p=none
 # reopens the spoofed-support@ phishing surface for license/support mail.
+# Match the `p` tag at a tag boundary: the `sp=` subdomain-policy tag also
+# contains "p=...", so an unanchored match would let "p=none; sp=reject"
+# pass while the real policy is still none.
 DMARC_TXT=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
-echo "$DMARC_TXT" | grep -qE "v=DMARC1.*p=(quarantine|reject)" \
+{ echo "$DMARC_TXT" | grep -q "v=DMARC1" \
+  && echo "$DMARC_TXT" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)'; } \
     || { red "drobu.app DMARC is not enforced (got '$DMARC_TXT') — set p=quarantine or p=reject before shipping."; exit 1; }
 
 # License-fulfillment webhook health (mirrors the daily monitor's

@@ -91,7 +91,10 @@ jobs:
             echo "::error::_dmarc.drobu.app missing — mail from drobu.app has no spoofing protection"
             exit 1
           }
-          echo "$dmarc" | grep -qE "p=(quarantine|reject)" || {
+          # Match the `p` tag at a tag boundary — the `sp=` subdomain-policy
+          # tag also contains "p=...", so an unanchored match would let
+          # "p=none; sp=reject" pass while the real policy is still none.
+          echo "$dmarc" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
             echo "::error::DMARC policy regressed to p=none — spoofed support@drobu.app mail would reach inboxes. Restore p=quarantine or p=reject in the Hostinger DNS zone."
             exit 1
           }
