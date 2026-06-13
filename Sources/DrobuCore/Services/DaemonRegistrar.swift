@@ -48,6 +48,9 @@ public protocol DaemonRegistration: AnyObject {
     var status: DaemonStatus { get }
     @discardableResult func register() -> DaemonStatus
     @discardableResult func reinstall() async -> DaemonStatus
+    /// Deregister the daemon (BTM terminates the running process). Used by the
+    /// in-app uninstall to remove the registration the OS will not auto-clean.
+    @discardableResult func unregister() -> DaemonStatus
 }
 
 /// Wraps daemon registration: status mapping, `register`/`unregister`, the

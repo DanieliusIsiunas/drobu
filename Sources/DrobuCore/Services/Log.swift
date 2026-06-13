@@ -45,10 +45,9 @@ enum Log {
     private static let fileHandle: FileHandle? = {
         // Never write the production log from a test run.
         if isRunningInTests { return nil }
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        guard let dir = AppPaths.appSupportDirectory else {
             return nil
         }
-        let dir = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("app.log")
         let prevURL = dir.appendingPathComponent("app.log.1")

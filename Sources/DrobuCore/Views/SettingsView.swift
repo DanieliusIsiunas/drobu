@@ -4,7 +4,7 @@ import ServiceManagement
 import Combine
 
 public struct SettingsView: View {
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var launchAtLogin = MainAppLaunchAgentControl().isEnabled
     @State private var hotkeyCombo: KeyCombo? = HotkeyDefaults.load()
     @State private var captureHotkeyCombo: KeyCombo? = CaptureHotkeyDefaults.load()
     @State private var videoCaptureHotkeyCombo: KeyCombo? = VideoCaptureHotkeyDefaults.load()
@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
     @State private var daemonStatus: DaemonStatus = .notRegistered
+    @State private var isUninstalling = false
 
     public init() {}
 
@@ -44,14 +45,15 @@ public struct SettingsView: View {
 
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
+                        let agent = MainAppLaunchAgentControl()
                         do {
                             if newValue {
-                                try SMAppService.mainApp.register()
+                                try agent.register()
                             } else {
-                                try SMAppService.mainApp.unregister()
+                                try agent.unregister()
                             }
                         } catch {
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                            launchAtLogin = agent.isEnabled
                         }
                     }
             }
@@ -166,12 +168,35 @@ public struct SettingsView: View {
                 Text("Drobu v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                     .foregroundStyle(.secondary)
             }
+
+            Section("Uninstall") {
+                HStack {
+                    Text("Uninstall Drobu…")
+                        .foregroundStyle(.red)
+                    Spacer()
+                }
+                // Whole-row tap target; one VoiceOver element with an explicit
+                // label + hint + button trait (children: .ignore avoids
+                // unpredictable concatenation), mirroring daemonActionLabel.
+                .contentShape(Rectangle())
+                .onTapGesture { confirmAndUninstall() }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Uninstall Drobu")
+                .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
+                .accessibilityAddTraits(.isButton)
+
+                Text("Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 450)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            launchAtLogin = MainAppLaunchAgentControl().isEnabled
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
             refreshDaemonStatus()
@@ -425,5 +450,56 @@ public struct SettingsView: View {
                 Log.error("SettingsView: delete all data failed: \(error)")
             }
         }
+    }
+
+    // MARK: - Uninstall
+
+    private func confirmAndUninstall() {
+        guard !isUninstalling else { return }
+        guard let window = NSApp.keyWindow else {
+            Log.error("SettingsView: Uninstall tapped but no key window — cannot present confirmation")
+            return
+        }
+        isUninstalling = true
+
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Drobu?"
+        alert.informativeText = "This removes Drobu's background helper and its launch-at-login entry, then moves the app to the Trash. Your license and trial status stay saved on this Mac, so reinstalling keeps you activated. Your clipboard history is kept unless you check the box below."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        let checkbox = NSButton(checkboxWithTitle: "Also delete my clipboard history and settings",
+                                target: nil, action: nil)
+        checkbox.state = .off
+        alert.accessoryView = checkbox
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { isUninstalling = false; return }
+            let deleteData = checkbox.state == .on
+            Task { @MainActor in
+                let service = UninstallService()
+                let result = await service.run(options: UninstallOptions(deleteData: deleteData))
+                if let summary = result.residualSummary {
+                    presentUninstallResidual(summary) { service.scheduleSelfDeleteAndQuit() }
+                } else {
+                    service.scheduleSelfDeleteAndQuit()
+                }
+            }
+        }
+    }
+
+    /// A registration step failed — tell the user residue may remain before the
+    /// app quits, then proceed with the self-delete (the app still quits; recovery
+    /// is in System Settings, not a retry).
+    private func presentUninstallResidual(_ summary: String, then proceed: @escaping () -> Void) {
+        guard let window = NSApp.keyWindow else { proceed(); return }
+        let alert = NSAlert()
+        alert.messageText = "Drobu was removed"
+        alert.informativeText = summary
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window) { _ in proceed() }
     }
 }

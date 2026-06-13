@@ -138,6 +138,73 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         }
     }
 
+    func teardown(reply: @escaping (Bool) -> Void) {
+        lock.lock()
+        let n = now()
+        // Defensive reversal: restore sleep before the client unregisters us — if
+        // that earlier `disable` reply was lost (XPC race), `unregister` is about
+        // to SIGKILL the only owner that can reverse `pmset disablesleep`.
+        // Idempotent if already off.
+        //
+        // If reversal FAILS, do NOT destroy the recovery path: keep the watchdog
+        // armed and the state file intact (mirroring disable()/expire()), and
+        // erase nothing — so a daemon that is not actually reaped (or is
+        // restarted) can still reverse SleepDisabled, instead of leaving the Mac
+        // unable to sleep until manual repair.
+        guard PmsetControl.setDisableSleep(false) else {
+            armReversalRetryLocked(now: n)
+            lock.unlock()
+            DaemonLog.write("SleepControlService: teardown — pmset reversal FAILED; recovery preserved, root state NOT erased")
+            reply(false)
+            return
+        }
+        watchdog.cancel()
+        // Validate the support directory BEFORE touching any child path: an
+        // lstat on a child only refuses a symlink at its FINAL component, so an
+        // intermediate directory symlink could otherwise redirect a child
+        // removal to an attacker-chosen target. Checking the dir first (as
+        // SleepStateStore.read does) keeps the symlink refusal effective.
+        // Collect diagnostics WITHOUT logging here: logging under the lock
+        // diverges from the unlock-then-log discipline and could recreate
+        // daemon.log mid-removal.
+        let dir = DaemonConstants.supportDirectory
+        var refused: [String] = []
+        var errored: [String] = []
+        var dirRemoved = true
+        if FileManager.default.fileExists(atPath: dir) {
+            if FileGuards.isRootOwnedSafeDirectory(dir) {
+                // Inside a verified root-owned dir: remove the state file before
+                // the log (a stray post-removal write can't then resurrect the
+                // dir), each still gated by its own private-regular-file check.
+                DaemonTeardown.removeFiles(
+                    [DaemonConstants.stateFilePath, DaemonConstants.logFilePath],
+                    exists: { FileManager.default.fileExists(atPath: $0) },
+                    isSafe: FileGuards.isRootOwnedPrivateRegularFile,
+                    remove: { try FileManager.default.removeItem(atPath: $0) },
+                    onRefused: { refused.append($0) },
+                    onError: { path, _ in errored.append(path) }
+                )
+                do { try FileManager.default.removeItem(atPath: dir) }
+                catch { dirRemoved = false }
+            } else {
+                // Exists but unsafe (symlink / non-root / group-writable): refuse
+                // the WHOLE teardown — do not remove children reached through an
+                // unverified directory — and report it so reply can't claim success.
+                refused.append(dir)
+                dirRemoved = false
+            }
+        }
+        lock.unlock()
+
+        // Best-effort logging after the lock and after the dir is gone (the write
+        // may no-op once the parent is removed — acceptable; the client logs the
+        // teardown outcome too).
+        for path in refused { DaemonLog.write("SleepControlService: teardown refused non-private path \(path)") }
+        for path in errored { DaemonLog.write("SleepControlService: teardown failed to remove \(path)") }
+
+        reply(refused.isEmpty && errored.isEmpty && dirRemoved)
+    }
+
     func protocolVersion(reply: @escaping (Int) -> Void) {
         reply(drobuDaemonProtocolVersion)
     }
@@ -146,7 +213,7 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         reply(Self.daemonBuildVersion)
     }
 
-    private static let daemonBuildVersion = "1.5.2"
+    private static let daemonBuildVersion = "1.6.0"
 
     /// On a failed `pmset` reversal, re-arm the watchdog this far out to retry,
     /// keeping the daemon in charge of recovery instead of orphaning the state.

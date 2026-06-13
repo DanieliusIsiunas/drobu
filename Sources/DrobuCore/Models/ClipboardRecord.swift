@@ -30,9 +30,9 @@ extension ClipboardRecord {
     static let kindFile = "file"
 
     static var videosDirectory: URL {
-        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("ClipboardHistory/videos")
+        (AppPaths.appSupportDirectory
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent(AppPaths.directoryName))
+            .appendingPathComponent("videos")
     }
 
     static func videoPath(for contentHash: String) -> URL {

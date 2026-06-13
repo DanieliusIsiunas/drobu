@@ -32,14 +32,11 @@ final class AppDatabase: Sendable {
     }
 
     private static func defaultPath() throws -> String {
-        guard let base = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else {
+        guard let appSupport = AppPaths.appSupportDirectory else {
             throw CocoaError(.fileNoSuchFile, userInfo: [
                 NSLocalizedDescriptionKey: "Application Support directory not found"
             ])
         }
-        let appSupport = base.appendingPathComponent("ClipboardHistory", isDirectory: true)
 
         try? FileManager.default.createDirectory(
             at: appSupport, withIntermediateDirectories: true,
