@@ -70,10 +70,10 @@ jobs:
           }
 
   support-mx:
-    name: support@drobu.app MX records
+    name: support@drobu.app MX + DMARC
     runs-on: ubuntu-latest
     steps:
-      - name: Assert Hostinger email MX
+      - name: Assert Hostinger email MX and DMARC enforcement
         run: |
           mx=$(dig +short MX drobu.app)
           echo "MX: $mx"
@@ -81,6 +81,42 @@ jobs:
             echo "::error::drobu.app MX records missing or not Hostinger email — support mail (printed in shipped binaries) will bounce"
             exit 1
           }
+          # DMARC must stay enforced (quarantine/reject). License + support
+          # mail sends as @drobu.app; SPF/DKIM are aligned (confirmed live), so
+          # a regression to p=none would silently reopen the spoofed-support@
+          # phishing surface. Hardened from p=none on 2026-06-13.
+          dmarc=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
+          echo "DMARC TXT: $dmarc"
+          # Require EXACTLY ONE DMARC record. Per RFC 7489 §6.6.3, when more
+          # than one v=DMARC1 record exists (e.g. a stale p=none lingering
+          # beside a new p=reject mid-edit), receivers apply NO policy at all
+          # — so a substring match against the combined dig output could read
+          # green while spoofing protection is actually off.
+          dmarc_count=$(echo "$dmarc" | grep -cE '^[[:space:]]*v=DMARC1' || true)
+          if [ "$dmarc_count" -ne 1 ]; then
+            echo "::error::_dmarc.drobu.app has $dmarc_count DMARC records — 0 = missing, >1 = RFC 7489 §6.6.3 means no policy is applied. Fix the Hostinger DNS zone."
+            exit 1
+          fi
+          rec=$(echo "$dmarc" | grep -E '^[[:space:]]*v=DMARC1')
+          # Match the `p` tag at a tag boundary — the `sp=` subdomain-policy
+          # tag also contains "p=...", so an unanchored match would let
+          # "p=none; sp=reject" pass with the real policy none.
+          echo "$rec" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
+            echo "::error::DMARC policy regressed to p=none — spoofed support@drobu.app mail would reach inboxes. Restore p=quarantine or p=reject in the Hostinger DNS zone."
+            exit 1
+          }
+          # Reject tags that nullify enforcement even with p=quarantine/reject:
+          # t=y (DMARCbis testing mode) and pct<100 (sample) both leave failing
+          # mail un-quarantined, so the policy would read green while off.
+          if echo "$rec" | grep -qE '(^|[[:space:];])t=y([[:space:];]|$)'; then
+            echo "::error::DMARC has t=y (testing mode) — failing mail is not enforced despite p=. Remove t=y (or set t=n)."
+            exit 1
+          fi
+          pct=$(echo "$rec" | grep -oE '(^|[[:space:];])pct=[0-9]+' | grep -oE '[0-9]+$' || true)
+          if [ -n "$pct" ] && [ "$pct" -ne 100 ]; then
+            echo "::error::DMARC pct=$pct — only $pct% of failing mail is enforced. Set pct=100 or remove the tag."
+            exit 1
+          fi
 
   webhook-health:
     name: license-fulfillment webhook + pool + Stripe endpoint config

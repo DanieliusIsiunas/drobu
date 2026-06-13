@@ -102,6 +102,28 @@ STRIPE_SIZE=${STRIPE_OUT#* }
 rm -f "$STRIPE_BODY"
 dig +short MX drobu.app | grep -q "hostinger.com" \
     || { red "drobu.app MX records missing — support@drobu.app (printed in the app) will bounce."; exit 1; }
+# DMARC must stay enforced (quarantine/reject) — a regression to p=none
+# reopens the spoofed-support@ phishing surface for license/support mail.
+# Require EXACTLY ONE DMARC record: per RFC 7489 §6.6.3, multiple v=DMARC1
+# records (e.g. a stale p=none beside a new p=reject mid-edit) make receivers
+# apply NO policy. And match the `p` tag at a tag boundary so the `sp=`
+# subdomain-policy tag can't masquerade as an enforced policy.
+DMARC_TXT=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
+DMARC_COUNT=$(echo "$DMARC_TXT" | grep -cE '^[[:space:]]*v=DMARC1' || true)
+[[ "$DMARC_COUNT" -eq 1 ]] \
+    || { red "drobu.app DMARC: expected exactly one record, found $DMARC_COUNT (0 = missing; >1 = RFC 7489 §6.6.3 applies no policy). Fix the DNS zone before shipping."; exit 1; }
+DMARC_REC=$(echo "$DMARC_TXT" | grep -E '^[[:space:]]*v=DMARC1')
+echo "$DMARC_REC" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' \
+    || { red "drobu.app DMARC is not enforced (got '$DMARC_TXT') — set p=quarantine or p=reject before shipping."; exit 1; }
+# t=y (DMARCbis testing mode) and pct<100 (sample) both leave failing mail
+# un-quarantined even with p=quarantine/reject — reject them.
+if echo "$DMARC_REC" | grep -qE '(^|[[:space:];])t=y([[:space:];]|$)'; then
+    red "drobu.app DMARC has t=y (testing mode) — failing mail is not enforced despite p=. Remove t=y."; exit 1
+fi
+DMARC_PCT=$(echo "$DMARC_REC" | grep -oE '(^|[[:space:];])pct=[0-9]+' | grep -oE '[0-9]+$' || true)
+if [[ -n "$DMARC_PCT" && "$DMARC_PCT" -ne 100 ]]; then
+    red "drobu.app DMARC pct=$DMARC_PCT — only that percent of failing mail is enforced. Set pct=100 or remove it."; exit 1
+fi
 
 # License-fulfillment webhook health (mirrors the daily monitor's
 # webhook-health job — the documented backstop for GitHub auto-disabling
