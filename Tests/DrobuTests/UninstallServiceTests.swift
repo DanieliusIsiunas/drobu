@@ -257,6 +257,7 @@ struct UninstallServiceTests {
         let result = await h.service.run(options: UninstallOptions(deleteData: true))
         if case .failed = result.dataErase {} else { Issue.record("expected .failed dataErase") }
         #expect(!result.hadRegistrationFailure)   // a data-wipe failure leaves no orphaned registration
+        #expect(result.residualSummary != nil)    // ...but the user IS warned their data may remain
     }
 
     @Test("checkbox state maps to UninstallOptions.deleteData")

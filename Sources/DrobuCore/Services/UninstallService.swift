@@ -44,6 +44,9 @@ struct UninstallResult: Equatable, Sendable {
         if case .failed = sessionReversal {
             parts.append("Drobu couldn't confirm your Mac's sleep setting was restored — if your Mac won't sleep, open Terminal and run: sudo pmset -a disablesleep 0")
         }
+        if case .failed = dataErase {
+            parts.append("the clipboard history and settings you chose to delete may not have been fully removed — you can delete the \"ClipboardHistory\" folder inside ~/Library/Application Support manually")
+        }
         guard !parts.isEmpty else { return nil }
         return "Drobu was removed, but " + parts.joined(separator: "; and ") + "."
     }
