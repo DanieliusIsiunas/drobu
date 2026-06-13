@@ -68,11 +68,20 @@ struct ActivationView: View {
                 TextField("DROBU-…", text: $keyInput, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                    .lineLimit(3, reservesSpace: true)
+                    // Left-aligned, grow to fit the full key so the DROBU-
+                    // prefix stays visible (matches the license email).
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3...6)
                     .focused($keyFieldFocused)
                     .disabled(activationSucceeded)
-                    .onChange(of: keyInput) { _, _ in errorMessage = nil }
-                    .onSubmit(activate)
+                    .onChange(of: keyInput) { _, newValue in handleKeyInput(newValue) }
+
+                Text("Paste from clipboard")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .onTapGesture { pasteFromClipboard() }
+                    .accessibilityLabel("Paste license key from clipboard and activate")
+                    .accessibilityAddTraits(.isButton)
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -146,11 +155,37 @@ struct ActivationView: View {
         }
     }
 
+    // Keys carry no whitespace, so strip any (email line-wrapping, or a
+    // Return press — axis:.vertical never fires onSubmit on Return), then
+    // auto-activate the instant a full-shaped key is present. Pasting is the
+    // whole interaction; the Activate button remains an explicit fallback.
+    // Focus-proof paste: read the key straight off the clipboard rather than
+    // relying on a simulated Cmd+V (which macOS doesn't reliably route to our
+    // own window). Works whether the key was copied from the email or via the
+    // Drobu panel, which also writes it to the pasteboard.
+    private func pasteFromClipboard() {
+        guard let s = NSPasteboard.general.string(forType: .string) else { return }
+        keyInput = s   // handleKeyInput strips whitespace + auto-activates
+    }
+
+    private func handleKeyInput(_ newValue: String) {
+        errorMessage = nil
+        guard !activationSucceeded else { return }
+        let cleaned = newValue.filter { !$0.isWhitespace }
+        if cleaned != newValue {
+            keyInput = cleaned   // re-triggers onChange; that pass activates
+            return
+        }
+        if cleaned.hasPrefix("DROBU-"), cleaned.dropFirst(6).contains("."), cleaned.count >= 100 {
+            activate()
+        }
+    }
+
     private func activate() {
-        let trimmed = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let cleaned = keyInput.filter { !$0.isWhitespace }
+        guard !cleaned.isEmpty else { return }
         do {
-            try licenseManager.activate(keyString: trimmed)
+            try licenseManager.activate(keyString: cleaned)
             // Show success briefly so the user sees confirmation —
             // closing the panel immediately reads as "did anything
             // happen?" and is the #1 complaint pattern in indie apps.
