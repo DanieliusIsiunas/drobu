@@ -159,32 +159,37 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
             return
         }
         watchdog.cancel()
-        // Remove our own root-owned files first (state file before log so a
-        // post-teardown write can't resurrect the dir ahead of its removal), then
-        // the now-empty support directory. Collect diagnostics WITHOUT logging in
-        // here: logging under the lock both diverges from the unlock-then-log
-        // discipline and could recreate daemon.log between the file and dir
-        // removals.
+        // Validate the support directory BEFORE touching any child path: an
+        // lstat on a child only refuses a symlink at its FINAL component, so an
+        // intermediate directory symlink could otherwise redirect a child
+        // removal to an attacker-chosen target. Checking the dir first (as
+        // SleepStateStore.read does) keeps the symlink refusal effective.
+        // Collect diagnostics WITHOUT logging here: logging under the lock
+        // diverges from the unlock-then-log discipline and could recreate
+        // daemon.log mid-removal.
+        let dir = DaemonConstants.supportDirectory
         var refused: [String] = []
         var errored: [String] = []
-        DaemonTeardown.removeFiles(
-            [DaemonConstants.stateFilePath, DaemonConstants.logFilePath],
-            exists: { FileManager.default.fileExists(atPath: $0) },
-            isSafe: FileGuards.isRootOwnedPrivateRegularFile,
-            remove: { try FileManager.default.removeItem(atPath: $0) },
-            onRefused: { refused.append($0) },
-            onError: { path, _ in errored.append(path) }
-        )
-        let dir = DaemonConstants.supportDirectory
         var dirRemoved = true
         if FileManager.default.fileExists(atPath: dir) {
             if FileGuards.isRootOwnedSafeDirectory(dir) {
+                // Inside a verified root-owned dir: remove the state file before
+                // the log (a stray post-removal write can't then resurrect the
+                // dir), each still gated by its own private-regular-file check.
+                DaemonTeardown.removeFiles(
+                    [DaemonConstants.stateFilePath, DaemonConstants.logFilePath],
+                    exists: { FileManager.default.fileExists(atPath: $0) },
+                    isSafe: FileGuards.isRootOwnedPrivateRegularFile,
+                    remove: { try FileManager.default.removeItem(atPath: $0) },
+                    onRefused: { refused.append($0) },
+                    onError: { path, _ in errored.append(path) }
+                )
                 do { try FileManager.default.removeItem(atPath: dir) }
                 catch { dirRemoved = false }
             } else {
                 // Exists but unsafe (symlink / non-root / group-writable): refuse
-                // to delete AND report it — the support dir remains, so this is
-                // not a clean teardown and reply must not claim success.
+                // the WHOLE teardown — do not remove children reached through an
+                // unverified directory — and report it so reply can't claim success.
                 refused.append(dir)
                 dirRemoved = false
             }
