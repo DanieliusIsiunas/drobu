@@ -33,11 +33,19 @@ struct UninstallResult: Equatable, Sendable {
         return false
     }
 
-    /// User-facing summary shown before quit when a registration step failed.
+    /// User-facing summary shown before quit when something needs the user's
+    /// attention: an orphan-able registration that may remain, or an unconfirmed
+    /// sleep-setting reversal (which can leave the Mac unable to sleep).
     var residualSummary: String? {
-        guard hadRegistrationFailure else { return nil }
-        return "Drobu was removed, but a background item registration may remain. "
-            + "Open System Settings → General → Login Items to remove it."
+        var parts: [String] = []
+        if hadRegistrationFailure {
+            parts.append("a background item registration may remain — open System Settings → General → Login Items to remove it")
+        }
+        if case .failed = sessionReversal {
+            parts.append("Drobu couldn't confirm your Mac's sleep setting was restored — if your Mac won't sleep, open Terminal and run: sudo pmset -a disablesleep 0")
+        }
+        guard !parts.isEmpty else { return nil }
+        return "Drobu was removed, but " + parts.joined(separator: "; and ") + "."
     }
 }
 
@@ -80,23 +88,6 @@ final class UninstallService {
         self.terminate = terminate
     }
 
-    /// Race an async daemon call against a timeout so a wedged-but-connected
-    /// daemon cannot hang the uninstall. Returns nil on timeout (treated as an
-    /// unconfirmed/skipped step, same as an unreachable daemon).
-    private func boundedDaemonCall(_ op: @escaping @Sendable () async -> Bool?) async -> Bool? {
-        let timeout = daemonCallTimeout
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { await op() }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-    }
-
     /// Run the teardown. Does NOT trash the bundle or quit — the caller shows any
     /// residual summary first, then calls `scheduleSelfDeleteAndQuit()`.
     @discardableResult
@@ -110,25 +101,30 @@ final class UninstallService {
         let daemonStatus = registrar.status
         let daemonRunning = daemonStatus == .enabled
         let hasRegistration = daemonStatus == .enabled || daemonStatus == .requiresApproval
-        let daemonRef = daemon
+        let daemon = self.daemon
+        let timeout = daemonCallTimeout
 
         // 1. Reverse an active session FIRST (R14) so `pmset disablesleep` is not
         //    left applied with its reversal owner about to be removed. (The daemon
         //    teardown in step 2 also reverses pmset defensively, in case this
-        //    reply is lost.)
+        //    reply is lost.) The bounded (semaphore) calls run off the main actor:
+        //    they genuinely return after the timeout even if a wedged daemon never
+        //    replies — a structured-concurrency timeout can't, since the XPC
+        //    continuation isn't cancellable — and they don't block the main thread.
         let sessionReversal: UninstallStepOutcome
         if daemonRunning {
-            sessionReversal = (await boundedDaemonCall { await daemonRef.disable() } == true)
-                ? .ok : .failed("session reversal unconfirmed")
+            let reversed = await Task.detached { daemon.disableBounded(timeout: timeout) }.value
+            sessionReversal = reversed ? .ok : .failed("session reversal unconfirmed")
         } else {
             sessionReversal = .skipped
         }
 
         // 2. Best-effort root-state teardown (R3). An old daemon without the
-        //    selector — or an unreachable one — returns nil → skipped, not failed.
+        //    selector — or an unreachable/wedged one — returns false → skipped.
         let daemonStateTeardown: UninstallStepOutcome
         if daemonRunning {
-            daemonStateTeardown = (await boundedDaemonCall { await daemonRef.teardown() } == true) ? .ok : .skipped
+            let toreDown = await Task.detached { daemon.teardownBounded(timeout: timeout) }.value
+            daemonStateTeardown = toreDown ? .ok : .skipped
         } else {
             daemonStateTeardown = .skipped
         }

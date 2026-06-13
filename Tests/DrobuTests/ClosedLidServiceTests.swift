@@ -34,10 +34,10 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
         return enableOutcome
     }
     func disable() async -> Bool? { disableCallCount += 1; return disableResult }
-    func teardown() async -> Bool? { teardownCallCount += 1; return teardownResult }
     func displayOff() async -> Bool? { displayOffCallCount += 1; return displayOffResult }
     func status() async -> DaemonStatusReply? { statusCallCount += 1; return statusReply }
     func disableBounded(timeout: TimeInterval) -> Bool { disableCallCount += 1; return disableResult ?? false }
+    func teardownBounded(timeout: TimeInterval) -> Bool { teardownCallCount += 1; return teardownResult ?? false }
     func resetConnection() { resetConnectionCallCount += 1 }
 }
 

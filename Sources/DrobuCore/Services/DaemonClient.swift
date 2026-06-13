@@ -21,11 +21,6 @@ protocol DaemonControlling: Sendable {
     func protocolVersion() async -> Int?
     func enable(durationSeconds: Int) async -> EnableOutcome?
     func disable() async -> Bool?
-    /// Erase the daemon's own root-owned support state ahead of uninstall.
-    /// `nil` means unreachable (an old daemon without the selector, or a dead
-    /// connection) — the uninstall flow treats that as "skipped", never a hard
-    /// failure (R3).
-    func teardown() async -> Bool?
     /// One-shot display sleep on the lid-close edge. Best-effort: the panel is
     /// cosmetic relative to the stay-awake guarantee, so callers log a failure
     /// and move on — never unwind the session over it.
@@ -42,6 +37,12 @@ protocol DaemonControlling: Sendable {
     /// semaphore without deadlock (M7); a missed reply defers reversal to the
     /// daemon watchdog deadline.
     func disableBounded(timeout: TimeInterval) -> Bool
+    /// Bounded synchronous teardown for the uninstall path. Same semaphore
+    /// pattern as `disableBounded` — genuinely returns after `timeout` even if a
+    /// wedged-but-connected daemon never replies (a structured-concurrency
+    /// timeout cannot, since the XPC continuation isn't cancellable). `false`
+    /// means failed/timed-out/unreachable → the caller treats it as "skipped".
+    func teardownBounded(timeout: TimeInterval) -> Bool
 }
 
 /// Resume a continuation exactly once, even if both the reply block and the
@@ -141,14 +142,6 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
         }
     }
 
-    func teardown() async -> Bool? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool?, Never>) in
-            let once = ResumeOnce<Bool?> { continuation.resume(returning: $0) }
-            guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
-            proxy.teardown { ok in once.fire(ok) }
-        }
-    }
-
     func status() async -> DaemonStatusReply? {
         await withCheckedContinuation { (continuation: CheckedContinuation<DaemonStatusReply?, Never>) in
             let once = ResumeOnce<DaemonStatusReply?> { continuation.resume(returning: $0) }
@@ -172,6 +165,18 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
         let box = BoolBox()
         guard let proxy = proxy(onError: { semaphore.signal() }) else { return false }
         proxy.disable { ok in
+            box.value = ok
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + timeout)
+        return box.value
+    }
+
+    func teardownBounded(timeout: TimeInterval) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = BoolBox()
+        guard let proxy = proxy(onError: { semaphore.signal() }) else { return false }
+        proxy.teardown { ok in
             box.value = ok
             semaphore.signal()
         }

@@ -25,12 +25,13 @@ final class UninstallDaemonMock: DaemonControlling, @unchecked Sendable {
     }
     func protocolVersion() async -> Int? { nil }
     func enable(durationSeconds: Int) async -> EnableOutcome? { nil }
-    func disable() async -> Bool? { log.record("disable"); return disableResult }
-    func teardown() async -> Bool? { log.record("teardown"); return teardownResult }
+    func disable() async -> Bool? { disableResult }
     func displayOff() async -> Bool? { nil }
     func status() async -> DaemonStatusReply? { nil }
     func resetConnection() { log.record("resetConnection") }
-    func disableBounded(timeout: TimeInterval) -> Bool { false }
+    // UninstallService uses the bounded (semaphore) variants — record there.
+    func disableBounded(timeout: TimeInterval) -> Bool { log.record("disable"); return disableResult ?? false }
+    func teardownBounded(timeout: TimeInterval) -> Bool { log.record("teardown"); return teardownResult ?? false }
 }
 
 @MainActor

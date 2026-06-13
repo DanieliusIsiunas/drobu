@@ -140,12 +140,24 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
 
     func teardown(reply: @escaping (Bool) -> Void) {
         lock.lock()
-        // Defensive reversal: restore sleep and cancel the watchdog even though
-        // the client calls `disable` before this — if that disable reply was lost
-        // (XPC race), `unregister` is about to SIGKILL the only owner that can
-        // reverse `pmset disablesleep`, which would otherwise persist. Idempotent
-        // if already off.
-        let sleepReversed = PmsetControl.setDisableSleep(false)
+        let n = now()
+        // Defensive reversal: restore sleep before the client unregisters us — if
+        // that earlier `disable` reply was lost (XPC race), `unregister` is about
+        // to SIGKILL the only owner that can reverse `pmset disablesleep`.
+        // Idempotent if already off.
+        //
+        // If reversal FAILS, do NOT destroy the recovery path: keep the watchdog
+        // armed and the state file intact (mirroring disable()/expire()), and
+        // erase nothing — so a daemon that is not actually reaped (or is
+        // restarted) can still reverse SleepDisabled, instead of leaving the Mac
+        // unable to sleep until manual repair.
+        guard PmsetControl.setDisableSleep(false) else {
+            armReversalRetryLocked(now: n)
+            lock.unlock()
+            DaemonLog.write("SleepControlService: teardown — pmset reversal FAILED; recovery preserved, root state NOT erased")
+            reply(false)
+            return
+        }
         watchdog.cancel()
         // Remove our own root-owned files first (state file before log so a
         // post-teardown write can't resurrect the dir ahead of its removal), then
@@ -174,7 +186,6 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         // Best-effort logging after the lock and after the dir is gone (the write
         // may no-op once the parent is removed — acceptable; the client logs the
         // teardown outcome too).
-        if !sleepReversed { DaemonLog.write("SleepControlService: teardown — pmset reversal failed") }
         for path in refused { DaemonLog.write("SleepControlService: teardown refused non-private path \(path)") }
         for path in errored { DaemonLog.write("SleepControlService: teardown failed to remove \(path)") }
 
