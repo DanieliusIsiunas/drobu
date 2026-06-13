@@ -24,8 +24,8 @@ struct BundleTrasher: BundleTrashing {
         // inject shell. The script body is a fixed literal.
         //   $1 app pid   $2 daemon process name   $3 expected CFBundleVersion   $4 bundle path
         let script = """
-        i=0; while kill -0 "$1" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
-        i=0; while pgrep -qx "$2" && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+        i=0; while kill -0 "$1" 2>/dev/null; do [ $i -ge 100 ] && { /usr/bin/logger "Drobu uninstall: app still running after timeout — bundle left in place"; exit 0; }; sleep 0.1; i=$((i+1)); done
+        i=0; while pgrep -qx "$2"; do [ $i -ge 100 ] && { /usr/bin/logger "Drobu uninstall: daemon still running after timeout — bundle left in place"; exit 0; }; sleep 0.1; i=$((i+1)); done
         ver=$(/usr/bin/defaults read "$4/Contents/Info" CFBundleVersion 2>/dev/null)
         [ "$ver" = "$3" ] || exit 0
         /usr/bin/osascript -e 'on run argv' -e 'tell application "Finder" to delete (POSIX file (item 1 of argv))' -e 'end run' "$4"

@@ -177,9 +177,17 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         )
         let dir = DaemonConstants.supportDirectory
         var dirRemoved = true
-        if FileManager.default.fileExists(atPath: dir), FileGuards.isRootOwnedSafeDirectory(dir) {
-            do { try FileManager.default.removeItem(atPath: dir) }
-            catch { dirRemoved = false }
+        if FileManager.default.fileExists(atPath: dir) {
+            if FileGuards.isRootOwnedSafeDirectory(dir) {
+                do { try FileManager.default.removeItem(atPath: dir) }
+                catch { dirRemoved = false }
+            } else {
+                // Exists but unsafe (symlink / non-root / group-writable): refuse
+                // to delete AND report it — the support dir remains, so this is
+                // not a clean teardown and reply must not claim success.
+                refused.append(dir)
+                dirRemoved = false
+            }
         }
         lock.unlock()
 
