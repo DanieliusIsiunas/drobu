@@ -57,10 +57,15 @@ struct OnboardingRow: Identifiable, Equatable {
 @MainActor
 final class OnboardingViewModel: ObservableObject {
     @Published private(set) var rows: [OnboardingRow] = []
-    /// Completion derived from the same `rows` snapshot, recomputed in `refresh()`
-    /// so the footer never disagrees with the rows on screen (a computed property
-    /// would re-poll the probe and could drift between the row build and the read).
-    @Published private(set) var isComplete: Bool = false
+    /// Completion recomputed in `refresh()` in the same synchronous pass that
+    /// builds the rows, so the footer never disagrees with the rows on screen.
+    /// Tri-state so we never claim "all set" while a required permission is only
+    /// pending a restart (it offers "Restart to activate" instead).
+    @Published private(set) var completion: OnboardingCompletion = .incomplete
+
+    /// The user has done their part (granted everything required — a restart, if
+    /// any, is mechanical). Distinct from "ready to use right now" (`.ready`).
+    var isComplete: Bool { completion != .incomplete }
     private let permissions: PermissionsService
 
     /// Ordered blueprint: permission, tier, title, benefit-first subtitle.
@@ -94,12 +99,11 @@ final class OnboardingViewModel: ObservableObject {
                                  title: title, subtitle: subtitle, state: state)
         }
         rows = newRows
-        // Complete when every applicable required permission is granted or
-        // pending-restart (a restart is mechanical). Optional rows never affect
-        // completion — nothing is forced. Computed here, in the same synchronous
+        // Restart-aware completion over the required tier. Optional rows never
+        // affect it — nothing is forced. Computed here, in the same synchronous
         // pass that built the rows, so the footer can't drift from what's on screen.
         let requiredPerms = newRows.filter { $0.tier == .required }.map(\.permission)
-        isComplete = permissions.requiredSatisfied(required: requiredPerms)
+        completion = permissions.completion(required: requiredPerms)
     }
 
     var requiredRows: [OnboardingRow] { rows.filter { $0.tier == .required } }

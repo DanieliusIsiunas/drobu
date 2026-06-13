@@ -32,6 +32,16 @@ enum PermissionState: Equatable {
     case notApplicable    // doesn't exist on this OS (e.g. pasteboard < macOS 15.4)
 }
 
+/// Completion of the *required* permission tier, with restart honesty baked in:
+/// `.ready` only when every required permission works **now**; `.pendingRestart`
+/// when the user has granted them all but at least one needs a relaunch to take
+/// effect — so onboarding never claims "all set" while paste is still dead.
+enum OnboardingCompletion: Equatable {
+    case incomplete       // a required permission is still not granted
+    case pendingRestart   // all required granted, but a restart is needed to activate
+    case ready            // all required granted and working now
+}
+
 /// Injectable probe over the real OS permission checks, so `PermissionsService`'s
 /// status mapping is unit-testable without touching TCC / SMAppService. Mirrors
 /// `DaemonServiceControlling`. `@MainActor` because the production probe reaches
@@ -96,15 +106,26 @@ final class PermissionsService {
         return (grantedAtLaunch[permission] ?? false) ? .granted : .pendingRestart
     }
 
-    /// True when every required permission is granted or pending-restart (the
-    /// user has done their part — a restart is mechanical). `.notApplicable`
-    /// counts as satisfied (the permission doesn't exist on this OS).
-    func requiredSatisfied(required: [Permission]) -> Bool {
-        required.allSatisfy { permission in
+    /// Restart-aware completion of a required set. `.ready` only when every
+    /// required permission works now; `.pendingRestart` when all are
+    /// granted-or-pending but at least one needs a relaunch to activate;
+    /// `.incomplete` if any is not granted. `.notApplicable` counts as satisfied
+    /// (the permission doesn't exist on this OS).
+    func completion(required: [Permission]) -> OnboardingCompletion {
+        var anyPending = false
+        for permission in required {
             switch state(for: permission) {
-            case .granted, .pendingRestart, .notApplicable: return true
-            case .notGranted: return false
+            case .granted, .notApplicable: continue
+            case .pendingRestart: anyPending = true
+            case .notGranted: return .incomplete
             }
         }
+        return anyPending ? .pendingRestart : .ready
+    }
+
+    /// True when every required permission is granted or pending-restart (the
+    /// user has done their part — a restart is mechanical).
+    func requiredSatisfied(required: [Permission]) -> Bool {
+        completion(required: required) != .incomplete
     }
 }

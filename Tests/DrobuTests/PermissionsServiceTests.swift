@@ -87,4 +87,33 @@ struct PermissionsServiceTests {
         let service = PermissionsService(probe: probe)
         #expect(service.requiredSatisfied(required: [.accessibility, .pasteboard]))
     }
+
+    @Test("completion is .ready only when every required permission works now")
+    func completionReady() {
+        let probe = MockPermissionProbe([.accessibility: true, .pasteboard: true])
+        let service = PermissionsService(probe: probe)   // both granted at launch
+        #expect(service.completion(required: [.accessibility, .pasteboard]) == .ready)
+    }
+
+    @Test("completion is .pendingRestart when a required permission was granted only this session")
+    func completionPendingRestart() {
+        let probe = MockPermissionProbe([.accessibility: false, .pasteboard: true])
+        let service = PermissionsService(probe: probe)
+        probe.grants[.accessibility] = true   // granted after launch → needs restart
+        #expect(service.completion(required: [.accessibility, .pasteboard]) == .pendingRestart)
+    }
+
+    @Test("completion is .incomplete when any required permission is not granted")
+    func completionIncomplete() {
+        let probe = MockPermissionProbe([.accessibility: true, .pasteboard: false])
+        let service = PermissionsService(probe: probe)
+        #expect(service.completion(required: [.accessibility, .pasteboard]) == .incomplete)
+    }
+
+    @Test("completion treats a notApplicable required permission as satisfied (.ready)")
+    func completionNotApplicableIsReady() {
+        let probe = MockPermissionProbe([.accessibility: true, .pasteboard: Bool?.none])
+        let service = PermissionsService(probe: probe)
+        #expect(service.completion(required: [.accessibility, .pasteboard]) == .ready)
+    }
 }

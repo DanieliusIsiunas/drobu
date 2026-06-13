@@ -157,34 +157,78 @@ struct OnboardingView: View {
     private var footer: some View {
         VStack(spacing: 10) {
             Divider()
-            Text(model.isComplete
-                 ? "You're all set — copy something and press your hotkey to try it."
-                 : "Set up the required ones and you're ready. The rest can wait.")
+            Text(footerHint)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
-                // Decorative hint — the button label below carries the actionable
+                // Decorative hint — the button below carries the actionable
                 // state for VoiceOver, so this would just be redundant chatter.
                 .accessibilityHidden(true)
 
-            Text(model.isComplete ? "Start using Drobu" : "Skip for now")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(model.isComplete ? Color.white : Color.accentColor)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(model.isComplete ? Color.accentColor : Color.accentColor.opacity(0.12))
-                )
-                .contentShape(Rectangle())
-                .onTapGesture { onFinish() }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(model.isComplete ? "Start using Drobu" : "Skip onboarding for now")
-                .padding(.horizontal, 24)
+            primaryButton
+
+            // Escape hatch while a restart is pending — nothing is forced. The
+            // user can dismiss without restarting; paste degrades gracefully
+            // (copying still works) until they relaunch.
+            if model.completion == .pendingRestart {
+                Text("Skip for now")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onFinish() }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Skip onboarding for now")
+            }
         }
         .padding(.bottom, 16)
         .padding(.top, 4)
+    }
+
+    private var footerHint: String {
+        switch model.completion {
+        case .ready:
+            return "You're all set — copy something and press your hotkey to try it."
+        case .pendingRestart:
+            return "One quick restart and Drobu can paste anywhere — your history is safe."
+        case .incomplete:
+            return "Set up the required ones and you're ready. The rest can wait."
+        }
+    }
+
+    @ViewBuilder
+    private var primaryButton: some View {
+        switch model.completion {
+        case .ready:
+            footerButton(title: "Start using Drobu", filled: true, tint: .accentColor,
+                         label: "Start using Drobu") { onFinish() }
+        case .pendingRestart:
+            // Honest completion: paste won't work until relaunch, so the primary
+            // action restarts rather than claiming "all set".
+            footerButton(title: "Restart to activate", filled: true, tint: .orange,
+                         label: "Restart Drobu to activate permissions") { onAction(.restart) }
+        case .incomplete:
+            footerButton(title: "Skip for now", filled: false, tint: .accentColor,
+                         label: "Skip onboarding for now") { onFinish() }
+        }
+    }
+
+    private func footerButton(title: String, filled: Bool, tint: Color, label: String,
+                              action: @escaping () -> Void) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(filled ? Color.white : tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(filled ? tint : tint.opacity(0.12))
+            )
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(label)
+            .padding(.horizontal, 24)
     }
 }

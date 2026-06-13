@@ -88,6 +88,30 @@ struct OnboardingViewModelTests {
         #expect(model.isComplete)
     }
 
+    @Test("completion is .ready when all required permissions work at launch")
+    func completionReadyState() {
+        let (model, _) = makeModel(allApplicable())
+        #expect(model.completion == .ready)
+        #expect(model.isComplete)
+    }
+
+    @Test("completion is .pendingRestart after a required restart-permission is granted this session")
+    func completionPendingRestartState() {
+        let (model, probe) = makeModel(allApplicable([.accessibility: false]))
+        #expect(model.completion == .incomplete)
+        probe.grants[.accessibility] = true   // granted this session → needs restart
+        model.refresh()
+        #expect(model.completion == .pendingRestart)
+        #expect(model.isComplete)   // the user has done their part — a restart is mechanical
+    }
+
+    @Test("completion is .incomplete while a required permission is not granted")
+    func completionIncompleteState() {
+        let (model, _) = makeModel(allApplicable([.pasteboard: false]))
+        #expect(model.completion == .incomplete)
+        #expect(!model.isComplete)
+    }
+
     @Test("refresh() picks up a state change from the probe")
     func refreshUpdatesRows() {
         let (model, probe) = makeModel(allApplicable([.screenRecording: false]))
