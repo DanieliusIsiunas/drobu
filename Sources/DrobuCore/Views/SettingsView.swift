@@ -56,6 +56,18 @@ public struct SettingsView: View {
                             launchAtLogin = agent.isEnabled
                         }
                     }
+
+                HStack {
+                    Text("Setup & Permissions")
+                    Spacer()
+                    Text("Open")
+                        .foregroundStyle(Color.accentColor)
+                        .onTapGesture {
+                            NotificationCenter.default.post(name: .openOnboardingRequested, object: nil)
+                        }
+                        .accessibilityLabel("Open setup and permissions")
+                        .accessibilityAddTraits(.isButton)
+                }
             }
 
             Section("Closed Lid Mode") {

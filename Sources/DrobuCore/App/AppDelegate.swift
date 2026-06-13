@@ -33,6 +33,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     public private(set) var licenseManager: LicenseManager?
     private var licenseRefreshTimer: Timer?
     private var activationPanel: ActivationPanel?
+    /// Single instance whose launch baseline backs the restart-pending status —
+    /// created early in launch so it captures permission state before the user
+    /// can change anything.
+    private var permissionsService: PermissionsService?
+    private var onboardingPanel: OnboardingPanel?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -52,6 +57,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         let mgr = LicenseManager.shared
         mgr.recordFirstLaunchIfNeeded()
         licenseManager = mgr
+
+        // Snapshot the permission baseline as early as possible so the
+        // restart-pending rule is accurate (a permission granted later this
+        // session reads as pending-restart, not a false "ready").
+        permissionsService = PermissionsService()
         // Hourly refresh so a session left running across the trial
         // boundary transitions to .trialExpired without user input.
         licenseRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
@@ -166,8 +176,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             self?.refreshSleepStatusItems()
         }
 
-        // Check Accessibility permission on launch
-        checkAccessibilityOnLaunch()
+        // First launch: welcome the user and let them set up permissions up
+        // front (replaces the old every-launch Accessibility modal — onboarding
+        // owns first-run, and later lapses degrade gracefully in-context).
+        showOnboardingIfFirstRun()
+
+        // Re-open onboarding on demand from Settings → "Setup & Permissions".
+        _ = NotificationCenter.default.addObserver(
+            forName: .openOnboardingRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showOnboarding() }
+        }
 
         // Run cleanup on launch + schedule hourly
         runCleanup()
@@ -317,6 +336,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         let menu = NSMenu()
         // Dynamic sleep status items need menuWillOpen/menuDidClose
         menu.delegate = self
+        menu.addItem(withTitle: "Set Up Drobu…", action: #selector(showOnboardingFromMenu), keyEquivalent: "")
         menu.addItem(withTitle: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
         if let controller = updaterController {
             let checkForUpdatesItem = NSMenuItem(
@@ -614,28 +634,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         }
     }
 
-    // MARK: - Accessibility Onboarding
+    // MARK: - Onboarding
 
-    private func checkAccessibilityOnLaunch() {
-        guard !AXIsProcessTrusted() else { return }
+    /// Auto-show the welcome + permission checklist on first launch only.
+    private func showOnboardingIfFirstRun() {
+        guard OnboardingGate().shouldAutoShow else { return }
+        showOnboarding()
+    }
 
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = """
-            Drobu needs Accessibility permission to auto-paste items. \
-            Without it, items will be copied to clipboard but you'll need to paste manually with Cmd+V.
+    /// Show (or re-show) the onboarding panel. Recreated each time — NSHostingView
+    /// `onAppear` is unreliable and the panel owns a live-refresh timer it must
+    /// re-arm. Reuses the launch-baselined `PermissionsService` so the
+    /// restart-pending status stays accurate.
+    private func showOnboarding() {
+        let permissions = permissionsService ?? PermissionsService()
+        permissionsService = permissions
+        onboardingPanel?.close()
+        onboardingPanel = OnboardingPanel(
+            permissions: permissions,
+            gate: OnboardingGate(),
+            onClose: { [weak self] in self?.onboardingPanel = nil }
+        )
+        onboardingPanel?.showCentered()
+    }
 
-            Click 'Open System Settings' and toggle on Drobu.
-            """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Skip (Copy Only)")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
-        }
+    @objc private func showOnboardingFromMenu() {
+        showOnboarding()
     }
 
     // MARK: - Hotkey Management

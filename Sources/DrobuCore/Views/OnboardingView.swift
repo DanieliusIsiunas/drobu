@@ -1,0 +1,184 @@
+import SwiftUI
+
+/// The first-launch permission checklist shown inside `OnboardingPanel`. A
+/// single screen: a warm welcome, a Required tier and an Optional tier of
+/// permission rows with live status, and a footer that names the next action.
+/// Nothing is forced — "Skip for now" is always available, and optional rows
+/// can be left untouched.
+///
+/// Action invocation is delegated up via `onAction` (the panel performs it
+/// against the real APIs — system boundary); the row/completion logic lives in
+/// `OnboardingViewModel` (unit-tested).
+struct OnboardingView: View {
+    @ObservedObject var model: OnboardingViewModel
+    var onAction: (OnboardingAction) -> Void
+    var onFinish: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    section("Required", rows: model.requiredRows)
+                    section("Optional — set up anytime", rows: model.optionalRows)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+            }
+            footer
+        }
+        .frame(width: 480, height: 600)
+        .background(.regularMaterial)
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        VStack(spacing: 6) {
+            Text("Let's get Drobu comfortable on your Mac")
+                .font(.system(size: 18, weight: .semibold))
+                .multilineTextAlignment(.center)
+            Text("Grant a couple of permissions and you're off — most take one click. Your 14-day trial just started.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+        }
+        .padding(.top, 20)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Sections / rows
+
+    @ViewBuilder
+    private func section(_ title: String, rows: [OnboardingRow]) -> some View {
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                ForEach(rows) { row in rowView(row) }
+            }
+        }
+    }
+
+    private func rowView(_ row: OnboardingRow) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            statusGlyph(row.state)
+                .frame(width: 18)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title).font(.system(size: 13, weight: .medium))
+                Text(row.subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            actionControl(for: row)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(row.title): \(accessibilityStatus(row.state))")
+        .accessibilityHint(row.subtitle)
+    }
+
+    @ViewBuilder
+    private func statusGlyph(_ state: PermissionState) -> some View {
+        switch state {
+        case .granted:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .pendingRestart:
+            Image(systemName: "arrow.clockwise.circle.fill").foregroundStyle(.orange)
+        case .notGranted, .notApplicable:
+            Image(systemName: "circle").foregroundStyle(.secondary.opacity(0.5))
+        }
+    }
+
+    @ViewBuilder
+    private func actionControl(for row: OnboardingRow) -> some View {
+        if row.permission == .launchAtLogin {
+            // Rendered as a toggle, bound to the live state.
+            Toggle("", isOn: Binding(
+                get: { row.state == .granted },
+                set: { onAction(.toggleLaunchAtLogin(enable: $0)) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .accessibilityLabel("Launch at login")
+        } else if let action = row.primaryAction {
+            Text(actionLabel(for: action))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(action == .restart ? Color.orange : Color.accentColor)
+                .contentShape(Rectangle())
+                .onTapGesture { onAction(action) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(actionLabel(for: action))
+                .accessibilityAddTraits(.isButton)
+        } else {
+            Text("Ready")
+                .font(.system(size: 12))
+                .foregroundStyle(.green)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func actionLabel(for action: OnboardingAction) -> String {
+        switch action {
+        case .openAccessibilitySettings, .openScreenRecordingSettings, .openPasteboardSettings:
+            return "Open Settings"
+        case .enableClosedLidHelper:
+            return "Enable"
+        case .restart:
+            return "Restart to activate"
+        case .toggleLaunchAtLogin:
+            return "Toggle launch at login"
+        }
+    }
+
+    private func accessibilityStatus(_ state: PermissionState) -> String {
+        switch state {
+        case .granted: return "ready"
+        case .pendingRestart: return "granted, restart to activate"
+        case .notGranted: return "not set up"
+        case .notApplicable: return "not applicable"
+        }
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        VStack(spacing: 10) {
+            Divider()
+            Text(model.isComplete
+                 ? "You're all set — copy something and press your hotkey to try it."
+                 : "Set up the required ones and you're ready. The rest can wait.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+
+            Text(model.isComplete ? "Start using Drobu" : "Skip for now")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(model.isComplete ? Color.white : Color.accentColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(model.isComplete ? Color.accentColor : Color.accentColor.opacity(0.12))
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { onFinish() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(model.isComplete ? "Start using Drobu" : "Skip onboarding for now")
+                .padding(.horizontal, 24)
+        }
+        .padding(.bottom, 16)
+        .padding(.top, 4)
+    }
+}
