@@ -292,12 +292,23 @@ public struct SettingsView: View {
             // Multi-line input so the full ~110-char key is visible —
             // single-line truncates and the user can't tell if the
             // paste was complete.
-            TextField("Paste license key (DROBU-…)", text: $licenseKeyInput, axis: .vertical)
+            // Empty title + prompt + labelsHidden so the grouped Form does
+            // NOT treat this as LabeledContent (label-left / value-right),
+            // which hard right-aligns the value column. With no label the
+            // field spans the full row width and the pasted ~110-char key
+            // reads left-aligned and monospaced, matching the license email.
+            // (.multilineTextAlignment alone does not beat the grouped Form.)
+            TextField("", text: $licenseKeyInput, prompt: Text("Paste license key (DROBU-…)"), axis: .vertical)
+                .labelsHidden()
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.caption, design: .monospaced))
-                .lineLimit(3, reservesSpace: true)
-                .onChange(of: licenseKeyInput) { _, _ in licenseErrorMessage = nil }
-                .onSubmit(tryActivate)
+                .multilineTextAlignment(.leading)
+                // Grow to fit the full key so the DROBU- prefix stays
+                // visible — a fixed 3-line cap scrolled it out of view and
+                // read as "I pasted something wrong".
+                .lineLimit(3...6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onChange(of: licenseKeyInput) { _, newValue in handleLicenseInput(newValue) }
 
             if licenseSuccessVisible {
                 HStack(spacing: 4) {
@@ -314,6 +325,12 @@ public struct SettingsView: View {
             }
 
             HStack {
+                Text("Paste from clipboard")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+                    .onTapGesture { pasteFromClipboard() }
+                    .accessibilityLabel("Paste license key from clipboard and activate")
+                    .accessibilityAddTraits(.isButton)
                 Spacer()
                 Text("Activate")
                     .font(.caption)
@@ -328,11 +345,41 @@ public struct SettingsView: View {
         }
     }
 
+    // A license key contains no whitespace, so any spaces/newlines are paste
+    // artifacts (email line-wrapping) or a Return press in this multiline
+    // field — strip them all, then auto-activate the moment a full-shaped key
+    // is present. This makes "paste" the whole interaction: no Enter to find
+    // (axis:.vertical TextFields never fire onSubmit on Return anyway), no
+    // button to hunt for. The Activate button stays as an explicit fallback.
+    // Read the key straight off the clipboard — the focus-proof path for
+    // pasting into our OWN window. Drobu's clipboard panel pastes via a
+    // simulated Cmd+V aimed at the previously-focused field, which macOS does
+    // not reliably restore for a same-app paste (it works for external apps,
+    // which keep focus while Drobu runs as an accessory). Reading the
+    // pasteboard here works regardless of how the key was copied — from the
+    // email, or via the Drobu panel (which also writes it to the pasteboard).
+    private func pasteFromClipboard() {
+        guard let s = NSPasteboard.general.string(forType: .string) else { return }
+        licenseKeyInput = s   // handleLicenseInput strips whitespace + auto-activates
+    }
+
+    private func handleLicenseInput(_ newValue: String) {
+        licenseErrorMessage = nil
+        let cleaned = newValue.filter { !$0.isWhitespace }
+        if cleaned != newValue {
+            licenseKeyInput = cleaned   // re-triggers onChange; that pass activates
+            return
+        }
+        if cleaned.hasPrefix("DROBU-"), cleaned.dropFirst(6).contains("."), cleaned.count >= 100 {
+            tryActivate()
+        }
+    }
+
     private func tryActivate() {
-        let trimmed = licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let cleaned = licenseKeyInput.filter { !$0.isWhitespace }
+        guard !cleaned.isEmpty else { return }
         do {
-            try licenseManager.activate(keyString: trimmed)
+            try licenseManager.activate(keyString: cleaned)
             licenseKeyInput = ""
             licenseErrorMessage = nil
             // Inline success confirmation. The Section re-renders to the
