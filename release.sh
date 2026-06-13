@@ -112,8 +112,18 @@ DMARC_TXT=$(dig +short TXT _dmarc.drobu.app | tr -d '"')
 DMARC_COUNT=$(echo "$DMARC_TXT" | grep -cE '^[[:space:]]*v=DMARC1' || true)
 [[ "$DMARC_COUNT" -eq 1 ]] \
     || { red "drobu.app DMARC: expected exactly one record, found $DMARC_COUNT (0 = missing; >1 = RFC 7489 §6.6.3 applies no policy). Fix the DNS zone before shipping."; exit 1; }
-echo "$DMARC_TXT" | grep -E '^[[:space:]]*v=DMARC1' | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' \
+DMARC_REC=$(echo "$DMARC_TXT" | grep -E '^[[:space:]]*v=DMARC1')
+echo "$DMARC_REC" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' \
     || { red "drobu.app DMARC is not enforced (got '$DMARC_TXT') — set p=quarantine or p=reject before shipping."; exit 1; }
+# t=y (DMARCbis testing mode) and pct<100 (sample) both leave failing mail
+# un-quarantined even with p=quarantine/reject — reject them.
+if echo "$DMARC_REC" | grep -qE '(^|[[:space:];])t=y([[:space:];]|$)'; then
+    red "drobu.app DMARC has t=y (testing mode) — failing mail is not enforced despite p=. Remove t=y."; exit 1
+fi
+DMARC_PCT=$(echo "$DMARC_REC" | grep -oE '(^|[[:space:];])pct=[0-9]+' | grep -oE '[0-9]+$' || true)
+if [[ -n "$DMARC_PCT" && "$DMARC_PCT" -ne 100 ]]; then
+    red "drobu.app DMARC pct=$DMARC_PCT — only that percent of failing mail is enforced. Set pct=100 or remove it."; exit 1
+fi
 
 # License-fulfillment webhook health (mirrors the daily monitor's
 # webhook-health job — the documented backstop for GitHub auto-disabling

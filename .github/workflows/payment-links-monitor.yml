@@ -97,13 +97,26 @@ jobs:
             echo "::error::_dmarc.drobu.app has $dmarc_count DMARC records — 0 = missing, >1 = RFC 7489 §6.6.3 means no policy is applied. Fix the Hostinger DNS zone."
             exit 1
           fi
-          # Match the `p` tag at a tag boundary on that single record — the
-          # `sp=` subdomain-policy tag also contains "p=...", so an unanchored
-          # match would let "p=none; sp=reject" pass with the real policy none.
-          echo "$dmarc" | grep -E '^[[:space:]]*v=DMARC1' | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
+          rec=$(echo "$dmarc" | grep -E '^[[:space:]]*v=DMARC1')
+          # Match the `p` tag at a tag boundary — the `sp=` subdomain-policy
+          # tag also contains "p=...", so an unanchored match would let
+          # "p=none; sp=reject" pass with the real policy none.
+          echo "$rec" | grep -qE '(^|[[:space:];])p=(quarantine|reject)([[:space:];]|$)' || {
             echo "::error::DMARC policy regressed to p=none — spoofed support@drobu.app mail would reach inboxes. Restore p=quarantine or p=reject in the Hostinger DNS zone."
             exit 1
           }
+          # Reject tags that nullify enforcement even with p=quarantine/reject:
+          # t=y (DMARCbis testing mode) and pct<100 (sample) both leave failing
+          # mail un-quarantined, so the policy would read green while off.
+          if echo "$rec" | grep -qE '(^|[[:space:];])t=y([[:space:];]|$)'; then
+            echo "::error::DMARC has t=y (testing mode) — failing mail is not enforced despite p=. Remove t=y (or set t=n)."
+            exit 1
+          fi
+          pct=$(echo "$rec" | grep -oE '(^|[[:space:];])pct=[0-9]+' | grep -oE '[0-9]+$' || true)
+          if [ -n "$pct" ] && [ "$pct" -ne 100 ]; then
+            echo "::error::DMARC pct=$pct — only $pct% of failing mail is enforced. Set pct=100 or remove the tag."
+            exit 1
+          fi
 
   webhook-health:
     name: license-fulfillment webhook + pool + Stripe endpoint config
