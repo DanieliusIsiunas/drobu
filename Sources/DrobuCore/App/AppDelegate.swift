@@ -38,6 +38,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     /// can change anything.
     private var permissionsService: PermissionsService?
     private var onboardingPanel: OnboardingPanel?
+    /// Single first-run gate instance — it's a thin UserDefaults wrapper, but one
+    /// owner avoids the auto-show check and the panel's mark-complete reading or
+    /// writing through different objects.
+    private let onboardingGate = OnboardingGate()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // Initialize database
@@ -638,7 +642,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     /// Auto-show the welcome + permission checklist on first launch only.
     private func showOnboardingIfFirstRun() {
-        guard OnboardingGate().shouldAutoShow else { return }
+        guard onboardingGate.shouldAutoShow else { return }
         showOnboarding()
     }
 
@@ -647,12 +651,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     /// re-arm. Reuses the launch-baselined `PermissionsService` so the
     /// restart-pending status stays accurate.
     private func showOnboarding() {
-        let permissions = permissionsService ?? PermissionsService()
-        permissionsService = permissions
+        // The service is created early in applicationDidFinishLaunching; if it's
+        // somehow absent, bail rather than spinning up a fresh one whose launch
+        // baseline is wrong (it would false-green a just-granted restart perm).
+        guard let permissions = permissionsService else { return }
         onboardingPanel?.close()
         onboardingPanel = OnboardingPanel(
             permissions: permissions,
-            gate: OnboardingGate(),
+            gate: onboardingGate,
             onClose: { [weak self] in self?.onboardingPanel = nil }
         )
         onboardingPanel?.showCentered()
@@ -856,11 +862,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     // MARK: - Pasteboard Privacy (macOS 15.4+)
 
     func checkPasteboardPrivacy() {
-        // macOS 15.4+ introduces pasteboard privacy. Use runtime check since SDK may lack declarations.
-        let pb = NSPasteboard.general
-        guard pb.responds(to: NSSelectorFromString("accessBehavior")) else { return }
-        // accessBehavior == 0 means unrestricted; anything else means restricted/denied
-        guard let rawValue = pb.value(forKey: "accessBehavior") as? Int, rawValue != 0 else { return }
+        // macOS 15.4+ introduces pasteboard privacy. Only prompt when access is
+        // actually restricted (granted == false); nil means the OS is < 15.4.
+        guard NSPasteboard.general.drobuAccessGranted == false else { return }
 
         let alert = NSAlert()
         alert.messageText = "Clipboard Access Required"
@@ -870,11 +874,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         alert.addButton(withTitle: "Later")
 
         if alert.runModal() == .alertFirstButtonReturn {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Pasteboard") {
-                NSWorkspace.shared.open(url)
-            } else if let fallback = URL(string: "x-apple.systempreferences:") {
-                NSWorkspace.shared.open(fallback)
-            }
+            openSystemPrivacyPane("Privacy_Pasteboard")
         }
     }
 }

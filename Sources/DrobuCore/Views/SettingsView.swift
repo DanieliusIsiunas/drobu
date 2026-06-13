@@ -62,12 +62,16 @@ public struct SettingsView: View {
                     Spacer()
                     Text("Open")
                         .foregroundStyle(Color.accentColor)
-                        .onTapGesture {
-                            NotificationCenter.default.post(name: .openOnboardingRequested, object: nil)
-                        }
-                        .accessibilityLabel("Open setup and permissions")
-                        .accessibilityAddTraits(.isButton)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    NotificationCenter.default.post(name: .openOnboardingRequested, object: nil)
+                }
+                // One activatable element — .ignore on the inner Texts so VoiceOver
+                // reads a single label and the row-level tap is the activation target.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Setup and permissions, Open")
+                .accessibilityAddTraits(.isButton)
             }
 
             Section("Closed Lid Mode") {

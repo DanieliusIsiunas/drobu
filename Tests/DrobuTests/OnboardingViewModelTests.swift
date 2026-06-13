@@ -96,4 +96,45 @@ struct OnboardingViewModelTests {
         model.refresh()
         #expect(model.rows.first { $0.permission == .screenRecording }?.state == .pendingRestart)
     }
+
+    @Test("screen-recording row: not-granted opens Screen Recording settings; granted-this-session offers restart")
+    func screenRecordingActionByState() {
+        // not granted → open Screen Recording settings
+        let (denied, _) = makeModel(allApplicable([.screenRecording: false]))
+        #expect(denied.rows.first { $0.permission == .screenRecording }?.primaryAction == .openScreenRecordingSettings)
+
+        // granted this session (restart-requiring) → restart
+        let (pending, probe) = makeModel(allApplicable([.screenRecording: false]))
+        probe.grants[.screenRecording] = true
+        pending.refresh()
+        #expect(pending.rows.first { $0.permission == .screenRecording }?.primaryAction == .restart)
+    }
+
+    @Test("pasteboard row: not-granted opens Pasteboard settings (no restart — it's not a restart-permission)")
+    func pasteboardActionByState() {
+        let (denied, _) = makeModel(allApplicable([.pasteboard: false]))
+        let row = denied.rows.first { $0.permission == .pasteboard }
+        #expect(row?.state == .notGranted)
+        #expect(row?.primaryAction == .openPasteboardSettings)
+
+        // Granted this session: pasteboard does NOT require a restart, so it's
+        // immediately .granted with no action (never .pendingRestart / .restart).
+        let (granted, probe) = makeModel(allApplicable([.pasteboard: false]))
+        probe.grants[.pasteboard] = true
+        granted.refresh()
+        let g = granted.rows.first { $0.permission == .pasteboard }
+        #expect(g?.state == .granted)
+        #expect(g?.primaryAction == nil)
+    }
+
+    @Test("row order is the fixed blueprint order, not just set membership")
+    func rowOrdering() {
+        let (model, _) = makeModel(allApplicable())
+        // Required tier: Accessibility before Pasteboard.
+        #expect(model.requiredRows.map(\.permission) == [.accessibility, .pasteboard])
+        // Optional tier: capture, then daemon, then launch-at-login.
+        #expect(model.optionalRows.map(\.permission) == [.screenRecording, .closedLidHelper, .launchAtLogin])
+        // Full list preserves blueprint order across tiers.
+        #expect(model.rows.map(\.permission) == [.accessibility, .pasteboard, .screenRecording, .closedLidHelper, .launchAtLogin])
+    }
 }

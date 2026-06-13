@@ -73,9 +73,7 @@ final class ClipboardMonitor {
         guard let items = pasteboard.pasteboardItems else {
             Log.debug("ClipboardMonitor: pasteboardItems nil")
             // Poll failure may indicate pasteboard privacy denial (macOS 15.4+)
-            if pasteboard.responds(to: NSSelectorFromString("accessBehavior")),
-               let rawValue = pasteboard.value(forKey: "accessBehavior") as? Int,
-               rawValue != 0 {
+            if pasteboard.drobuAccessGranted == false {
                 onAccessDenied?()
             }
             return

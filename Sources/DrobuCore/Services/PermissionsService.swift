@@ -45,6 +45,11 @@ protocol PermissionProbing {
 /// Production probe wrapping the real platform APIs.
 @MainActor
 struct SystemPermissionProbe: PermissionProbing {
+    // Cached once — the probe is polled repeatedly (launch baseline + every
+    // live refresh × every row), so don't reconstruct these per call.
+    private let daemonRegistrar = DaemonRegistrar()
+    private let launchAgent = MainAppLaunchAgentControl()
+
     func isGranted(_ permission: Permission) -> Bool? {
         switch permission {
         case .accessibility:
@@ -52,17 +57,13 @@ struct SystemPermissionProbe: PermissionProbing {
         case .screenRecording:
             return CGPreflightScreenCaptureAccess()
         case .pasteboard:
-            // macOS 15.4+ only; below that the selector is absent → notApplicable.
-            // accessBehavior == 0 means unrestricted (granted); anything else
-            // restricted/denied (matches ClipboardMonitor / checkPasteboardPrivacy).
-            let pb = NSPasteboard.general
-            guard pb.responds(to: NSSelectorFromString("accessBehavior")) else { return nil }
-            let raw = pb.value(forKey: "accessBehavior") as? Int ?? 0
-            return raw == 0
+            // macOS 15.4+ only; below that the selector is absent → notApplicable
+            // (drobuAccessGranted returns nil). Reading never trips the alert.
+            return NSPasteboard.general.drobuAccessGranted
         case .closedLidHelper:
-            return DaemonRegistrar().status == .enabled
+            return daemonRegistrar.status == .enabled
         case .launchAtLogin:
-            return MainAppLaunchAgentControl().isEnabled
+            return launchAgent.isEnabled
         }
     }
 }

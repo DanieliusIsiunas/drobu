@@ -57,6 +57,10 @@ struct OnboardingRow: Identifiable, Equatable {
 @MainActor
 final class OnboardingViewModel: ObservableObject {
     @Published private(set) var rows: [OnboardingRow] = []
+    /// Completion derived from the same `rows` snapshot, recomputed in `refresh()`
+    /// so the footer never disagrees with the rows on screen (a computed property
+    /// would re-poll the probe and could drift between the row build and the read).
+    @Published private(set) var isComplete: Bool = false
     private let permissions: PermissionsService
 
     /// Ordered blueprint: permission, tier, title, benefit-first subtitle.
@@ -83,20 +87,21 @@ final class OnboardingViewModel: ObservableObject {
     /// Re-poll every permission and rebuild the rows. Called on the panel's
     /// focus re-check and timer so rows flip live as the user grants each one.
     func refresh() {
-        rows = Self.blueprint.compactMap { permission, tier, title, subtitle in
+        let newRows: [OnboardingRow] = Self.blueprint.compactMap { permission, tier, title, subtitle in
             let state = permissions.state(for: permission)
             guard state != .notApplicable else { return nil }
             return OnboardingRow(permission: permission, tier: tier,
                                  title: title, subtitle: subtitle, state: state)
         }
+        rows = newRows
+        // Complete when every applicable required permission is granted or
+        // pending-restart (a restart is mechanical). Optional rows never affect
+        // completion — nothing is forced. Computed here, in the same synchronous
+        // pass that built the rows, so the footer can't drift from what's on screen.
+        let requiredPerms = newRows.filter { $0.tier == .required }.map(\.permission)
+        isComplete = permissions.requiredSatisfied(required: requiredPerms)
     }
 
     var requiredRows: [OnboardingRow] { rows.filter { $0.tier == .required } }
     var optionalRows: [OnboardingRow] { rows.filter { $0.tier == .optional } }
-
-    /// True when every applicable required permission is granted or
-    /// pending-restart. Optional rows never affect completion (never forced).
-    var isComplete: Bool {
-        permissions.requiredSatisfied(required: requiredRows.map(\.permission))
-    }
 }

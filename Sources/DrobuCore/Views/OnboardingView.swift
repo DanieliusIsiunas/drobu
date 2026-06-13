@@ -49,7 +49,10 @@ struct OnboardingView: View {
         .padding(.top, 20)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
+        // .ignore + explicit label, not .combine — .combine concatenates the two
+        // Texts unpredictably (project a11y rule).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Let's get Drobu comfortable on your Mac. Grant a couple of permissions and you're off — most take one click. Your 14-day trial just started.")
     }
 
     // MARK: - Sections / rows
@@ -162,6 +165,9 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
+                // Decorative hint — the button label below carries the actionable
+                // state for VoiceOver, so this would just be redundant chatter.
+                .accessibilityHidden(true)
 
             Text(model.isComplete ? "Start using Drobu" : "Skip for now")
                 .font(.system(size: 13, weight: .semibold))

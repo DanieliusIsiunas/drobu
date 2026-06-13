@@ -11,14 +11,14 @@ struct OnboardingActuator {
     func perform(_ action: OnboardingAction) {
         switch action {
         case .openAccessibilitySettings:
-            openPrivacyPane("Privacy_Accessibility")
+            openSystemPrivacyPane("Privacy_Accessibility")
         case .openScreenRecordingSettings:
             // Add Drobu to the Screen Recording list first (so the toggle
             // exists in Settings), then deep-link — mirrors the capture services.
             if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
-            openPrivacyPane("Privacy_ScreenCapture")
+            openSystemPrivacyPane("Privacy_ScreenCapture")
         case .openPasteboardSettings:
-            openPrivacyPane("Privacy_Pasteboard")
+            openSystemPrivacyPane("Privacy_Pasteboard")
         case .enableClosedLidHelper:
             // State-correct: .notFound registers first, only .requiresApproval deep-links.
             _ = DaemonRegistrar().remediate()
@@ -34,20 +34,24 @@ struct OnboardingActuator {
         }
     }
 
-    private func openPrivacyPane(_ pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        } else if let fallback = URL(string: "x-apple.systempreferences:") {
-            NSWorkspace.shared.open(fallback)
-        }
-    }
-
     private func relaunch() {
         let bundleURL = Bundle.main.bundleURL
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, _ in
-            DispatchQueue.main.async { NSApp.terminate(nil) }
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { app, error in
+            // Only quit the current instance once the new one is actually
+            // launching. If the relaunch fails (bundle moved, LaunchServices
+            // error), terminating anyway would leave NO Drobu running — keep
+            // this instance alive and log instead.
+            let launched = app != nil && error == nil
+            let errorDesc = error?.localizedDescription
+            DispatchQueue.main.async {
+                if launched {
+                    NSApp.terminate(nil)
+                } else {
+                    Log.error("OnboardingActuator: relaunch failed, keeping current instance running: \(errorDesc ?? "unknown error")")
+                }
+            }
         }
     }
 }
