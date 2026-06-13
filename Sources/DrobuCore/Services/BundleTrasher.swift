@@ -6,9 +6,18 @@ import DrobuShared
 /// trash its own in-use bundle (the original drag-to-Trash bug), so this spawns
 /// a detached `/bin/sh` waiter that outlives the app, confirms the app process
 /// and the daemon are gone, re-verifies the bundle wasn't swapped by a Sparkle
-/// update, then moves it to the Trash (recoverable) via Finder.
+/// update, then moves it into `~/.Trash` with a plain `mv`.
 ///
-/// System boundary (process spawn + Finder Automation): excluded from unit tests
+/// Deliberately NOT via Finder (`osascript ... tell application "Finder"`):
+/// controlling Finder is gated by Automation/TCC, so it pops a jarring "Drobu
+/// wants to control Finder" consent dialog mid-uninstall — and a "Don't Allow"
+/// would silently leave the bundle behind. A direct move to the user's own Trash
+/// needs no permission, raises no prompt, and is still recoverable. (The lost
+/// nicety vs. trashItem is Finder "Put Back"; not worth a TCC prompt on an
+/// uninstall.) Because the waiter only acts once the app has fully exited, the
+/// bundle is no longer in use when it moves.
+///
+/// System boundary (process spawn + filesystem move): excluded from unit tests
 /// per the XPC-wire convention; verified manually.
 protocol BundleTrashing: Sendable {
     func scheduleTrash(bundleURL: URL)
@@ -28,7 +37,10 @@ struct BundleTrasher: BundleTrashing {
         i=0; while pgrep -qx "$2"; do [ $i -ge 100 ] && { /usr/bin/logger "Drobu uninstall: daemon still running after timeout — bundle left in place"; exit 0; }; sleep 0.1; i=$((i+1)); done
         ver=$(/usr/bin/defaults read "$4/Contents/Info" CFBundleVersion 2>/dev/null)
         [ "$ver" = "$3" ] || exit 0
-        /usr/bin/osascript -e 'on run argv' -e 'tell application "Finder" to delete (POSIX file (item 1 of argv))' -e 'end run' "$4"
+        base=$(basename "$4")
+        dest="$HOME/.Trash/$base"
+        n=1; while [ -e "$dest" ]; do dest="$HOME/.Trash/${base%.app} $n.app"; n=$((n+1)); done
+        mv "$4" "$dest" || /usr/bin/logger "Drobu uninstall: could not move bundle to Trash — left in place"
         """
 
         let proc = Process()
