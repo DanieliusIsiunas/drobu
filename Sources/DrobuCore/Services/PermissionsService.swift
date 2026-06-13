@@ -52,6 +52,17 @@ protocol PermissionProbing {
     func isGranted(_ permission: Permission) -> Bool?
 }
 
+/// Pure Screen Recording signal from a window-ownership snapshot. macOS 10.15+
+/// gates *other apps'* window names (titles) behind Screen Recording permission:
+/// without it, `kCGWindowName` for a foreign window is empty/absent. So a single
+/// visible foreign window title proves we hold the permission — and a foreign
+/// title is never visible without it, so there are no false positives. Extracted
+/// from the `CGWindowListCopyWindowInfo` syscall so the decision stays testable.
+func screenRecordingGrantedFromWindows(_ windows: [(ownerPID: pid_t, name: String?)],
+                                       ourPID: pid_t) -> Bool {
+    windows.contains { $0.ownerPID != ourPID && !($0.name ?? "").isEmpty }
+}
+
 /// Production probe wrapping the real platform APIs.
 @MainActor
 struct SystemPermissionProbe: PermissionProbing {
@@ -65,7 +76,15 @@ struct SystemPermissionProbe: PermissionProbing {
         case .accessibility:
             return AXIsProcessTrusted()
         case .screenRecording:
-            return CGPreflightScreenCaptureAccess()
+            // CGPreflight has documented false-NEGATIVES on macOS 15 (returns
+            // false even when granted — ScreenCaptureService.swift:37), so a
+            // `false` reading can't be trusted; an authorized user's row would
+            // stay stuck gray. Trust a `true` reading (no false positives),
+            // otherwise fall back to the window-name redaction signal so the row
+            // still flips green for users who already granted it.
+            if CGPreflightScreenCaptureAccess() { return true }
+            return screenRecordingGrantedFromWindows(Self.onScreenWindowOwnership(),
+                                                     ourPID: ProcessInfo.processInfo.processIdentifier)
         case .pasteboard:
             // macOS 15.4+ only; below that the selector is absent → notApplicable
             // (drobuAccessGranted returns nil). Reading never trips the alert.
@@ -74,6 +93,21 @@ struct SystemPermissionProbe: PermissionProbing {
             return daemonRegistrar.status == .enabled
         case .launchAtLogin:
             return launchAgent.isEnabled
+        }
+    }
+
+    /// (ownerPID, window title) for on-screen, non-desktop windows. System
+    /// boundary — kept out of the pure decision above so that stays testable.
+    /// `CGWindowListCopyWindowInfo` needs no permission and never prompts; only
+    /// the window *names* it returns are gated by Screen Recording.
+    private static func onScreenWindowOwnership() -> [(ownerPID: pid_t, name: String?)] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        return info.map { window in
+            (ownerPID: (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0,
+             name: window[kCGWindowName as String] as? String)
         }
     }
 }
