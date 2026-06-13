@@ -9,5 +9,6 @@ import Foundation
 /// install the bundled daemon — the client never speaks a newer protocol at an
 /// older daemon.
 ///
-/// History: 1 = initial (enable/disable/status/versions); 2 = + displayOff.
-public let drobuDaemonProtocolVersion: Int = 2
+/// History: 1 = initial (enable/disable/status/versions); 2 = + displayOff;
+/// 3 = + teardown (root-state erase for in-app uninstall).
+public let drobuDaemonProtocolVersion: Int = 3

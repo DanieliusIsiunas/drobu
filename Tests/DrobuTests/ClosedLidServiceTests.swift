@@ -13,12 +13,14 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
     var enableOutcome: EnableOutcome? = EnableOutcome(result: .ok, remaining: 3600)
     var disableResult: Bool? = true
     var displayOffResult: Bool? = true
+    var teardownResult: Bool? = true
     var statusReply: DaemonStatusReply?
 
     private(set) var enabledDurations: [Int] = []
     private(set) var enableCallCount = 0
     private(set) var disableCallCount = 0
     private(set) var displayOffCallCount = 0
+    private(set) var teardownCallCount = 0
     private(set) var statusCallCount = 0
     private(set) var resetConnectionCallCount = 0
 
@@ -32,6 +34,7 @@ final class MockDaemonControl: DaemonControlling, @unchecked Sendable {
         return enableOutcome
     }
     func disable() async -> Bool? { disableCallCount += 1; return disableResult }
+    func teardown() async -> Bool? { teardownCallCount += 1; return teardownResult }
     func displayOff() async -> Bool? { displayOffCallCount += 1; return displayOffResult }
     func status() async -> DaemonStatusReply? { statusCallCount += 1; return statusReply }
     func disableBounded(timeout: TimeInterval) -> Bool { disableCallCount += 1; return disableResult ?? false }
@@ -62,14 +65,17 @@ final class MockRegistration: DaemonRegistration {
     private var statusValue: DaemonStatus
     private let registerResult: DaemonStatus
     private let reinstallResult: DaemonStatus
+    private let unregisterResult: DaemonStatus
     private(set) var registerCallCount = 0
     private(set) var reinstallCallCount = 0
+    private(set) var unregisterCallCount = 0
 
     init(status: DaemonStatus, registerResult: DaemonStatus? = nil,
-         reinstallResult: DaemonStatus? = nil) {
+         reinstallResult: DaemonStatus? = nil, unregisterResult: DaemonStatus = .notRegistered) {
         self.statusValue = status
         self.registerResult = registerResult ?? status
         self.reinstallResult = reinstallResult ?? registerResult ?? status
+        self.unregisterResult = unregisterResult
     }
     var status: DaemonStatus { statusValue }
     func register() -> DaemonStatus {
@@ -81,6 +87,11 @@ final class MockRegistration: DaemonRegistration {
         reinstallCallCount += 1
         statusValue = reinstallResult
         return reinstallResult
+    }
+    func unregister() -> DaemonStatus {
+        unregisterCallCount += 1
+        statusValue = unregisterResult
+        return unregisterResult
     }
 }
 

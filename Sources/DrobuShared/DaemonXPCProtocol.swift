@@ -30,6 +30,15 @@ import Foundation
     /// Reply: `(active, remainingSeconds)`.
     func status(reply: @escaping (Bool, Double) -> Void)
 
+    /// Erase the daemon's own root-owned support state (session file + log +
+    /// directory) ahead of an in-app uninstall. The unprivileged app cannot
+    /// delete `root:wheel` files itself, so without this they orphan under
+    /// `/Library/Application Support/ClipboardHistory`. Best-effort and
+    /// idempotent — removes what is present, refuses anything that is not a
+    /// root-owned private file. Does NOT reverse `pmset`; the client calls
+    /// `disable` first (the uninstall ordering). Reply: `(ok)`.
+    func teardown(reply: @escaping (Bool) -> Void)
+
     /// The protocol version the daemon speaks (compared against the client's
     /// compiled-in `drobuDaemonProtocolVersion`).
     func protocolVersion(reply: @escaping (Int) -> Void)

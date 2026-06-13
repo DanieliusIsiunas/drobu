@@ -21,6 +21,11 @@ protocol DaemonControlling: Sendable {
     func protocolVersion() async -> Int?
     func enable(durationSeconds: Int) async -> EnableOutcome?
     func disable() async -> Bool?
+    /// Erase the daemon's own root-owned support state ahead of uninstall.
+    /// `nil` means unreachable (an old daemon without the selector, or a dead
+    /// connection) — the uninstall flow treats that as "skipped", never a hard
+    /// failure (R3).
+    func teardown() async -> Bool?
     /// One-shot display sleep on the lid-close edge. Best-effort: the panel is
     /// cosmetic relative to the stay-awake guarantee, so callers log a failure
     /// and move on — never unwind the session over it.
@@ -133,6 +138,14 @@ final class DaemonClient: DaemonControlling, @unchecked Sendable {
             let once = ResumeOnce<Bool?> { continuation.resume(returning: $0) }
             guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
             proxy.displayOff { ok in once.fire(ok) }
+        }
+    }
+
+    func teardown() async -> Bool? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool?, Never>) in
+            let once = ResumeOnce<Bool?> { continuation.resume(returning: $0) }
+            guard let proxy = proxy(onError: { once.fire(nil) }) else { once.fire(nil); return }
+            proxy.teardown { ok in once.fire(ok) }
         }
     }
 

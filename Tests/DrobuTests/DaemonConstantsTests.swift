@@ -70,10 +70,11 @@ struct DaemonConstantsTests {
     @Test("protocol version is pinned — bumping it is a deliberate, test-acknowledged act")
     func protocolVersionPinned() {
         // Keep in lockstep with Sources/DrobuShared/ProtocolVersion.swift.
-        // 2 = displayOff added (the handshake refuses mismatched daemons, so an
-        // accidental revert would silently change update behavior for every
-        // installed client — this pin makes any change deliberate).
-        #expect(drobuDaemonProtocolVersion == 2)
+        // 3 = teardown added (root-state erase for in-app uninstall). The
+        // handshake refuses mismatched daemons, so an accidental revert would
+        // silently change update behavior for every installed client — this pin
+        // makes any change deliberate.
+        #expect(drobuDaemonProtocolVersion == 3)
     }
 
     @Test("daemon identity is distinct from the app, and the client requirement pins the app (M3)")

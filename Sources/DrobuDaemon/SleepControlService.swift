@@ -138,6 +138,33 @@ final class SleepControlService: NSObject, DrobuDaemonXPCProtocol, @unchecked Se
         }
     }
 
+    func teardown(reply: @escaping (Bool) -> Void) {
+        lock.lock()
+        // Remove our own root-owned files first (state file before log so a
+        // post-teardown log write can't resurrect the dir ahead of its removal),
+        // then the now-empty support directory. The client calls `disable`
+        // before this in the uninstall ordering, so pmset is already reversed —
+        // teardown never touches the power state.
+        DaemonTeardown.removeFiles(
+            [DaemonConstants.stateFilePath, DaemonConstants.logFilePath],
+            exists: { FileManager.default.fileExists(atPath: $0) },
+            isSafe: FileGuards.isRootOwnedPrivateRegularFile,
+            remove: { try FileManager.default.removeItem(atPath: $0) },
+            onRefused: { DaemonLog.write("SleepControlService: teardown refused non-private path \($0)") },
+            onError: { DaemonLog.write("SleepControlService: teardown failed to remove \($0): \($1)") }
+        )
+        // After the directory is gone, DaemonLog.write no-ops (createFile won't
+        // recreate the missing parent), so no residue is recreated in the brief
+        // window before `unregister` reaps the process.
+        let dir = DaemonConstants.supportDirectory
+        if FileManager.default.fileExists(atPath: dir), FileGuards.isRootOwnedSafeDirectory(dir) {
+            do { try FileManager.default.removeItem(atPath: dir) }
+            catch { DaemonLog.write("SleepControlService: teardown failed to remove support dir: \(error)") }
+        }
+        lock.unlock()
+        reply(true)
+    }
+
     func protocolVersion(reply: @escaping (Int) -> Void) {
         reply(drobuDaemonProtocolVersion)
     }
