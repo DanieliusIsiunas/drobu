@@ -137,7 +137,7 @@ DB path: `~/Library/Application Support/ClipboardHistory/clipboard.sqlite`
 cat ~/Library/Application\ Support/ClipboardHistory/app.log
 ```
 
-The log truncates on every app launch — it only contains the current session. If investigating a crash or past issue, the log may be empty (app restarted). In that case, reproduce the issue first, then read the log.
+Each launch starts a fresh log — `app.log` only contains the current session; the **previous** session is rotated to `app.log.1`. If investigating a crash or past issue, the current log may be empty (app restarted) — check `app.log.1` for the prior session, or reproduce the issue first, then read `app.log`.
 
 **`Log` utility** (`Sources/Services/Log.swift`): Async file-based logger using a serial `DispatchQueue`. Three levels: `debug`, `info`, `error`. All messages use `@autoclosure` — safe on hot paths.
 

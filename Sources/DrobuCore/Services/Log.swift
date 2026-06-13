@@ -52,21 +52,27 @@ enum Log {
         let url = dir.appendingPathComponent("app.log")
         let prevURL = dir.appendingPathComponent("app.log.1")
 
-        // Rotate: if current log > 2MB, move to .1 (overwrite previous)
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let size = attrs[.size] as? UInt64, size > 2_000_000 {
-            try? FileManager.default.removeItem(at: prevURL)
-            try? FileManager.default.moveItem(at: url, to: prevURL)
-        }
+        // Start each session with a fresh log (the documented behavior: the log
+        // "only contains the current session"). The prior session is moved to
+        // app.log.1 so a post-crash investigation can still read it. This is what
+        // keeps stale content — including any fixture lines a pre-guard
+        // `swift test` once leaked — from accumulating across launches.
+        rotateForNewSession(current: url, previous: prevURL, fileManager: .default)
 
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil,
-                                           attributes: [.posixPermissions: 0o600])
-        }
-        let fh = try? FileHandle(forWritingTo: url)
-        fh?.seekToEndOfFile()
-        return fh
+        FileManager.default.createFile(atPath: url.path, contents: nil,
+                                       attributes: [.posixPermissions: 0o600])
+        return try? FileHandle(forWritingTo: url)
     }()
+
+    /// Rotate the log for a new session: if a current log exists, move it to
+    /// `previous` (overwriting the older backup) so the new session starts empty
+    /// and exactly one prior session is retained. Pure + injectable so the
+    /// rotation is unit-testable without the production singleton.
+    static func rotateForNewSession(current: URL, previous: URL, fileManager: FileManager) {
+        guard fileManager.fileExists(atPath: current.path) else { return }
+        try? fileManager.removeItem(at: previous)
+        try? fileManager.moveItem(at: current, to: previous)
+    }
 
     static func debug(_ message: @autoclosure () -> String) {
         guard debugEnabled else { return }
