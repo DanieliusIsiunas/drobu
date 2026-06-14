@@ -75,6 +75,7 @@ struct OnboardingView: View {
             statusGlyph(row.state)
                 .frame(width: 18)
                 .padding(.top, 1)
+                .accessibilityHidden(true)   // decorative — status is spoken in the label below
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title).font(.system(size: 13, weight: .medium))
                 Text(row.subtitle)
@@ -82,12 +83,17 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // Group ONLY the title/subtitle into the label element. The action
+            // control stays a SEPARATE focusable element so VoiceOver can still
+            // reach Open Settings / Enable / Restart / the toggle — collapsing the
+            // whole row with children:.ignore would suppress that primary action
+            // (the row carries no action of its own; the control does).
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(row.title): \(accessibilityStatus(row.state))")
+            .accessibilityHint(row.subtitle)
             Spacer(minLength: 8)
             actionControl(for: row)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.title): \(accessibilityStatus(row.state))")
-        .accessibilityHint(row.subtitle)
     }
 
     @ViewBuilder
