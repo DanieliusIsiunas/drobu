@@ -13,15 +13,31 @@ func openSystemPrivacyPane(_ identifier: String) {
     }
 }
 
+/// Maps a raw `NSPasteboardAccessBehavior` value to Drobu's grant signal. Only
+/// `alwaysAllow` is an affirmative grant — the state where programmatic reads
+/// succeed *silently*. The SDK enum (verified against the macOS 15.4+ headers):
+///
+///   default = 0   // prompt-on-access — NOT a grant (the system may still ask)
+///   ask     = 1   // always ask — NOT a grant
+///   allow   = 2   // alwaysAllow — silent reads → the only true grant
+///   deny    = 3   // alwaysDeny — NOT a grant
+///
+/// Pure + testable; the OS-availability gate (`responds(to:)`) stays in the
+/// `NSPasteboard` accessor below.
+func pasteboardAccessGranted(rawAccessBehavior raw: Int) -> Bool {
+    raw == 2   // NSPasteboardAccessBehaviorAlwaysAllow
+}
+
 extension NSPasteboard {
     /// macOS 15.4+ pasteboard access state, read non-mutatingly via the
-    /// `accessBehavior` KVC value (the SDK may lack the declaration). `true` when
-    /// access is granted (`accessBehavior == 0`, unrestricted), `false` when
-    /// restricted/denied, and `nil` when the property is absent (macOS < 15.4).
-    /// Reading this never triggers the per-access "Allow paste" system alert.
+    /// `accessBehavior` KVC value (the SDK may lack the declaration on the build
+    /// toolchain). `true` **only** when access is affirmatively granted
+    /// (`alwaysAllow`); `default`/`ask`/`alwaysDeny` are all `false` (the system
+    /// may still prompt or block). `nil` when the property is absent (macOS
+    /// < 15.4). Reading this never triggers the per-access "Allow Paste" alert.
     var drobuAccessGranted: Bool? {
         guard responds(to: NSSelectorFromString("accessBehavior")) else { return nil }
-        let raw = value(forKey: "accessBehavior") as? Int ?? 0
-        return raw == 0
+        guard let raw = value(forKey: "accessBehavior") as? Int else { return false }
+        return pasteboardAccessGranted(rawAccessBehavior: raw)
     }
 }

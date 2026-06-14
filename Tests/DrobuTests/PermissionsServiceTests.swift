@@ -142,4 +142,14 @@ struct PermissionsServiceTests {
     func srWindowSignalEmpty() {
         #expect(!screenRecordingGrantedFromWindows([], ourPID: 42))
     }
+
+    // MARK: - Pasteboard accessBehavior raw-value mapping (macOS 15.4+)
+
+    @Test("pasteboard grant signal: only alwaysAllow (2) is a grant; default/ask/deny are not")
+    func pasteboardRawAccessBehaviorMapping() {
+        #expect(pasteboardAccessGranted(rawAccessBehavior: 0) == false)  // default — prompt-on-access, NOT a grant
+        #expect(pasteboardAccessGranted(rawAccessBehavior: 1) == false)  // ask
+        #expect(pasteboardAccessGranted(rawAccessBehavior: 2) == true)   // alwaysAllow — silent reads
+        #expect(pasteboardAccessGranted(rawAccessBehavior: 3) == false)  // alwaysDeny
+    }
 }

@@ -45,11 +45,23 @@ point.
 ## Pasteboard (macOS 15.4+): read `accessBehavior`, never trigger the alert-storm
 
 Detect via the reflective `NSPasteboard.general.value(forKey: "accessBehavior")`
-KVC read (`== 0` means unrestricted/granted; the selector being absent means the
-OS is < 15.4 → the row is `.notApplicable` and simply not shown). Onboarding must
-only **read** this — never call a paste-access API from onboarding, or you'd
-trip the per-access "Allow paste" system alert (which the 0.5s clipboard poll
-already fires often enough).
+KVC read; the selector being absent means the OS is < 15.4 → the row is
+`.notApplicable` and simply not shown. Onboarding must only **read** this — never
+call a paste-access API from onboarding, or you'd trip the per-access "Allow
+Paste" system alert (which the 0.5s clipboard poll already fires often enough).
+
+**`accessBehavior` raw values matter — `0` is NOT "granted".** The SDK enum
+(`NSPasteboardAccessBehavior`, verified against the macOS 15.4+ headers) is
+`default = 0`, `ask = 1`, `alwaysAllow = 2`, `alwaysDeny = 3`. **Only
+`alwaysAllow` (2) is an affirmative grant** — the state where programmatic reads
+succeed silently. `default` (0) is the *prompt-on-access* state, so treating
+`== 0` as granted (the original, repo-wide assumption in `ClipboardMonitor` /
+`checkPasteboardPrivacy`) **false-greens fresh installs** and suppresses the
+guidance alert when reads actually fail. The single source of truth is
+`pasteboardAccessGranted(rawAccessBehavior:)` → `raw == 2`, used by
+`NSPasteboard.drobuAccessGranted` (`Sources/DrobuCore/Services/SystemPrivacy.swift`).
+The denial path stays safe because the alert is double-gated: it fires only when
+`pasteboardItems` is *also* nil (a real read failure), not merely on `!= 2`.
 
 ## Host onboarding in an ActivationPanel-model floating NSPanel — NOT a Settings/Window scene
 
