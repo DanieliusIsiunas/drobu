@@ -119,21 +119,34 @@ struct PermissionsServiceTests {
 
     // MARK: - Screen Recording window-name signal (CGPreflight false-negative fallback)
 
-    @Test("SR window signal: a foreign window with a non-empty title means granted")
+    @Test("SR window signal: a foreign NORMAL (layer 0) window with a title means granted")
     func srWindowSignalForeignTitle() {
-        let windows: [(ownerPID: pid_t, name: String?)] = [
-            (ownerPID: 1, name: "Safari — Apple"),   // foreign, titled → visible only with permission
-            (ownerPID: 42, name: nil),               // our own window
+        let windows: [(ownerPID: pid_t, layer: Int, name: String?)] = [
+            (ownerPID: 1, layer: 0, name: "Safari — Apple"),   // foreign normal, titled → only visible with permission
+            (ownerPID: 42, layer: 0, name: nil),               // our own window
         ]
         #expect(screenRecordingGrantedFromWindows(windows, ourPID: 42))
     }
 
     @Test("SR window signal: only redacted-foreign or own windows means not granted")
     func srWindowSignalRedacted() {
-        let windows: [(ownerPID: pid_t, name: String?)] = [
-            (ownerPID: 1, name: ""),       // foreign but redacted (no permission)
-            (ownerPID: 7, name: nil),      // foreign, no title
-            (ownerPID: 42, name: "Drobu"), // our own titled window — must be ignored
+        let windows: [(ownerPID: pid_t, layer: Int, name: String?)] = [
+            (ownerPID: 1, layer: 0, name: ""),       // foreign but redacted (no permission)
+            (ownerPID: 7, layer: 0, name: nil),      // foreign, no title
+            (ownerPID: 42, layer: 0, name: "Drobu"), // our own titled window — must be ignored
+        ]
+        #expect(!screenRecordingGrantedFromWindows(windows, ourPID: 42))
+    }
+
+    @Test("SR window signal: system chrome (layer != 0) with a readable title is NOT a grant")
+    func srWindowSignalIgnoresSystemChrome() {
+        // The live false-positive: Window Server's "Menubar" (layer 24) keeps a
+        // readable name with no Screen Recording grant. Only layer-0 windows count.
+        let windows: [(ownerPID: pid_t, layer: Int, name: String?)] = [
+            (ownerPID: 593, layer: 24, name: "Menubar"),     // Window Server menu bar
+            (ownerPID: 600, layer: 1000, name: "Wispr Flow"),// floating panel, high layer
+            (ownerPID: 700, layer: 26, name: "Some Popover"),// foreign, non-zero layer
+            (ownerPID: 42, layer: 0, name: nil),             // our own
         ]
         #expect(!screenRecordingGrantedFromWindows(windows, ourPID: 42))
     }
