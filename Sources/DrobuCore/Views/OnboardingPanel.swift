@@ -117,10 +117,17 @@ final class OnboardingPanel: NSPanel {
             OnboardingView(
                 model: model,
                 onAction: { [weak self] action in
-                    self?.actuator.perform(action)
+                    guard let self else { return }
+                    // The restart path relaunches and never returns through
+                    // close(), so mark onboarding complete here — otherwise the
+                    // relaunched app re-shows the checklist even though setup is
+                    // done. (If the relaunch fails, the gate is harmlessly marked
+                    // and the panel stays open and usable.)
+                    if action == .restart { self.gate.markCompleted() }
+                    self.actuator.perform(action)
                     // Re-poll right away; the didBecomeActive re-check covers the
                     // return-from-System-Settings case for the deep-link actions.
-                    self?.model.refresh()
+                    self.model.refresh()
                 },
                 onFinish: { [weak self] in self?.close() }
             )
