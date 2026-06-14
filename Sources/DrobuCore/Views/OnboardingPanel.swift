@@ -18,6 +18,14 @@ struct OnboardingActuator {
             if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
             openSystemPrivacyPane("Privacy_ScreenCapture")
         case .openPasteboardSettings:
+            // Prime first: on macOS 15.4+ System Settings lists an app under
+            // Pasteboard only after it has attempted a programmatic read (which
+            // surfaces the "Allow Paste" alert). The 0.5s monitor only reads on a
+            // *change*, so a fresh-install user who hasn't copied yet would land
+            // on a pane where Drobu isn't listed. One user-initiated read here
+            // registers Drobu + surfaces the grant alert before we deep-link —
+            // mirrors the Screen Recording CGRequest-before-deep-link priming.
+            primePasteboardAccess()
             openSystemPrivacyPane("Privacy_Pasteboard")
         case .enableClosedLidHelper:
             // State-correct: .notFound registers first, only .requiresApproval deep-links.
@@ -32,6 +40,16 @@ struct OnboardingActuator {
         case .restart:
             relaunch()
         }
+    }
+
+    /// One deliberate, user-initiated pasteboard read to register Drobu in the
+    /// macOS 15.4+ Pasteboard privacy list and surface the system access alert,
+    /// so the subsequent Settings deep-link lands on a pane where Drobu is
+    /// listed. User-initiated (one tap) — distinct from the passive 0.5s poll the
+    /// onboarding gotcha forbids. A no-op for the user if access is already
+    /// granted, and harmless on < 15.4 (the row is never shown there).
+    private func primePasteboardAccess() {
+        _ = NSPasteboard.general.string(forType: .string)
     }
 
     private func relaunch() {

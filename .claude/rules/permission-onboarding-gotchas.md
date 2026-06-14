@@ -46,9 +46,22 @@ point.
 
 Detect via the reflective `NSPasteboard.general.value(forKey: "accessBehavior")`
 KVC read; the selector being absent means the OS is < 15.4 → the row is
-`.notApplicable` and simply not shown. Onboarding must only **read** this — never
-call a paste-access API from onboarding, or you'd trip the per-access "Allow
-Paste" system alert (which the 0.5s clipboard poll already fires often enough).
+`.notApplicable` and simply not shown. **Status detection** (the live poll +
+focus re-check) must only **read** `accessBehavior` — never read pasteboard
+*content* in the detection path, or you'd trip the per-access "Allow Paste"
+system alert on every poll (which the 0.5s clipboard poll already fires often
+enough).
+
+The **user-initiated row action** is the one exception, and it's required: on a
+fresh 15.4+ install System Settings lists an app under Pasteboard only after it
+has attempted a programmatic content read (the read is what surfaces the alert
+and registers the app). The 0.5s monitor only reads on a *change*, so a user who
+clicks "Open Settings" before copying anything lands on a pane where Drobu isn't
+listed — a dead end. So the pasteboard action does ONE deliberate content read
+(`OnboardingActuator.primePasteboardAccess`) to register Drobu + surface the
+grant alert *before* deep-linking. This mirrors the Screen Recording action
+calling `CGRequestScreenCaptureAccess()` before its deep-link. One tap = one
+read is fine; it's the passive per-poll read that must never happen.
 
 **`accessBehavior` raw values matter — `0` is NOT "granted".** The SDK enum
 (`NSPasteboardAccessBehavior`, verified against the macOS 15.4+ headers) is
