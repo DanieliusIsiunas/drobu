@@ -54,13 +54,18 @@ protocol PermissionProbing {
 
 /// Pure Screen Recording signal from a window-ownership snapshot. macOS 10.15+
 /// gates *other apps'* window names (titles) behind Screen Recording permission:
-/// without it, `kCGWindowName` for a foreign window is empty/absent. So a single
-/// visible foreign window title proves we hold the permission — and a foreign
-/// title is never visible without it, so there are no false positives. Extracted
-/// from the `CGWindowListCopyWindowInfo` syscall so the decision stays testable.
-func screenRecordingGrantedFromWindows(_ windows: [(ownerPID: pid_t, name: String?)],
+/// without it, `kCGWindowName` for a foreign **normal** window is empty/absent.
+/// So a visible foreign title proves we hold the permission.
+///
+/// CRITICAL: only count NORMAL app windows (`windowLayer == 0`). System chrome —
+/// the menu bar, Dock, Window Server overlays — sits at higher layers and keeps
+/// a readable title (e.g. Window Server's "Menubar") REGARDLESS of the grant.
+/// Counting those is a false positive that greens the row for a process that
+/// actually has no access (observed live on macOS 26, 2026-06-14: a process with
+/// no grant still saw "Menubar", so the unfiltered check was always true).
+func screenRecordingGrantedFromWindows(_ windows: [(ownerPID: pid_t, layer: Int, name: String?)],
                                        ourPID: pid_t) -> Bool {
-    windows.contains { $0.ownerPID != ourPID && !($0.name ?? "").isEmpty }
+    windows.contains { $0.layer == 0 && $0.ownerPID != ourPID && !($0.name ?? "").isEmpty }
 }
 
 /// Production probe wrapping the real platform APIs.
@@ -77,11 +82,11 @@ struct SystemPermissionProbe: PermissionProbing {
             return AXIsProcessTrusted()
         case .screenRecording:
             // CGPreflight has documented false-NEGATIVES on macOS 15 (returns
-            // false even when granted — ScreenCaptureService.swift:37), so a
-            // `false` reading can't be trusted; an authorized user's row would
-            // stay stuck gray. Trust a `true` reading (no false positives),
-            // otherwise fall back to the window-name redaction signal so the row
-            // still flips green for users who already granted it.
+            // false even when granted — ScreenCaptureService.swift:37). Trust a
+            // `true` reading (no false positives); otherwise fall back to the
+            // window-name redaction signal — but ONLY normal app windows
+            // (layer 0): system chrome like Window Server's "Menubar" keeps a
+            // readable title without the grant and would false-green the row.
             if CGPreflightScreenCaptureAccess() { return true }
             return screenRecordingGrantedFromWindows(Self.onScreenWindowOwnership(),
                                                      ourPID: ProcessInfo.processInfo.processIdentifier)
@@ -96,17 +101,18 @@ struct SystemPermissionProbe: PermissionProbing {
         }
     }
 
-    /// (ownerPID, window title) for on-screen, non-desktop windows. System
-    /// boundary — kept out of the pure decision above so that stays testable.
-    /// `CGWindowListCopyWindowInfo` needs no permission and never prompts; only
-    /// the window *names* it returns are gated by Screen Recording.
-    private static func onScreenWindowOwnership() -> [(ownerPID: pid_t, name: String?)] {
+    /// (ownerPID, windowLayer, window title) for on-screen, non-desktop windows.
+    /// System boundary — kept out of the pure decision above so that stays
+    /// testable. `CGWindowListCopyWindowInfo` needs no permission and never
+    /// prompts; only the window *names* it returns are gated by Screen Recording.
+    private static func onScreenWindowOwnership() -> [(ownerPID: pid_t, layer: Int, name: String?)] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
         return info.map { window in
             (ownerPID: (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0,
+             layer: (window[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1,
              name: window[kCGWindowName as String] as? String)
         }
     }

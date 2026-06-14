@@ -42,6 +42,38 @@ point.
   `.common`-mode timer (the proven `SettingsView` daemon-row pattern) so rows
   flip live when the user returns from System Settings.
 
+## Detecting Screen Recording status without prompting — and the "Menubar" false-positive
+
+There is **no** reliable, non-prompting, synchronous "is Screen Recording
+granted" API. The two candidates each fail one way:
+
+- `CGPreflightScreenCaptureAccess()` — non-prompting, but has documented
+  **false-negatives** on macOS 15+ (returns `false` even when granted; it's why
+  `ScreenCaptureService` never *gates* capture on it — see line 37). Trust a
+  `true` reading (no false positives); a `false` reading is inconclusive.
+- **Window-name redaction** — without the grant, macOS redacts *other apps'*
+  window **titles** (`kCGWindowName` is empty). So a visible foreign title is a
+  positive signal. BUT this is only true for **normal app windows
+  (`kCGWindowLayer == 0`)**. System chrome keeps readable titles regardless of
+  the grant — most dangerously **Window Server's "Menubar" window (layer 24)**,
+  which is always on screen. An unfiltered "any foreign window has a name" check
+  therefore **always returns true** → the Screen Recording row false-greens for a
+  process that has no access (shipped bug, caught live 2026-06-14: row showed
+  green, capture still threw the system "would like to record" prompt). `SCShareableContent`
+  is the gold-standard check but is async AND **prompts** when ungranted, so it
+  must never run on the onboarding poll.
+
+**Rule:** `granted = CGPreflightScreenCaptureAccess() || (any foreign window with
+windowLayer == 0 and a non-empty name)`. The layer-0 filter is load-bearing —
+verify any change to it against a process that genuinely lacks the grant (the
+`swift` CLI is one: it'll show `CGPreflight=false` and, correctly, zero foreign
+layer-0 names while still seeing "Menubar"). Logic lives in
+`screenRecordingGrantedFromWindows` (pure, unit-tested); the `CGWindowListCopyWindowInfo`
+syscall stays in `SystemPermissionProbe.onScreenWindowOwnership`. Known accepted
+limitation: a just-toggled-on-but-not-yet-restarted grant reads as not-granted
+(both signals stay false until the process restarts) — honest (capture genuinely
+doesn't work yet), and strictly better than a false green.
+
 ## Pasteboard (macOS 15.4+): read `accessBehavior`, never trigger the alert-storm
 
 Detect via the reflective `NSPasteboard.general.value(forKey: "accessBehavior")`
