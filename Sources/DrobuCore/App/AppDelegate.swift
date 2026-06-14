@@ -37,7 +37,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     /// created early in launch so it captures permission state before the user
     /// can change anything.
     private var permissionsService: PermissionsService?
-    private var onboardingPanel: OnboardingPanel?
+    private var settingsPanel: SettingsPanel?
     /// Single first-run gate instance — it's a thin UserDefaults wrapper, but one
     /// owner avoids the auto-show check and the panel's mark-complete reading or
     /// writing through different objects.
@@ -181,15 +181,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         }
 
         // First launch: welcome the user and let them set up permissions up
-        // front (replaces the old every-launch Accessibility modal — onboarding
-        // owns first-run, and later lapses degrade gracefully in-context).
-        showOnboardingIfFirstRun()
+        // front (replaces the old every-launch Accessibility modal — the Set Up
+        // section owns first-run, and later lapses degrade gracefully in-context).
+        showSettingsIfFirstRun()
 
-        // Re-open onboarding on demand from Settings → "Setup & Permissions".
+        // Open the unified Settings panel from the `/settings` slash command
+        // (the status-menu item calls showSettings() directly).
         _ = NotificationCenter.default.addObserver(
-            forName: .openOnboardingRequested, object: nil, queue: .main
+            forName: .openSettingsFromMenu, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.showOnboarding() }
+            MainActor.assumeIsolated { self?.showSettings() }
         }
 
         // Run cleanup on launch + schedule hourly
@@ -340,7 +341,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         let menu = NSMenu()
         // Dynamic sleep status items need menuWillOpen/menuDidClose
         menu.delegate = self
-        menu.addItem(withTitle: "Set Up Drobu…", action: #selector(showOnboardingFromMenu), keyEquivalent: "")
         menu.addItem(withTitle: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
         if let controller = updaterController {
             let checkForUpdatesItem = NSMenuItem(
@@ -577,7 +577,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     @objc private func openPreferences() {
-        NotificationCenter.default.post(name: .openSettingsFromMenu, object: nil)
+        showSettings()
     }
 
     @objc private func quitApp() {
@@ -638,34 +638,42 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         }
     }
 
-    // MARK: - Onboarding
+    // MARK: - Settings panel (first-run setup + ongoing settings)
 
     /// Auto-show the welcome + permission checklist on first launch only.
-    private func showOnboardingIfFirstRun() {
+    private func showSettingsIfFirstRun() {
         guard onboardingGate.shouldAutoShow else { return }
-        showOnboarding()
+        showSettings()
     }
 
-    /// Show (or re-show) the onboarding panel. Recreated each time — NSHostingView
-    /// `onAppear` is unreliable and the panel owns a live-refresh timer it must
-    /// re-arm. Reuses the launch-baselined `PermissionsService` so the
-    /// restart-pending status stays accurate.
-    private func showOnboarding() {
+    /// Show (or re-show) the unified Settings panel. Recreated each time —
+    /// NSHostingView `onAppear` is unreliable and the panel owns a live-refresh
+    /// timer it must re-arm. First run lands on Set Up (welcome + CTA);
+    /// afterwards it lands on Shortcuts. Reuses the launch-baselined
+    /// `PermissionsService` so the restart-pending status stays accurate.
+    private func showSettings() {
         // The service is created early in applicationDidFinishLaunching; if it's
         // somehow absent, bail rather than spinning up a fresh one whose launch
         // baseline is wrong (it would false-green a just-granted restart perm).
         guard let permissions = permissionsService else { return }
-        onboardingPanel?.close()
-        onboardingPanel = OnboardingPanel(
+        // Reuse an already-open panel — re-fronting it rather than
+        // close()+recreate avoids the recreate path's close() marking the
+        // onboarding gate complete mid-first-run (a second Settings invocation
+        // must not silently consume onboarding). `firstRun` is captured at
+        // creation, so the open panel keeps its mode.
+        if let panel = settingsPanel {
+            panel.show()
+            return
+        }
+        let firstRun = onboardingGate.shouldAutoShow
+        let panel = SettingsPanel(
             permissions: permissions,
             gate: onboardingGate,
-            onClose: { [weak self] in self?.onboardingPanel = nil }
+            firstRun: firstRun,
+            onClose: { [weak self] in self?.settingsPanel = nil }
         )
-        onboardingPanel?.showCentered()
-    }
-
-    @objc private func showOnboardingFromMenu() {
-        showOnboarding()
+        settingsPanel = panel
+        panel.show()
     }
 
     // MARK: - Hotkey Management
