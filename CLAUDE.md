@@ -88,8 +88,8 @@ Sources/
 │   ├── Database/  # AppDatabase (GRDB pool, migrations)
 │   ├── Models/    # ClipboardRecord, RetentionDefaults, CaptureHotkeyDefaults
 │   ├── Services/  # ClipboardMonitor, LicenseManager (+ LicenseError), SlashCommand, CaffeinateService, ScreenCaptureService, GIFFrameEngine, Log
-│   └── Views/     # PanelView (main UI), FloatingPanel, ActivationPanel, ActivationView, SettingsView, PreviewPanel, GIF views
-├── Drobu/         # Executable target (thin @main entry point + SettingsOpenerView)
+│   └── Views/     # PanelView (main UI), FloatingPanel, ActivationPanel, ActivationView, SettingsPanel (unified settings + first-run setup window) + SettingsView + SettingsNavigationModel, OnboardingView + OnboardingActuator (the "Set Up" section), PreviewPanel, GIF views
+├── Drobu/         # Executable target (thin @main entry point — DrobuApp with an inert Settings{EmptyView()} placeholder; all UI is AppDelegate-owned)
 Tests/
 └── DrobuTests/    # Test target (@testable import DrobuCore)
 ```

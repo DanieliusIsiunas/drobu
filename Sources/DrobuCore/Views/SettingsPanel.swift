@@ -7,7 +7,7 @@ import SwiftUI
 /// `Settings` scene). Hosts `SettingsView` (sidebar + detail). First run opens to
 /// the "Set Up" section with the onboarding welcome + CTA; afterwards it opens to
 /// "Shortcuts" with Set Up as a plain, revisitable section.
-final class SettingsPanel: NSPanel {
+final class SettingsPanel: NSWindow {
     private let nav: SettingsNavigationModel
     private let onboardingModel: OnboardingViewModel
     private let gate: OnboardingGate
@@ -25,23 +25,24 @@ final class SettingsPanel: NSPanel {
         self.onClose = onClose
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 460),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .closable],
+            // A standard resizable WINDOW (not a floating NSPanel) so it shows
+            // the native red/amber/green traffic-light trio — Settings is a real
+            // window, not a HUD. fullSizeContentView + transparent titlebar keep
+            // the sidebar running to the top edge; SettingsView reserves room for
+            // the traffic-light controls via its top inset.
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
-        isFloatingPanel = true
-        level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
         isOpaque = false
         backgroundColor = .clear
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
+        minSize = NSSize(width: 680, height: 460)
         animationBehavior = .none
-        hidesOnDeactivate = false
         isReleasedWhenClosed = false
         title = "Drobu Settings"   // hidden visually; read by VoiceOver
 
@@ -50,6 +51,7 @@ final class SettingsPanel: NSPanel {
                 nav: nav,
                 onboardingModel: onboardingModel,
                 firstRun: firstRun,
+                windowProvider: { [weak self] in self },
                 onPermissionAction: { [weak self] action in
                     guard let self else { return }
                     // Mark first-run onboarding complete only when a restart
@@ -69,20 +71,20 @@ final class SettingsPanel: NSPanel {
     }
 
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    override var canBecomeMain: Bool { true }
 
-    /// Optionally jump to a specific section before showing (e.g. menu "Settings…"
-    /// lands on the navigation model's mode-appropriate section).
-    func show(section: SettingsSection? = nil) {
-        if let section { nav.selected = section }
+    /// Show the window centered on the active screen and bring the (.accessory)
+    /// app forward. Idempotent — safe to call to re-front an already-open window.
+    func show() {
         startLiveRefresh()
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main
-        if let screen {
+        if let screen, !isVisible {
             let f = screen.visibleFrame
             setFrameOrigin(NSPoint(x: f.midX - frame.width / 2, y: f.midY - frame.height / 2 + 40))
         }
         makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Any dismissal marks onboarding complete (idempotent for ongoing opens) so

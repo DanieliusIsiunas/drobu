@@ -31,7 +31,9 @@ struct OnboardingView: View {
                     section("Optional — set up anytime", rows: model.optionalRows)
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, presentation == .onboarding ? 4 : 18)
+                // settingsSection has no header, so its rows must clear the
+                // window's transparent full-size titlebar themselves.
+                .padding(.top, presentation == .onboarding ? 4 : 32)
                 .padding(.bottom, 12)
             }
             if presentation == .onboarding { footer }
@@ -56,7 +58,7 @@ struct OnboardingView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
         }
-        .padding(.top, 20)
+        .padding(.top, 30)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
         // .ignore + explicit label, not .combine — .combine concatenates the two

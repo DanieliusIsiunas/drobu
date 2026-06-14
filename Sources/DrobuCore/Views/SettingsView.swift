@@ -1,6 +1,5 @@
 import SwiftUI
 import HotKey
-import ServiceManagement
 import Combine
 
 /// The unified Settings panel content: a sidebar of sections + a detail pane.
@@ -9,9 +8,17 @@ import Combine
 /// revisitable permission list); the other sections migrate the former Settings
 /// rows. Section/landing/chrome logic lives in `SettingsNavigationModel` (tested).
 public struct SettingsView: View {
+    // nav + onboardingModel are owned by SettingsPanel and injected into this
+    // NSHostingView root — @ObservedObject is correct here (NOT @StateObject):
+    // the view never owns their lifecycle, and the panel is recreated rather than
+    // re-rendered by a SwiftUI parent, so @ObservedObject re-subscription is fine.
     @ObservedObject var nav: SettingsNavigationModel
     @ObservedObject var onboardingModel: OnboardingViewModel
     let firstRun: Bool
+    /// Host window for destructive-confirmation sheets — resolves to the Settings
+    /// window directly rather than NSApp.keyWindow (which can be nil or a
+    /// different window if focus moved before the user taps Delete/Uninstall).
+    var windowProvider: () -> NSWindow?
     var onPermissionAction: (OnboardingAction) -> Void
     var onFinish: () -> Void
 
@@ -35,11 +42,13 @@ public struct SettingsView: View {
     init(nav: SettingsNavigationModel,
          onboardingModel: OnboardingViewModel,
          firstRun: Bool,
+         windowProvider: @escaping () -> NSWindow?,
          onPermissionAction: @escaping (OnboardingAction) -> Void,
          onFinish: @escaping () -> Void) {
         self.nav = nav
         self.onboardingModel = onboardingModel
         self.firstRun = firstRun
+        self.windowProvider = windowProvider
         self.onPermissionAction = onPermissionAction
         self.onFinish = onFinish
     }
@@ -51,7 +60,7 @@ public struct SettingsView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 680, height: 460)
+        .frame(minWidth: 680, minHeight: 460)
         .background(.regularMaterial)
         .onAppear {
             retentionDays = RetentionDefaults.loadRetentionDays()
@@ -80,7 +89,9 @@ public struct SettingsView: View {
                 .padding(.bottom, 12)
                 .accessibilityHidden(true)   // version is read in the About pane
         }
-        .padding(.top, 16)
+        // Top inset clears the window's traffic-light controls (the titlebar is
+        // transparent + full-size, so the trio floats over the sidebar's top).
+        .padding(.top, 32)
         .frame(width: 180)
         .background(Color.primary.opacity(0.03))
     }
@@ -132,7 +143,9 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 content()
             }
-            .padding(22)
+            .padding(.horizontal, 22)
+            .padding(.top, 32)   // clear the transparent full-size titlebar
+            .padding(.bottom, 22)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -172,6 +185,7 @@ public struct SettingsView: View {
                 .onTapGesture { daemonStatus = DaemonRegistrar().unregister() }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Remove Closed-Lid helper")
+                .accessibilityHint("Unregisters the background helper. Closed Lid mode stops working until you re-enable it.")
                 .accessibilityAddTraits(.isButton)
             }
         }
@@ -458,7 +472,7 @@ public struct SettingsView: View {
     // MARK: - Destructive actions (sheets anchored to the panel window)
 
     private func confirmAndDeleteAll() {
-        guard let window = NSApp.keyWindow else { return }
+        guard let window = windowProvider() ?? NSApp.keyWindow else { return }
         let alert = NSAlert()
         alert.messageText = "Delete All Clipboard History?"
         alert.informativeText = "This will permanently delete all saved clipboard items. This action cannot be undone."
@@ -479,8 +493,8 @@ public struct SettingsView: View {
 
     private func confirmAndUninstall() {
         guard !isUninstalling else { return }
-        guard let window = NSApp.keyWindow else {
-            Log.error("SettingsView: Uninstall tapped but no key window — cannot present confirmation")
+        guard let window = windowProvider() ?? NSApp.keyWindow else {
+            Log.error("SettingsView: Uninstall tapped but no window — cannot present confirmation")
             return
         }
         isUninstalling = true
@@ -514,7 +528,7 @@ public struct SettingsView: View {
     }
 
     private func presentUninstallResidual(_ summary: String, then proceed: @escaping () -> Void) {
-        guard let window = NSApp.keyWindow else { proceed(); return }
+        guard let window = windowProvider() ?? NSApp.keyWindow else { proceed(); return }
         let alert = NSAlert()
         alert.messageText = "Drobu was removed"
         alert.informativeText = summary

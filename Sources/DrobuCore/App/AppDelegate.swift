@@ -651,13 +651,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     /// timer it must re-arm. First run lands on Set Up (welcome + CTA);
     /// afterwards it lands on Shortcuts. Reuses the launch-baselined
     /// `PermissionsService` so the restart-pending status stays accurate.
-    private func showSettings(section: SettingsSection? = nil) {
+    private func showSettings() {
         // The service is created early in applicationDidFinishLaunching; if it's
         // somehow absent, bail rather than spinning up a fresh one whose launch
         // baseline is wrong (it would false-green a just-granted restart perm).
         guard let permissions = permissionsService else { return }
+        // Reuse an already-open panel — re-fronting it rather than
+        // close()+recreate avoids the recreate path's close() marking the
+        // onboarding gate complete mid-first-run (a second Settings invocation
+        // must not silently consume onboarding). `firstRun` is captured at
+        // creation, so the open panel keeps its mode.
+        if let panel = settingsPanel {
+            panel.show()
+            return
+        }
         let firstRun = onboardingGate.shouldAutoShow
-        settingsPanel?.close()
         let panel = SettingsPanel(
             permissions: permissions,
             gate: onboardingGate,
@@ -665,7 +673,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             onClose: { [weak self] in self?.settingsPanel = nil }
         )
         settingsPanel = panel
-        panel.show(section: section)
+        panel.show()
     }
 
     // MARK: - Hotkey Management
