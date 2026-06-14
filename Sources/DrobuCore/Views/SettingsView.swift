@@ -56,6 +56,22 @@ public struct SettingsView: View {
                             launchAtLogin = agent.isEnabled
                         }
                     }
+
+                HStack {
+                    Text("Setup & Permissions")
+                    Spacer()
+                    Text("Open")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    NotificationCenter.default.post(name: .openOnboardingRequested, object: nil)
+                }
+                // One activatable element — .ignore on the inner Texts so VoiceOver
+                // reads a single label and the row-level tap is the activation target.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Setup and permissions, Open")
+                .accessibilityAddTraits(.isButton)
             }
 
             Section("Closed Lid Mode") {

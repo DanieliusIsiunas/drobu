@@ -310,9 +310,7 @@ final class ScreenCaptureService {
         alert.addButton(withTitle: "Cancel")
 
         if alert.runModal() == .alertFirstButtonReturn {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                NSWorkspace.shared.open(url)
-            }
+            openSystemPrivacyPane("Privacy_ScreenCapture")
         }
     }
 

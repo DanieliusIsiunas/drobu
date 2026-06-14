@@ -19,7 +19,15 @@ final class AppDatabase: Sendable {
         do {
             return try DatabasePool(path: path)
         } catch {
-            // Database corruption: delete and recreate
+            // Only GENUINE corruption justifies wiping the user's history. A
+            // transient open failure (lock/busy/I-O/permission) must NOT delete
+            // the db — that would turn, e.g., the onboarding "Restart to activate"
+            // relaunch (two instances briefly opening the same file) into silent
+            // data loss. Rethrow non-corruption errors and fail loudly instead.
+            guard isCorruption(error) else {
+                Log.error("AppDatabase: open failed; NOT treated as corruption, db preserved: \(error)")
+                throw error
+            }
             Log.error("AppDatabase: corruption detected, recreating: \(error)")
             do { try FileManager.default.removeItem(atPath: path) }
             catch { Log.error("AppDatabase: failed to remove corrupt db: \(error)") }
@@ -29,6 +37,16 @@ final class AppDatabase: Sendable {
             catch { Log.error("AppDatabase: failed to remove shm: \(error)") }
             return try DatabasePool(path: path)
         }
+    }
+
+    /// True only for SQLite errors that genuinely mean the file is corrupt or not
+    /// a database — the only conditions under which deleting + recreating the db
+    /// is the right recovery. Everything else (locks, busy, I/O, permission) is
+    /// transient or environmental and must never trigger a destructive recreate.
+    static func isCorruption(_ error: Error) -> Bool {
+        guard let dbError = error as? DatabaseError else { return false }
+        let code = dbError.resultCode.primaryResultCode
+        return code == .SQLITE_CORRUPT || code == .SQLITE_NOTADB
     }
 
     private static func defaultPath() throws -> String {

@@ -11,9 +11,9 @@
 	<key>CFBundleName</key>
 	<string>Drobu</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.6.0</string>
+	<string>1.7.0</string>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>12</string>
 	<key>DrobuLicensePublicKey</key>
 	<string>uvHoJNNeLFAv671r15WGSDUxRNUUWwpOaJKqgUkEDSc=</string>
 	<key>LSUIElement</key>
@@ -23,7 +23,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026. All rights reserved.</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Drobu needs screen recording access to capture GIF screen recordings.</string>
+	<string>Drobu needs screen recording access to capture GIFs and video clips of your screen.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
