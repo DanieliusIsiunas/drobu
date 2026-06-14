@@ -1,11 +1,11 @@
 import Foundation
 
 public extension Notification.Name {
+    /// Posted by the `/settings` slash command to open the unified Settings
+    /// panel. AppDelegate owns the panel and observes this (a service can't reach
+    /// the delegate directly). The status-menu "Settings…" item calls the
+    /// delegate directly and does not need this.
     static let openSettingsFromMenu = Notification.Name("openSettingsFromMenu")
-    /// Posted from Settings ("Setup & Permissions") to re-open the onboarding
-    /// panel on demand. AppDelegate owns the panel (the Settings scene runs under
-    /// .regular policy and can't reach the delegate directly).
-    static let openOnboardingRequested = Notification.Name("openOnboardingRequested")
     /// Posted when Closed Lid activation needs the daemon registered/approved.
     /// AppDelegate turns it into an NSAlert with an "Open System Settings"
     /// action (the Settings scene's `.alert` does not fire — see swiftui rules).

@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The first-launch permission checklist shown inside `OnboardingPanel`. A
-/// single screen: a warm welcome, a Required tier and an Optional tier of
-/// permission rows with live status, and a footer that names the next action.
+/// The permission checklist shown as the "Set Up" section of `SettingsPanel`. A
+/// warm welcome, a Required tier and an Optional tier of permission rows with
+/// live status, and a footer that names the next action (`.onboarding` mode); or
+/// just the rows when revisited as a settings section (`.settingsSection`).
 /// Nothing is forced — "Skip for now" is always available, and optional rows
 /// can be left untouched.
 ///
@@ -10,25 +11,34 @@ import SwiftUI
 /// against the real APIs — system boundary); the row/completion logic lives in
 /// `OnboardingViewModel` (unit-tested).
 struct OnboardingView: View {
+    /// How the checklist is framed. `.onboarding` is the first-run experience
+    /// (welcome header + "Start using Drobu" footer CTA). `.settingsSection` is
+    /// the same rows shown as the unified panel's revisitable "Set Up" section —
+    /// no header, no CTA, just live permission status.
+    enum Presentation { case onboarding, settingsSection }
+
     @ObservedObject var model: OnboardingViewModel
+    var presentation: Presentation = .onboarding
     var onAction: (OnboardingAction) -> Void
     var onFinish: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if presentation == .onboarding { header }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     section("Required", rows: model.requiredRows)
                     section("Optional — set up anytime", rows: model.optionalRows)
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 4)
+                .padding(.top, presentation == .onboarding ? 4 : 18)
                 .padding(.bottom, 12)
             }
-            footer
+            if presentation == .onboarding { footer }
         }
-        .frame(width: 480, height: 600)
+        // Fills its host (the Settings panel's detail pane) rather than
+        // imposing a fixed size.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial)
     }
 
