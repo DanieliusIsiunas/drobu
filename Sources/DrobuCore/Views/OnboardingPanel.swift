@@ -119,11 +119,16 @@ final class OnboardingPanel: NSPanel {
                 onAction: { [weak self] action in
                     guard let self else { return }
                     // The restart path relaunches and never returns through
-                    // close(), so mark onboarding complete here — otherwise the
-                    // relaunched app re-shows the checklist even though setup is
-                    // done. (If the relaunch fails, the gate is harmlessly marked
-                    // and the panel stays open and usable.)
-                    if action == .restart { self.gate.markCompleted() }
+                    // close(), so mark onboarding complete here — but ONLY when
+                    // the restart finishes required setup. A row-level "Restart to
+                    // activate" can fire while completion is still .incomplete
+                    // (another required permission ungranted); marking then would
+                    // wrongly suppress auto-onboarding before the user is done.
+                    // (If the relaunch fails, the gate is harmlessly marked and
+                    // the panel stays open and usable.)
+                    if onboardingCompletesGate(on: action, completion: self.model.completion) {
+                        self.gate.markCompleted()
+                    }
                     self.actuator.perform(action)
                     // Re-poll right away; the didBecomeActive re-check covers the
                     // return-from-System-Settings case for the deep-link actions.

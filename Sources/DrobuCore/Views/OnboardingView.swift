@@ -39,7 +39,7 @@ struct OnboardingView: View {
             Text("Let's get Drobu comfortable on your Mac")
                 .font(.system(size: 18, weight: .semibold))
                 .multilineTextAlignment(.center)
-            Text("Grant a couple of permissions and you're off — most take one click. Your 14-day trial just started.")
+            Text("Grant a couple of permissions and you're off — most take one click.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -52,7 +52,7 @@ struct OnboardingView: View {
         // .ignore + explicit label, not .combine — .combine concatenates the two
         // Texts unpredictably (project a11y rule).
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Let's get Drobu comfortable on your Mac. Grant a couple of permissions and you're off — most take one click. Your 14-day trial just started.")
+        .accessibilityLabel("Let's get Drobu comfortable on your Mac. Grant a couple of permissions and you're off — most take one click.")
     }
 
     // MARK: - Sections / rows

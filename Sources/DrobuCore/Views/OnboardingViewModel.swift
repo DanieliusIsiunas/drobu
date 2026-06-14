@@ -17,6 +17,16 @@ enum OnboardingAction: Equatable {
     case restart
 }
 
+/// Whether dispatching `action` should mark first-run onboarding complete.
+/// Only a restart that actually finishes required setup counts: a row-level
+/// "Restart to activate" can fire while `completion` is still `.incomplete`
+/// (e.g. Accessibility granted this session but Pasteboard still denied) — that
+/// must NOT suppress auto-onboarding before the user finishes the rest. Pure so
+/// the rule is unit-tested even though the call site is the (untested) panel.
+func onboardingCompletesGate(on action: OnboardingAction, completion: OnboardingCompletion) -> Bool {
+    action == .restart && completion != .incomplete
+}
+
 /// One permission row in the onboarding checklist.
 struct OnboardingRow: Identifiable, Equatable {
     let permission: Permission

@@ -112,6 +112,21 @@ struct OnboardingViewModelTests {
         #expect(!model.isComplete)
     }
 
+    @Test("a restart completes the gate only when required setup is finished")
+    func gateCompletionOnRestart() {
+        // Restart that finishes setup → complete.
+        #expect(onboardingCompletesGate(on: .restart, completion: .pendingRestart))
+        #expect(onboardingCompletesGate(on: .restart, completion: .ready))
+        // Row-level "Restart to activate" fired while another required permission
+        // is still ungranted → must NOT complete (else auto-onboarding is
+        // suppressed before the user finishes).
+        #expect(!onboardingCompletesGate(on: .restart, completion: .incomplete))
+        // Non-restart actions never complete the gate via this path.
+        #expect(!onboardingCompletesGate(on: .openAccessibilitySettings, completion: .ready))
+        #expect(!onboardingCompletesGate(on: .toggleLaunchAtLogin(enable: true), completion: .pendingRestart))
+        #expect(!onboardingCompletesGate(on: .openPasteboardSettings, completion: .pendingRestart))
+    }
+
     @Test("refresh() picks up a state change from the probe")
     func refreshUpdatesRows() {
         let (model, probe) = makeModel(allApplicable([.screenRecording: false]))
