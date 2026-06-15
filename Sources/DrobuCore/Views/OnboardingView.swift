@@ -135,6 +135,7 @@ struct OnboardingView: View {
             Text(actionLabel(for: action))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(action == .restart ? Color.orange : Color.accentColor)
+                .hoverHighlight()
                 .contentShape(Rectangle())
                 .onTapGesture { onAction(action) }
                 .accessibilityElement(children: .ignore)
@@ -194,6 +195,7 @@ struct OnboardingView: View {
                 Text("Skip for now")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .hoverHighlight()
                     .contentShape(Rectangle())
                     .onTapGesture { onFinish() }
                     .accessibilityAddTraits(.isButton)
@@ -234,6 +236,22 @@ struct OnboardingView: View {
 
     private func footerButton(title: String, filled: Bool, tint: Color, label: String,
                               action: @escaping () -> Void) -> some View {
+        FooterButton(title: title, filled: filled, tint: tint, label: label, action: action)
+    }
+}
+
+/// The footer's primary CTA — a filled/tinted pill that brightens on hover
+/// (a hoverHighlight pill would double the background, so it carries its own
+/// hover state instead).
+private struct FooterButton: View {
+    let title: String
+    let filled: Bool
+    let tint: Color
+    let label: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
         Text(title)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(filled ? Color.white : tint)
@@ -241,10 +259,13 @@ struct OnboardingView: View {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(filled ? tint : tint.opacity(0.12))
+                    .fill(filled ? tint.opacity(hovering ? 0.85 : 1.0)
+                          : tint.opacity(hovering ? 0.20 : 0.12))
             )
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
+            .onHover { hovering = $0 }
+            .animation(.easeInOut(duration: 0.12), value: hovering)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(label)
             .padding(.horizontal, 24)
