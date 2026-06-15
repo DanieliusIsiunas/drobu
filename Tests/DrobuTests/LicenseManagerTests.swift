@@ -51,11 +51,16 @@ struct LicenseManagerTests {
     private final class StubActivationClient: DeviceActivationClient, @unchecked Sendable {
         var verdict: ActivationVerdict   // settable so a re-validation can return a different answer
         var deactivateSucceeds = true    // settable to simulate an unreachable backend
+        // Runs inside activate(), simulating a concurrent state change while the
+        // real call's `await` has released the MainActor. Non-Sendable closure
+        // is fine: the suite is @MainActor-serial and the stub is @unchecked Sendable.
+        var onActivate: (() -> Void)?
         private(set) var activateCalls = 0
         private(set) var deactivateCalls = 0
         init(_ verdict: ActivationVerdict = .activated(email: nil)) { self.verdict = verdict }
         func activate(key: String, deviceHash: String, deviceName: String) async -> ActivationVerdict {
             activateCalls += 1
+            onActivate?()
             return verdict
         }
         func deactivate(key: String, deviceHash: String) async -> Bool {
@@ -706,6 +711,25 @@ struct LicenseManagerTests {
         #expect(client.deactivateCalls == 1)
         #expect(store.get("active-license") != nil)   // license kept for retry
         #expect(mgr.status == .activated)
+    }
+
+    @Test func staleRevalidationResultIsDroppedWhenKeyChangedMidFlight() async throws {
+        // A background revalidation is in flight for key A; the user deactivates
+        // (clears active-license) before it returns. The stale result must NOT
+        // resurrect the old key/verdict.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        // Simulate a concurrent deactivate landing during the revalidation await.
+        client.onActivate = { store.delete("active-license") }
+        await mgr.revalidateIfNeeded(force: true)
+        // The guard must drop the stale result: without it, persistVerdict would
+        // re-set active-license back to the old key (resurrecting the license).
+        #expect(store.get("active-license") == nil)
+        mgr.refresh()
+        #expect(mgr.status != .activated)              // user's deactivate stuck
     }
 
     @Test func replacementKeyClearsStaleDenialWhenUnreachable() async throws {

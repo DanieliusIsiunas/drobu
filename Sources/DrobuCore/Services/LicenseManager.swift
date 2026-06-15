@@ -332,6 +332,11 @@ public final class LicenseManager: ObservableObject {
             deviceHash: device.deviceHash,
             deviceName: device.deviceName
         )
+        // The await released the MainActor. If the stored key changed meanwhile
+        // — the user pasted a replacement key or deactivated this Mac — this
+        // result is stale: persisting it would resurrect the old key/verdict and
+        // undo the newer change. Drop it unless the key still matches.
+        guard store.get(Self.activeLicenseKey) == key else { return }
         persistVerdict(verdict, key: key)
         recomputeStatus()
     }
