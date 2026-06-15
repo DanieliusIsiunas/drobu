@@ -735,6 +735,26 @@ struct LicenseManagerTests {
         #expect(mgr.status != .activated)
     }
 
+    @Test func concurrentRevalidateAndDeactivateLeaveDeviceDeactivated() async throws {
+        // The serial activation channel must prevent a revalidation's activate
+        // RPC from racing a deactivate (which could re-claim the freed seat).
+        // Whatever the interleaving, the device must end deactivated: either the
+        // revalidate runs first (re-persists the same key) then deactivate clears
+        // it, or the deactivate runs first then the revalidate re-reads the
+        // cleared key and no-ops.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        async let revalidate: Void = mgr.revalidateIfNeeded(force: true)
+        async let freed: Bool = mgr.deactivateThisDevice()
+        _ = await revalidate
+        #expect(await freed)
+        #expect(store.get("active-license") == nil)   // never left re-claimed/active
+        #expect(mgr.status != .activated)
+    }
+
     @Test func deactivateThisDeviceWithoutKeyIsANoOp() async {
         let store = InMemoryLicenseStore()
         let client = StubActivationClient()
