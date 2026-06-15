@@ -38,6 +38,8 @@ public struct SettingsView: View {
     // checklist's Enable→remediate path)
     @State private var daemonStatus: DaemonStatus = .notRegistered
     @State private var isUninstalling = false
+    // Sidebar hover highlight (indicates the clickable row under the cursor).
+    @State private var hoveredSection: SettingsSection?
 
     init(nav: SettingsNavigationModel,
          onboardingModel: OnboardingViewModel,
@@ -98,6 +100,7 @@ public struct SettingsView: View {
 
     private func sidebarRow(_ section: SettingsSection) -> some View {
         let isSelected = nav.selected == section
+        let isHovered = hoveredSection == section
         return HStack(spacing: 10) {
             Image(systemName: section.symbolName)
                 .font(.system(size: 13))
@@ -112,11 +115,22 @@ public struct SettingsView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                // Selected wins; otherwise a subtle fill while hovered so the
+                // clickable row is obvious before the click.
+                .fill(isSelected ? Color.accentColor.opacity(0.15)
+                      : (isHovered ? Color.primary.opacity(0.08) : Color.clear))
         )
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .onTapGesture { nav.selected = section }
+        .onHover { hovering in
+            if hovering {
+                hoveredSection = section
+            } else if hoveredSection == section {
+                hoveredSection = nil
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -177,16 +191,17 @@ public struct SettingsView: View {
                     Text("Remove Closed-Lid Helper")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.red)
+                        .hoverHighlight()
+                        .contentShape(Rectangle())
+                        .onTapGesture { daemonStatus = DaemonRegistrar().unregister() }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Remove Closed-Lid helper")
+                        .accessibilityHint("Unregisters the background helper. Closed Lid mode stops working until you re-enable it.")
+                        .accessibilityAddTraits(.isButton)
                     Spacer()
                 }
                 .padding(.horizontal, 22)
-                .padding(.vertical, 12)
-                .contentShape(Rectangle())
-                .onTapGesture { daemonStatus = DaemonRegistrar().unregister() }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Remove Closed-Lid helper")
-                .accessibilityHint("Unregisters the background helper. Closed Lid mode stops working until you re-enable it.")
-                .accessibilityAddTraits(.isButton)
+                .padding(.vertical, 10)
             }
         }
     }
@@ -260,6 +275,7 @@ public struct SettingsView: View {
             Spacer()
             Text("Delete")
                 .foregroundStyle(.red)
+                .hoverHighlight()
                 .onTapGesture { confirmAndDeleteAll() }
                 .accessibilityLabel("Delete all clipboard history")
                 .accessibilityAddTraits(.isButton)
@@ -277,6 +293,7 @@ public struct SettingsView: View {
             HStack {
                 Text("Buy Drobu — $14.99")
                     .foregroundStyle(Color.accentColor)
+                    .hoverHighlight()
                     .onTapGesture { NSWorkspace.shared.open(PurchaseLinks.buy) }
                     .accessibilityLabel("Buy Drobu for $14.99")
                     .accessibilityAddTraits(.isButton)
@@ -288,6 +305,7 @@ public struct SettingsView: View {
                 Text("Deactivate license")
                     .foregroundStyle(.secondary)
                     .font(.caption)
+                    .hoverHighlight()
                     .onTapGesture {
                         licenseManager.deactivate()
                         licenseKeyInput = ""
@@ -321,14 +339,15 @@ public struct SettingsView: View {
         HStack {
             Text("Uninstall Drobu…")
                 .foregroundStyle(.red)
+                .hoverHighlight()
+                .contentShape(Rectangle())
+                .onTapGesture { confirmAndUninstall() }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Uninstall Drobu")
+                .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
+                .accessibilityAddTraits(.isButton)
             Spacer()
         }
-        .contentShape(Rectangle())
-        .onTapGesture { confirmAndUninstall() }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Uninstall Drobu")
-        .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
-        .accessibilityAddTraits(.isButton)
         Text("Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.")
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -406,6 +425,7 @@ public struct SettingsView: View {
                 Text("Paste from clipboard")
                     .font(.caption)
                     .foregroundStyle(Color.accentColor)
+                    .hoverHighlight()
                     .onTapGesture { pasteFromClipboard() }
                     .accessibilityLabel("Paste license key from clipboard and activate")
                     .accessibilityAddTraits(.isButton)
@@ -413,6 +433,7 @@ public struct SettingsView: View {
                 Text("Activate")
                     .font(.caption)
                     .foregroundStyle(licenseKeyInput.isEmpty ? Color.secondary : Color.accentColor)
+                    .hoverHighlight()
                     .onTapGesture {
                         guard !licenseKeyInput.isEmpty else { return }
                         tryActivate()
