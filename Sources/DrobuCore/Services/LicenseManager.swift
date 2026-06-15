@@ -16,6 +16,28 @@ public enum LicenseStatus: Equatable, Sendable {
     case trialActive(daysRemaining: Int)
     case trialExpired
     case activated
+    /// Valid key, but the device-activation cap is full and this Mac is not one
+    /// of the activated devices. Carries the active set for the remediation UI.
+    /// Only reached once any trial has also expired.
+    case activationLimitReached(devices: [ActivatedDevice])
+    /// Valid key whose purchase was refunded (license_keys.refunded_at set).
+    case licenseRevoked
+}
+
+public extension LicenseStatus {
+    /// True when the floating panel + capture must be gated behind the
+    /// `ActivationPanel`: the trial is over, the device cap is full, or the
+    /// license was revoked. The single source of truth for both gates
+    /// (`AppDelegate.showPanel()` and `CaptureUIPolicy.captureStartAllowed`),
+    /// so a new state is never accidentally treated as permitted.
+    var blocksUsage: Bool {
+        switch self {
+        case .trialActive, .activated:
+            return false
+        case .trialExpired, .activationLimitReached, .licenseRevoked:
+            return true
+        }
+    }
 }
 
 /// Minimal key-value store the LicenseManager uses to persist the
@@ -129,6 +151,15 @@ public final class LicenseManager: ObservableObject {
     /// 14 days in seconds. Matches the website's advertised trial.
     public static let trialDuration: TimeInterval = 14 * 24 * 60 * 60
 
+    /// How long a positive activation verdict is trusted offline before a
+    /// re-validation is attempted (R5). Generous so a no-Wi-Fi user is never
+    /// inconvenienced; expiry only schedules a re-check — it never blocks
+    /// (R6/KTD6: only an affirmative negative verdict blocks).
+    public static let activationGracePeriod: TimeInterval = 14 * 24 * 60 * 60
+    /// Shorter cadence for re-checking a NEGATIVE verdict (over_cap/revoked) so
+    /// freeing a seat or reversing a refund unblocks quickly.
+    public static let negativeRecheckCadence: TimeInterval = 60 * 60
+
     private static let trialStartKey = "trial-start"
     private static let activeLicenseKey = "active-license"
     /// Monotonic clock anchor: the latest moment this manager has ever
@@ -137,25 +168,41 @@ public final class LicenseManager: ObservableObject {
     /// never read or written while `.activated` (no Keychain churn or
     /// ACL prompts for paying customers).
     private static let lastSeenKey = "last-seen"
+    // Device-activation cache (online cap layered over the offline key).
+    private static let activationVerdictKey = "activation-verdict"    // activated|over_cap|revoked
+    private static let activationCheckedAtKey = "activation-checked-at" // last definite server verdict
+    private static let activationDevicesKey = "activation-devices"     // JSON [ActivatedDevice]
+    private static let activationEmailKey = "activation-email"         // "Licensed to {email}"
 
     @Published public private(set) var status: LicenseStatus = .trialExpired
 
     private let publicKey: Curve25519.Signing.PublicKey
     private let store: LicenseStore
     private let now: () -> Date
+    private let device: DeviceIdentifying
+    private let activationClient: DeviceActivationClient
 
     /// Designated init for production code (and any caller with an
-    /// already-loaded public key).
+    /// already-loaded public key). `device`/`activationClient` are injected
+    /// in tests with stubs so the IOKit read and the network stay out of scope.
     public init(
         publicKey: Curve25519.Signing.PublicKey,
         store: LicenseStore,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        device: DeviceIdentifying = SystemDeviceIdentity(),
+        activationClient: DeviceActivationClient = HTTPDeviceActivationClient()
     ) {
         self.publicKey = publicKey
         self.store = store
         self.now = now
+        self.device = device
+        self.activationClient = activationClient
         recomputeStatus()
     }
+
+    /// The buyer email tied to the active license, if the activation response
+    /// carried one. Powers the Settings "Licensed to {email}" row (R11).
+    public var licensedEmail: String? { store.get(Self.activationEmailKey) }
 
     /// Convenience: read the embedded public key from `Info.plist` and
     /// use the Keychain store. Throws `LicenseError.publicKeyMissing`
@@ -205,21 +252,63 @@ public final class LicenseManager: ObservableObject {
         recomputeStatus()
     }
 
-    /// Verify a pasted license key and persist it on success.
-    /// Throws on any failure; on success the published `status` flips
-    /// to `.activated` synchronously.
-    public func activate(keyString: String) throws {
+    /// Verify a pasted license key (offline) and register THIS device against
+    /// the activation cap (online). Throws `LicenseError` only for a
+    /// malformed/bad-signature key — that check is offline and fires before any
+    /// network. The device-cap verdict never throws: it sets `status`
+    /// (`.activated` / `.activationLimitReached` / `.licenseRevoked`) and the
+    /// caller inspects it. An unreachable backend fails OPEN (KTD5): the key is
+    /// stored optimistically and re-validation registers the device later.
+    public func activate(keyString: String) async throws {
         try verifyKey(keyString)
-        // keyString is the customer's license key — the store must never
-        // log this value (see KeychainLicenseStore.set).
-        store.set(Self.activeLicenseKey, keyString)
+        // keyString is the customer's license key — never logged (see
+        // KeychainLicenseStore.set / DeviceActivationClient).
+        let verdict = await activationClient.activate(
+            key: keyString,
+            deviceHash: device.deviceHash,
+            deviceName: device.deviceName
+        )
+        persistVerdict(verdict, key: keyString)
         recomputeStatus()
     }
 
-    /// Clear the active license (e.g. for support / testing).
-    /// Status reverts to the underlying trial state.
+    /// Free THIS Mac's seat on the server, then clear the local license so the
+    /// seat is genuinely returned to the pool (R3). Distinct from `deactivate()`
+    /// which is a local-only clear (support/testing) with no server call.
+    public func deactivateThisDevice() async {
+        if let key = store.get(Self.activeLicenseKey) {
+            await activationClient.deactivate(key: key, deviceHash: device.deviceHash)
+        }
+        deactivate()
+    }
+
+    /// Clear the active license + all device-activation cache (e.g. for support
+    /// / testing). Status reverts to the underlying trial state.
     public func deactivate() {
         store.delete(Self.activeLicenseKey)
+        store.delete(Self.activationVerdictKey)
+        store.delete(Self.activationCheckedAtKey)
+        store.delete(Self.activationDevicesKey)
+        store.delete(Self.activationEmailKey)
+        recomputeStatus()
+    }
+
+    /// Re-validate the stored license against the cap when the cached verdict is
+    /// stale (positive past the grace window, or negative past the short
+    /// cadence). Safe to call often — from the hourly refresh + on app
+    /// activation. A no-op without a valid stored key, or when the cache is
+    /// still fresh. An unreachable backend never downgrades a positive verdict
+    /// (R6).
+    public func revalidateIfNeeded() async {
+        guard let key = store.get(Self.activeLicenseKey),
+              (try? verifyKey(key)) != nil else { return }
+        guard shouldRevalidate() else { return }
+        let verdict = await activationClient.activate(
+            key: key,
+            deviceHash: device.deviceHash,
+            deviceName: device.deviceName
+        )
+        persistVerdict(verdict, key: key)
         recomputeStatus()
     }
 
@@ -233,11 +322,24 @@ public final class LicenseManager: ObservableObject {
     // MARK: - Internal
 
     private func recomputeStatus() {
-        // Activated wins regardless of trial state.
+        // A stored, signature-valid key is gated on the device-activation cap.
         if let activeKey = store.get(Self.activeLicenseKey) {
             do {
                 try verifyKey(activeKey)
-                status = .activated
+                let gated = activationGatedStatus()
+                if case .activated = gated {
+                    status = .activated
+                    return
+                }
+                // gated is .activationLimitReached / .licenseRevoked. A blocked
+                // verdict must NOT degrade a still-running trial — prefer the
+                // trial while days remain; only gate once it has also expired.
+                let trial = trialStatus()
+                if case .trialActive = trial {
+                    status = trial
+                } else {
+                    status = gated
+                }
                 return
             } catch {
                 // A stored key that reads but fails verification is the one
@@ -249,19 +351,37 @@ public final class LicenseManager: ObservableObject {
             }
         }
 
+        status = trialStatus()
+    }
+
+    /// Map the cached device-cap verdict to a status. `.activated` for a
+    /// positive or absent verdict (absent = grandfathered/optimistic — R7/KTD6:
+    /// only an affirmative negative blocks; the grace window + fail-open keep a
+    /// valid key usable). Re-validation refreshes the verdict over time.
+    private func activationGatedStatus() -> LicenseStatus {
+        switch store.get(Self.activationVerdictKey) {
+        case "over_cap": return .activationLimitReached(devices: storedDevices())
+        case "revoked": return .licenseRevoked
+        default: return .activated
+        }
+    }
+
+    /// The trial state machine (clock-rollback anchor included). Extracted so
+    /// the `.activated` happy path never touches the anchor (no Keychain churn
+    /// for paying customers), while the no-key and blocked-but-trial paths reuse
+    /// the exact same math.
+    private func trialStatus() -> LicenseStatus {
         guard let startIso = store.get(Self.trialStartKey) else {
             // First launch hasn't been recorded yet. Treat as expired
             // so the gate is closed by default — `recordFirstLaunchIfNeeded`
             // flips it open on app startup.
-            status = .trialExpired
-            return
+            return .trialExpired
         }
         guard let trialStart = Self.isoFormatter.date(from: startIso) else {
             // Non-nil but unparseable: permanently gated, because
             // recordFirstLaunchIfNeeded never overwrites a non-nil value.
             Log.error("LicenseManager: trial-start is unparseable — trial stays gated")
-            status = .trialExpired
-            return
+            return .trialExpired
         }
 
         // Clock-rollback anchor: clamp the effective clock to the latest
@@ -290,8 +410,7 @@ public final class LicenseManager: ObservableObject {
         // recorded even while gated.
         if trialStart > effectiveNow {
             Log.error("LicenseManager: trial-start is in the future — gated until the clock catches up")
-            status = .trialExpired
-            return
+            return .trialExpired
         }
 
         let expiresAt = trialStart.addingTimeInterval(Self.trialDuration)
@@ -299,10 +418,74 @@ public final class LicenseManager: ObservableObject {
         if secondsRemaining > 0 {
             // Round up so "23 hours 59 minutes left" displays as 1 day.
             let daysRemaining = max(1, Int(ceil(secondsRemaining / 86400)))
-            status = .trialActive(daysRemaining: daysRemaining)
-        } else {
-            status = .trialExpired
+            return .trialActive(daysRemaining: daysRemaining)
         }
+        return .trialExpired
+    }
+
+    // MARK: - Device activation cache
+
+    /// Persist a server verdict. The key is (re)stored on every definite verdict
+    /// so an over_cap/revoked state survives relaunch (and self-heals on the
+    /// next re-validation). `.unreachable` fails OPEN: the key is kept but no
+    /// verdict/timestamp is recorded, so the grant stays optimistic and
+    /// re-validation keeps trying — an existing positive verdict is never
+    /// downgraded (R6).
+    private func persistVerdict(_ verdict: ActivationVerdict, key: String) {
+        switch verdict {
+        case .activated(let email):
+            store.set(Self.activeLicenseKey, key)
+            store.set(Self.activationVerdictKey, "activated")
+            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+            store.delete(Self.activationDevicesKey)
+            if let email, !email.isEmpty { store.set(Self.activationEmailKey, email) }
+        case .overCap(let devices):
+            store.set(Self.activeLicenseKey, key)
+            store.set(Self.activationVerdictKey, "over_cap")
+            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+            storeDevices(devices)
+        case .revoked:
+            store.set(Self.activeLicenseKey, key)
+            store.set(Self.activationVerdictKey, "revoked")
+            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+        case .unreachable:
+            store.set(Self.activeLicenseKey, key)
+        }
+    }
+
+    /// Decide whether the cached verdict is stale enough to re-contact the
+    /// server: an absent verdict (grandfather/optimistic) always re-checks; a
+    /// positive verdict after the grace window; a negative verdict after the
+    /// short cadence.
+    private func shouldRevalidate() -> Bool {
+        let verdict = store.get(Self.activationVerdictKey)
+        guard let checkedIso = store.get(Self.activationCheckedAtKey),
+              let checkedAt = Self.isoFormatter.date(from: checkedIso) else {
+            return true
+        }
+        let age = now().timeIntervalSince(checkedAt)
+        switch verdict {
+        case "over_cap", "revoked": return age >= Self.negativeRecheckCadence
+        default: return age >= Self.activationGracePeriod
+        }
+    }
+
+    private func storeDevices(_ devices: [ActivatedDevice]) {
+        guard let data = try? JSONEncoder().encode(devices),
+              let json = String(data: data, encoding: .utf8) else {
+            store.delete(Self.activationDevicesKey)
+            return
+        }
+        store.set(Self.activationDevicesKey, json)
+    }
+
+    private func storedDevices() -> [ActivatedDevice] {
+        guard let json = store.get(Self.activationDevicesKey),
+              let data = json.data(using: .utf8),
+              let devices = try? JSONDecoder().decode([ActivatedDevice].self, from: data) else {
+            return []
+        }
+        return devices
     }
 
     private func verifyKey(_ keyString: String) throws {

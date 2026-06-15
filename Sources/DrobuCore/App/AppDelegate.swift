@@ -67,10 +67,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         // session reads as pending-restart, not a false "ready").
         permissionsService = PermissionsService()
         // Hourly refresh so a session left running across the trial
-        // boundary transitions to .trialExpired without user input.
+        // boundary transitions to .trialExpired without user input; it also
+        // re-validates the device-activation cap when the cached verdict is
+        // stale (no-op otherwise; fails open on a backend outage).
         licenseRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
-            MainActor.assumeIsolated { LicenseManager.shared.refresh() }
+            MainActor.assumeIsolated {
+                LicenseManager.shared.refresh()
+                Task { await LicenseManager.shared.revalidateIfNeeded() }
+            }
         }
+        // Kick one re-validation at launch: registers this Mac for a user
+        // grandfathered from a pre-cap build (R7), and promptly surfaces an
+        // over-cap/revoked verdict. Fails open if offline.
+        Task { await mgr.revalidateIfNeeded() }
 
         guard let db = database else { return }
 
@@ -224,6 +233,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             MainActor.assumeIsolated { self?.showClosedLidFailureAlert(message) }
         }
 
+        // Re-validate the device-activation cap when the app regains focus —
+        // the proven re-poll-on-didBecomeActive pattern. Surfaces a seat freed
+        // (or refunded) elsewhere within one activation; no-op when the cached
+        // verdict is fresh; fails open offline.
+        _ = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                Task { await LicenseManager.shared.revalidateIfNeeded() }
+                return
+            }
+        }
+
         // Signal handlers for SIGTERM/SIGHUP: best-effort cleanup of Closed Lid mode
         installSignalHandlers()
     }
@@ -247,11 +269,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     private func showPanel() {
         guard let database else { return }
 
-        // Hard gate: when the trial has expired and no license is active,
-        // route to the activation panel instead of the clipboard panel.
-        // The clipboard monitor keeps running in the background so when
-        // the user activates, their captured data is intact.
-        if let mgr = licenseManager, mgr.status == .trialExpired {
+        // Hard gate: when the license blocks use (trial expired, device cap
+        // full, or revoked), route to the activation panel instead of the
+        // clipboard panel. The clipboard monitor keeps running in the
+        // background so the user's captured data is intact when they resolve it.
+        if let mgr = licenseManager, mgr.status.blocksUsage {
             showActivationPanel(licenseManager: mgr)
             return
         }

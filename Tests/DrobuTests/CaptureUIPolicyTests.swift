@@ -131,14 +131,17 @@ struct CaptureUIPolicyTests {
 
     // MARK: - Capture-start license gate
 
-    // A capture may start unless the trial has expired. trialActive (any day
-    // count) and activated both pass; only .trialExpired blocks. Two
-    // trialActive rows pin that the day count is irrelevant.
+    // A capture may start only when the license permits use. trialActive (any
+    // day count) and activated pass; trialExpired, activationLimitReached, and
+    // licenseRevoked all block (an over-cap or revoked license is as gated as an
+    // expired trial). Two trialActive rows pin that the day count is irrelevant.
     static let captureStartMatrix: [(LicenseStatus, Bool)] = [
         (.trialActive(daysRemaining: 14), true),
         (.trialActive(daysRemaining: 1), true),
         (.trialExpired, false),
         (.activated, true),
+        (.activationLimitReached(devices: []), false),
+        (.licenseRevoked, false),
     ]
 
     // Exhaustive switch with no `default`: adding a LicenseStatus case fails
@@ -150,12 +153,24 @@ struct CaptureUIPolicyTests {
         case .trialActive: return "trialActive"
         case .trialExpired: return "trialExpired"
         case .activated: return "activated"
+        case .activationLimitReached: return "activationLimitReached"
+        case .licenseRevoked: return "licenseRevoked"
         }
     }
 
     @Test func captureStartGateCoversEveryLicenseKind() {
         let kinds = Set(Self.captureStartMatrix.map { Self.kind(of: $0.0) })
-        #expect(kinds == ["trialActive", "trialExpired", "activated"])
+        #expect(kinds == ["trialActive", "trialExpired", "activated", "activationLimitReached", "licenseRevoked"])
+    }
+
+    // MARK: - blocksUsage (single source of truth for both gates)
+
+    @Test func blocksUsageMatchesCaptureGate() {
+        #expect(LicenseStatus.trialActive(daysRemaining: 5).blocksUsage == false)
+        #expect(LicenseStatus.activated.blocksUsage == false)
+        #expect(LicenseStatus.trialExpired.blocksUsage == true)
+        #expect(LicenseStatus.activationLimitReached(devices: []).blocksUsage == true)
+        #expect(LicenseStatus.licenseRevoked.blocksUsage == true)
     }
 
     @Test(arguments: captureStartMatrix)

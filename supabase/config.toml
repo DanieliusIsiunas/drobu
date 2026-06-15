@@ -390,3 +390,11 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/stripe-webhook/index.ts"
+
+# Called by the Drobu app (no user JWT). The Ed25519 license-signature check
+# inside the function IS the auth — a device can only be activated against a
+# signature-valid key — so the URL is public by design, like stripe-webhook.
+[functions.activate-device]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/activate-device/index.ts"

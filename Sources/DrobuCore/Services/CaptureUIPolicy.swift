@@ -31,13 +31,16 @@ enum CaptureUIPolicy {
         return gifAllows && videoAllows
     }
 
-    /// A new capture may START only when the trial has not expired. Mirrors
-    /// the floating-panel gate in `AppDelegate.showPanel()`: `.trialActive`
-    /// and `.activated` both pass; only `.trialExpired` blocks. Pure over
+    /// A new capture may START only when the license permits use. Mirrors the
+    /// floating-panel gate in `AppDelegate.showPanel()`: `.trialActive` and
+    /// `.activated` pass; `.trialExpired`, `.activationLimitReached`, and
+    /// `.licenseRevoked` all block (an over-cap or revoked license is as gated
+    /// as an expired trial). An allow-list, not `!= .trialExpired`, so a new
+    /// blocking state is never silently treated as permitted. Pure over
     /// `LicenseStatus` — the "are we idle?" precondition is the caller's
     /// (this is invoked from the handler's `case .idle:` arm), so gating a
     /// start never touches an in-progress recording's stop/cancel paths.
     static func captureStartAllowed(license: LicenseStatus) -> Bool {
-        license != .trialExpired
+        !license.blocksUsage
     }
 }

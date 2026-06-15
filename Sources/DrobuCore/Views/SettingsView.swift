@@ -301,6 +301,41 @@ public struct SettingsView: View {
             }
             licenseKeyRow
         } else {
+            if let email = licenseManager.licensedEmail, !email.isEmpty {
+                HStack {
+                    Text("Licensed to")
+                    Spacer()
+                    Text(email).foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Licensed to \(email)")
+            }
+
+            Text("Your license works on up to 3 Macs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Frees THIS Mac's seat on the server so it can be used elsewhere
+            // (R3) — distinct from "Deactivate license", which only clears the
+            // key locally.
+            HStack {
+                Text("Deactivate this Mac")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.caption)
+                    .hoverHighlight()
+                    .onTapGesture {
+                        Task { @MainActor in
+                            await licenseManager.deactivateThisDevice()
+                            licenseKeyInput = ""
+                            licenseErrorMessage = nil
+                        }
+                    }
+                    .accessibilityLabel("Deactivate this Mac and free its license seat")
+                    .accessibilityAddTraits(.isButton)
+                Spacer()
+            }
+
             HStack {
                 Text("Deactivate license")
                     .foregroundStyle(.secondary)
@@ -311,7 +346,7 @@ public struct SettingsView: View {
                         licenseKeyInput = ""
                         licenseErrorMessage = nil
                     }
-                    .accessibilityLabel("Deactivate license")
+                    .accessibilityLabel("Deactivate license on this Mac only")
                     .accessibilityAddTraits(.isButton)
                 Spacer()
             }
@@ -394,6 +429,18 @@ public struct SettingsView: View {
                 Spacer()
                 Text("Activated ✓").foregroundStyle(.green)
             }
+        case .activationLimitReached:
+            HStack {
+                Text("Status")
+                Spacer()
+                Text("Device limit reached").foregroundStyle(.orange)
+            }
+        case .licenseRevoked:
+            HStack {
+                Text("Status")
+                Spacer()
+                Text("Refunded").foregroundStyle(.red)
+            }
         }
     }
 
@@ -468,25 +515,39 @@ public struct SettingsView: View {
     private func tryActivate() {
         let cleaned = licenseKeyInput.filter { !$0.isWhitespace }
         guard !cleaned.isEmpty else { return }
-        do {
-            try licenseManager.activate(keyString: cleaned)
-            licenseKeyInput = ""
-            licenseErrorMessage = nil
-            licenseSuccessVisible = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                licenseSuccessVisible = false
+        Task { @MainActor in
+            do {
+                try await licenseManager.activate(keyString: cleaned)
+            } catch let error as LicenseError {
+                switch error {
+                case .malformed:
+                    licenseErrorMessage = "That doesn't look like a valid license key."
+                case .badSignature:
+                    licenseErrorMessage = "License key rejected. Contact support if you need help."
+                case .publicKeyMissing:
+                    licenseErrorMessage = "Drobu is misconfigured — contact support."
+                }
+                return
+            } catch {
+                licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
+                return
             }
-        } catch let error as LicenseError {
-            switch error {
-            case .malformed:
-                licenseErrorMessage = "That doesn't look like a valid license key."
-            case .badSignature:
-                licenseErrorMessage = "License key rejected. Contact support if you need help."
-            case .publicKeyMissing:
-                licenseErrorMessage = "Drobu is misconfigured — contact support."
+            // Signature valid; branch on the device-cap verdict.
+            switch licenseManager.status {
+            case .activated:
+                licenseKeyInput = ""
+                licenseErrorMessage = nil
+                licenseSuccessVisible = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    licenseSuccessVisible = false
+                }
+            case .activationLimitReached(let devices):
+                licenseErrorMessage = ActivationCopy.overCapMessage(deviceCount: devices.count)
+            case .licenseRevoked:
+                licenseErrorMessage = ActivationCopy.revokedMessage
+            default:
+                break
             }
-        } catch {
-            licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
         }
     }
 
