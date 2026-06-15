@@ -60,7 +60,7 @@ public struct SettingsView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 680, minHeight: 460)
+        .frame(width: 680, height: 460)
         .background(.regularMaterial)
         .onAppear {
             retentionDays = RetentionDefaults.loadRetentionDays()

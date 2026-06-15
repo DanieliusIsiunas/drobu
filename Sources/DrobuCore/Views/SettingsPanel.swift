@@ -25,12 +25,15 @@ final class SettingsPanel: NSWindow {
         self.onClose = onClose
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 460),
-            // A standard resizable WINDOW (not a floating NSPanel) so it shows
-            // the native red/amber/green traffic-light trio — Settings is a real
-            // window, not a HUD. fullSizeContentView + transparent titlebar keep
-            // the sidebar running to the top edge; SettingsView reserves room for
-            // the traffic-light controls via its top inset.
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            // A standard titled WINDOW (not a floating NSPanel) so it shows the
+            // native red/amber/green traffic-light trio. Deliberately NOT
+            // .resizable: a fixed-size settings pane keeps the green button the
+            // standard (disabled) zoom — adding .resizable turns it into the
+            // macOS 15 "+ / Move & Resize" tiling button, which is wrong here.
+            // fullSizeContentView + transparent titlebar keep the sidebar running
+            // to the top edge; SettingsView reserves room for the controls via
+            // its top inset.
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -41,7 +44,6 @@ final class SettingsPanel: NSWindow {
         isMovableByWindowBackground = true
         isOpaque = false
         backgroundColor = .clear
-        minSize = NSSize(width: 680, height: 460)
         animationBehavior = .none
         isReleasedWhenClosed = false
         title = "Drobu Settings"   // hidden visually; read by VoiceOver
