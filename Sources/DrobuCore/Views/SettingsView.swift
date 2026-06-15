@@ -220,7 +220,7 @@ public struct SettingsView: View {
     }
 
     private func shortcutRow(_ label: String, binding: Binding<KeyCombo?>,
-                             save: @escaping (KeyCombo?) -> Void, a11y: String) -> some View {
+                             save: @escaping @MainActor (KeyCombo?) -> Void, a11y: String) -> some View {
         HStack {
             Text(label)
             Spacer()
