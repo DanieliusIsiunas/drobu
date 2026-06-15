@@ -341,8 +341,11 @@ public struct SettingsView: View {
                 Spacer()
             }
 
-            HStack {
-                Text("Deactivate license")
+            // Local-only key removal. The visible label must say it does NOT
+            // free the server seat, or a user moving Macs would strand a seat
+            // by clicking here instead of "Deactivate this Mac".
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Remove key from this Mac only")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                     .hoverHighlight()
@@ -351,9 +354,12 @@ public struct SettingsView: View {
                         licenseKeyInput = ""
                         licenseErrorMessage = nil
                     }
-                    .accessibilityLabel("Deactivate license on this Mac only")
+                    .accessibilityLabel("Remove the license key from this Mac only — does not free your license seat")
                     .accessibilityAddTraits(.isButton)
-                Spacer()
+                Text("Keeps your seat — use \u{201C}Deactivate this Mac\u{201D} to free it.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
         }
     }

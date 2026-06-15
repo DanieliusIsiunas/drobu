@@ -732,6 +732,27 @@ struct LicenseManagerTests {
         #expect(mgr.status != .activated)              // user's deactivate stuck
     }
 
+    @Test func oldVerdictSurvivesUntilReplacementKeyIsPersisted() async throws {
+        // The stale-cache clear must be atomic with storing the new key (inside
+        // persistVerdict), NOT before the await — otherwise a refresh/crash in
+        // the in-flight window would see the old key with no verdict and read it
+        // as optimistic .activated, resurrecting a blocked/refunded license.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(store.get("activation-verdict") == "over_cap")
+        // Capture the verdict as seen mid-flight (inside the stub's activate,
+        // standing in for the real await window).
+        client.verdict = .unreachable
+        var verdictDuringFlight: String?
+        client.onActivate = { verdictDuringFlight = store.get("activation-verdict") }
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(verdictDuringFlight == "over_cap")        // NOT cleared before the await
+        #expect(store.get("activation-verdict") == nil)   // cleared atomically at persist
+        #expect(mgr.status == .activated)                 // replacement fails open
+    }
+
     @Test func replacementKeyClearsStaleDenialWhenUnreachable() async throws {
         // Key A is cached as over_cap. The user pastes a DIFFERENT valid key B
         // while the backend is unreachable. B must fail open (.activated), not

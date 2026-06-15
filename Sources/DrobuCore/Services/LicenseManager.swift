@@ -263,16 +263,13 @@ public final class LicenseManager: ObservableObject {
     /// stored optimistically and re-validation registers the device later.
     public func activate(keyString: String) async throws {
         try verifyKey(keyString)
-        // A different key than the one cached: drop the old key's verdict /
-        // device list / email so a stale denial can't bleed onto the
-        // replacement — otherwise pasting a fresh valid key while the backend
-        // is unreachable would inherit the old key's over_cap/revoked block
-        // instead of failing open.
-        if store.get(Self.activeLicenseKey) != keyString {
-            clearActivationCache()
-        }
         // keyString is the customer's license key — never logged (see
-        // KeychainLicenseStore.set / DeviceActivationClient).
+        // KeychainLicenseStore.set / DeviceActivationClient). The stale-verdict
+        // clear for a replacement key happens INSIDE persistVerdict (atomically
+        // with storing the new key), NOT here before the await — clearing it now
+        // would leave a window where active-license still points at the old key
+        // with no verdict, reading as optimistic .activated if a refresh/crash
+        // lands mid-flight (it could resurrect a blocked/refunded license).
         let verdict = await activationClient.activate(
             key: keyString,
             deviceHash: device.deviceHash,
@@ -461,6 +458,15 @@ public final class LicenseManager: ObservableObject {
     /// re-validation keeps trying — an existing positive verdict is never
     /// downgraded (R6).
     private func persistVerdict(_ verdict: ActivationVerdict, key: String) {
+        // Replacement key: the cached verdict/devices/email belong to the OLD
+        // key — drop them so the new key doesn't inherit a stale over_cap/revoked
+        // block (esp. on the .unreachable path, which doesn't set a fresh
+        // verdict). Done here, synchronously, atomic with storing the new key
+        // below — no await in this method, so there's never a window where
+        // active-license points at a key whose verdict was already cleared.
+        if store.get(Self.activeLicenseKey) != key {
+            clearActivationCache()
+        }
         switch verdict {
         case .activated(let email):
             store.set(Self.activeLicenseKey, key)
