@@ -188,7 +188,32 @@ public final class LicenseManager: ObservableObject {
     /// deactivateThisDevice). An in-flight `activate` captures it before its
     /// `await` and drops its result if a newer mutation superseded it — so a
     /// slow response from one surface can't clobber a newer key from another.
+    /// (Catches a SYNCHRONOUS local `deactivate()` landing during a network op.)
     private var activationGeneration = 0
+    /// Tail of the serial activation channel. Every network op (activate /
+    /// revalidate / deactivateThisDevice) awaits the previous one before its own
+    /// request, so two never overlap on the wire — a `deactivate` can't race an
+    /// in-flight `activate`, which would otherwise let a late activate RPC
+    /// re-claim a seat the user just released (and a revalidate queued after a
+    /// deactivate re-reads the now-cleared key and no-ops).
+    private var activationTail: Task<Void, Never>?
+
+    /// Reference box so a serialized op can hand its result back to the awaiting
+    /// caller. Touched only on the MainActor; @unchecked silences the Sendable
+    /// capture check for the MainActor-isolated channel task.
+    private final class Box<T>: @unchecked Sendable { var value: T? }
+
+    /// Enqueue `work` behind the current channel tail; returns a task the caller
+    /// awaits. `work` runs only after the prior op fully completes.
+    private func chain(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let previous = activationTail
+        let task = Task { @MainActor in
+            _ = await previous?.value
+            await work()
+        }
+        activationTail = task
+        return task
+    }
 
     /// Designated init for production code (and any caller with an
     /// already-loaded public key). `device`/`activationClient` are injected
@@ -272,27 +297,32 @@ public final class LicenseManager: ObservableObject {
     /// Returns `nil` when a newer mutation superseded this call (drop the result).
     @discardableResult
     public func activate(keyString: String) async throws -> ActivationVerdict? {
-        try verifyKey(keyString)
-        activationGeneration += 1
-        let generation = activationGeneration
-        // keyString is the customer's license key — never logged (see
-        // KeychainLicenseStore.set / DeviceActivationClient). The stale-verdict
-        // clear for a replacement key happens INSIDE persistVerdict (atomically
-        // with storing the new key), NOT here before the await — clearing it now
-        // would leave a window where active-license still points at the old key
-        // with no verdict, reading as optimistic .activated if a refresh/crash
-        // lands mid-flight (it could resurrect a blocked/refunded license).
-        let verdict = await activationClient.activate(
-            key: keyString,
-            deviceHash: device.deviceHash,
-            deviceName: device.deviceName
-        )
-        // A newer activate/deactivate started during the await — its result is
-        // canonical; dropping this stale one avoids clobbering the newer key.
-        guard generation == activationGeneration else { return nil }
-        persistVerdict(verdict, key: keyString)
-        recomputeStatus()
-        return verdict
+        try verifyKey(keyString)   // sync; throws before queueing on the channel
+        let box = Box<ActivationVerdict>()
+        await chain { [weak self] in
+            guard let self else { return }
+            self.activationGeneration += 1
+            let generation = self.activationGeneration
+            // keyString is the customer's license key — never logged (see
+            // KeychainLicenseStore.set / DeviceActivationClient). The stale-verdict
+            // clear for a replacement key happens INSIDE persistVerdict (atomically
+            // with storing the new key), NOT before the await — clearing it now
+            // would leave a window where active-license still points at the old key
+            // with no verdict, reading as optimistic .activated if a refresh/crash
+            // lands mid-flight (it could resurrect a blocked/refunded license).
+            let verdict = await self.activationClient.activate(
+                key: keyString,
+                deviceHash: self.device.deviceHash,
+                deviceName: self.device.deviceName
+            )
+            // A synchronous local deactivate() landed during the await — its
+            // result is canonical; drop this stale one rather than clobbering it.
+            guard generation == self.activationGeneration else { return }
+            self.persistVerdict(verdict, key: keyString)
+            self.recomputeStatus()
+            box.value = verdict
+        }.value
+        return box.value
     }
 
     /// Free THIS Mac's seat on the server, then clear the local license so the
@@ -305,13 +335,22 @@ public final class LicenseManager: ObservableObject {
     /// (still active server-side) with no local state to retry the release.
     @discardableResult
     public func deactivateThisDevice() async -> Bool {
-        guard let key = store.get(Self.activeLicenseKey) else { return true }
-        // Supersede any in-flight activate so its result can't re-store a key
-        // we're about to release.
-        activationGeneration += 1
-        let freed = await activationClient.deactivate(key: key, deviceHash: device.deviceHash)
-        if freed { deactivate() }
-        return freed
+        let box = Box<Bool>()
+        await chain { [weak self] in
+            guard let self else { return }
+            // Re-read the key INSIDE the channel (a prior op may have changed it).
+            guard let key = self.store.get(Self.activeLicenseKey) else {
+                box.value = true   // nothing to release
+                return
+            }
+            // Supersede any in-flight/queued activate so its result can't re-store
+            // the key we're about to release.
+            self.activationGeneration += 1
+            let freed = await self.activationClient.deactivate(key: key, deviceHash: self.device.deviceHash)
+            if freed { self.deactivate() }
+            box.value = freed
+        }.value
+        return box.value ?? true
     }
 
     /// Clear the active license + all device-activation cache (e.g. for support
@@ -342,21 +381,26 @@ public final class LicenseManager: ObservableObject {
     /// it bypasses the cadence throttle — the throttle only paces background
     /// polling, never a deliberate tap.
     public func revalidateIfNeeded(force: Bool = false) async {
-        guard let key = store.get(Self.activeLicenseKey),
-              (try? verifyKey(key)) != nil else { return }
-        guard force || shouldRevalidate() else { return }
-        let verdict = await activationClient.activate(
-            key: key,
-            deviceHash: device.deviceHash,
-            deviceName: device.deviceName
-        )
-        // The await released the MainActor. If the stored key changed meanwhile
-        // — the user pasted a replacement key or deactivated this Mac — this
-        // result is stale: persisting it would resurrect the old key/verdict and
-        // undo the newer change. Drop it unless the key still matches.
-        guard store.get(Self.activeLicenseKey) == key else { return }
-        persistVerdict(verdict, key: key)
-        recomputeStatus()
+        await chain { [weak self] in
+            guard let self else { return }
+            // All checks INSIDE the channel: a revalidate queued behind a
+            // deactivate re-reads the now-cleared key and no-ops; one queued
+            // behind another revalidate sees the refreshed timestamp and skips.
+            guard let key = self.store.get(Self.activeLicenseKey),
+                  (try? self.verifyKey(key)) != nil else { return }
+            guard force || self.shouldRevalidate() else { return }
+            let verdict = await self.activationClient.activate(
+                key: key,
+                deviceHash: self.device.deviceHash,
+                deviceName: self.device.deviceName
+            )
+            // Defensive: if the stored key changed during the await (a sync
+            // local deactivate), drop the stale result rather than resurrecting
+            // the old key/verdict.
+            guard self.store.get(Self.activeLicenseKey) == key else { return }
+            self.persistVerdict(verdict, key: key)
+            self.recomputeStatus()
+        }.value
     }
 
     /// Force a status recomputation. Call from a periodic Timer so
