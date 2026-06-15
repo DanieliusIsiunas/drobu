@@ -34,6 +34,7 @@ public struct SettingsView: View {
     @State private var licenseKeyInput: String = ""
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
+    @State private var isActivatingLicense: Bool = false
     // Closed-lid teardown (the only daemon action not covered by the Set Up
     // checklist's Enable→remediate path)
     @State private var daemonStatus: DaemonStatus = .notRegistered
@@ -301,8 +302,50 @@ public struct SettingsView: View {
             }
             licenseKeyRow
         } else {
+            if let email = licenseManager.licensedEmail, !email.isEmpty {
+                HStack {
+                    Text("Licensed to")
+                    Spacer()
+                    Text(email).foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Licensed to \(email)")
+            }
+
+            Text("Your license works on up to 3 Macs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Frees THIS Mac's seat on the server so it can be used elsewhere
+            // (R3) — distinct from "Deactivate license", which only clears the
+            // key locally.
             HStack {
-                Text("Deactivate license")
+                Text("Deactivate this Mac")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.caption)
+                    .hoverHighlight()
+                    .onTapGesture {
+                        Task { @MainActor in
+                            let freed = await licenseManager.deactivateThisDevice()
+                            if freed {
+                                licenseKeyInput = ""
+                                licenseErrorMessage = nil
+                            } else {
+                                licenseErrorMessage = "Couldn't reach the server to free this Mac's seat. Try again when you're online."
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Deactivate this Mac and free its license seat")
+                    .accessibilityAddTraits(.isButton)
+                Spacer()
+            }
+
+            // Local-only key removal. The visible label must say it does NOT
+            // free the server seat, or a user moving Macs would strand a seat
+            // by clicking here instead of "Deactivate this Mac".
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Remove key from this Mac only")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                     .hoverHighlight()
@@ -311,9 +354,12 @@ public struct SettingsView: View {
                         licenseKeyInput = ""
                         licenseErrorMessage = nil
                     }
-                    .accessibilityLabel("Deactivate license")
+                    .accessibilityLabel("Remove the license key from this Mac only — does not free your license seat")
                     .accessibilityAddTraits(.isButton)
-                Spacer()
+                Text("Keeps your seat — use \u{201C}Deactivate this Mac\u{201D} to free it.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -394,6 +440,18 @@ public struct SettingsView: View {
                 Spacer()
                 Text("Activated ✓").foregroundStyle(.green)
             }
+        case .activationLimitReached:
+            HStack {
+                Text("Status")
+                Spacer()
+                Text("Device limit reached").foregroundStyle(.orange)
+            }
+        case .licenseRevoked:
+            HStack {
+                Text("Status")
+                Spacer()
+                Text("Refunded").foregroundStyle(.red)
+            }
         }
     }
 
@@ -467,26 +525,45 @@ public struct SettingsView: View {
 
     private func tryActivate() {
         let cleaned = licenseKeyInput.filter { !$0.isWhitespace }
-        guard !cleaned.isEmpty else { return }
-        do {
-            try licenseManager.activate(keyString: cleaned)
-            licenseKeyInput = ""
-            licenseErrorMessage = nil
-            licenseSuccessVisible = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                licenseSuccessVisible = false
+        guard !cleaned.isEmpty, !isActivatingLicense else { return }
+        isActivatingLicense = true
+        Task { @MainActor in
+            defer { isActivatingLicense = false }
+            let verdict: ActivationVerdict?
+            do {
+                verdict = try await licenseManager.activate(keyString: cleaned)
+            } catch let error as LicenseError {
+                switch error {
+                case .malformed:
+                    licenseErrorMessage = "That doesn't look like a valid license key."
+                case .badSignature:
+                    licenseErrorMessage = "License key rejected. Contact support if you need help."
+                case .publicKeyMissing:
+                    licenseErrorMessage = "Drobu is misconfigured — contact support."
+                }
+                return
+            } catch {
+                licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
+                return
             }
-        } catch let error as LicenseError {
-            switch error {
-            case .malformed:
-                licenseErrorMessage = "That doesn't look like a valid license key."
-            case .badSignature:
-                licenseErrorMessage = "License key rejected. Contact support if you need help."
-            case .publicKeyMissing:
-                licenseErrorMessage = "Drobu is misconfigured — contact support."
+            // Branch on the returned verdict, not `status` — during an unexpired
+            // trial a negative verdict is persisted but `status` stays
+            // .trialActive, so a status-based switch would show no feedback at all.
+            switch verdict {
+            case .activated, .unreachable:
+                licenseKeyInput = ""
+                licenseErrorMessage = nil
+                licenseSuccessVisible = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    licenseSuccessVisible = false
+                }
+            case .overCap(let devices):
+                licenseErrorMessage = ActivationCopy.overCapMessage(deviceCount: devices.count)
+            case .revoked:
+                licenseErrorMessage = ActivationCopy.revokedMessage
+            case nil:
+                break   // superseded by a newer activation
             }
-        } catch {
-            licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
         }
     }
 

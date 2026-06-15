@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The activation form shown inside `ActivationPanel` once the trial
-/// has expired. Three actions: buy, paste-and-activate, dismiss.
+/// The activation form shown inside `ActivationPanel`. Serves three states:
+/// the trial-ended purchase/paste screen, the device-cap remediation screen
+/// (valid key, but 3 Macs already active), and the refunded-license screen.
 ///
 /// `licenseManager` is observed so the view reacts to status changes;
 /// `onActivated` is invoked when a valid key is accepted, letting the
@@ -13,12 +14,47 @@ struct ActivationView: View {
     @State private var keyInput: String = ""
     @State private var errorMessage: String?
     @State private var activationSucceeded: Bool = false
+    @State private var isActivating: Bool = false
     @FocusState private var keyFieldFocused: Bool
 
+    private enum Mode: Equatable {
+        case purchase
+        case overCap([ActivatedDevice])
+        case revoked
+    }
+
+    private var mode: Mode {
+        switch licenseManager.status {
+        case .activationLimitReached(let devices): return .overCap(devices)
+        case .licenseRevoked: return .revoked
+        default: return .purchase
+        }
+    }
 
     var body: some View {
+        Group {
+            switch mode {
+            case .purchase: purchaseView
+            case .overCap(let devices): overCapView(devices)
+            case .revoked: revokedView
+            }
+        }
+        .frame(width: 480, height: 360)
+        .background(.regularMaterial)
+        .onAppear {
+            // Defer focus until after the panel is on screen — focusing
+            // synchronously during onAppear races with NSPanel key window
+            // assignment.
+            DispatchQueue.main.async {
+                if mode == .purchase { keyFieldFocused = true }
+            }
+        }
+    }
+
+    // MARK: - Purchase / paste (trial ended)
+
+    private var purchaseView: some View {
         VStack(spacing: 18) {
-            // Headline + sub
             VStack(spacing: 4) {
                 Text("Your 14-day trial has ended")
                     .font(.system(size: 18, weight: .semibold))
@@ -31,7 +67,6 @@ struct ActivationView: View {
             }
             .padding(.top, 16)
 
-            // Buy button
             Text("Buy Drobu — $14.99")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
@@ -48,7 +83,6 @@ struct ActivationView: View {
                 .accessibilityLabel("Buy Drobu for $14.99")
                 .padding(.horizontal, 24)
 
-            // Divider with "or"
             HStack(spacing: 10) {
                 Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 1)
                 Text("or")
@@ -57,10 +91,8 @@ struct ActivationView: View {
                 Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 1)
             }
             .padding(.horizontal, 24)
+            .accessibilityHidden(true)
 
-            // Paste license key — multi-line so the full ~110-char key
-            // is visible at a glance and the user can confirm they
-            // pasted it correctly.
             VStack(alignment: .leading, spacing: 6) {
                 Text("Paste your license key")
                     .font(.system(size: 11, weight: .medium))
@@ -68,12 +100,10 @@ struct ActivationView: View {
                 TextField("DROBU-…", text: $keyInput, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                    // Left-aligned, grow to fit the full key so the DROBU-
-                    // prefix stays visible (matches the license email).
                     .multilineTextAlignment(.leading)
                     .lineLimit(3...6)
                     .focused($keyFieldFocused)
-                    .disabled(activationSucceeded)
+                    .disabled(activationSucceeded || isActivating)
                     .onChange(of: keyInput) { _, newValue in handleKeyInput(newValue) }
 
                 Text("Paste from clipboard")
@@ -95,30 +125,20 @@ struct ActivationView: View {
 
             Spacer(minLength: 0)
 
-            // Footer: support contact
             Text("Already paid? Email \(PurchaseLinks.supportEmail) — we'll send your key.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 14)
-        }
-        .frame(width: 480, height: 360)
-        .background(.regularMaterial)
-        .onAppear {
-            // Defer focus until after the panel is on screen — focusing
-            // synchronously during onAppear races with NSPanel key window
-            // assignment.
-            DispatchQueue.main.async {
-                keyFieldFocused = true
-            }
+                .accessibilityHidden(true)
         }
     }
 
     /// Renders the Activate button in three states: idle (gray when empty,
-    /// accent-tinted when key is pasted), and post-success (green
-    /// checkmark while we hold for ~1.4s before dismissing the panel —
-    /// silent close was reading as "did anything happen?").
+    /// accent-tinted when key is pasted), in-flight (verifying with the
+    /// server), and post-success (green checkmark while we hold for ~1.4s
+    /// before dismissing the panel).
     @ViewBuilder
     private var activateButton: some View {
         if activationSucceeded {
@@ -136,7 +156,7 @@ struct ActivationView: View {
             )
             .accessibilityLabel("Activation successful")
         } else {
-            Text("Activate")
+            Text(isActivating ? "Activating…" : "Activate")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(keyInput.isEmpty ? Color.secondary : Color.white)
                 .frame(maxWidth: .infinity)
@@ -147,7 +167,7 @@ struct ActivationView: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    guard !keyInput.isEmpty else { return }
+                    guard !keyInput.isEmpty, !isActivating else { return }
                     activate()
                 }
                 .accessibilityAddTraits(.isButton)
@@ -155,14 +175,95 @@ struct ActivationView: View {
         }
     }
 
+    // MARK: - Device-cap remediation
+
+    private func overCapView(_ devices: [ActivatedDevice]) -> some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 4) {
+                Text(ActivationCopy.overCapTitle())
+                    .font(.system(size: 18, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                Text(ActivationCopy.overCapMessage(deviceCount: devices.count))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+            }
+            .padding(.top, 18)
+
+            if !devices.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(devices.enumerated()), id: \.offset) { _, device in
+                        Text("• \(ActivationCopy.deviceLine(device))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(ActivationCopy.deviceLine(device))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 28)
+            }
+
+            Text(isActivating ? "Checking…" : "Check again")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
+                .contentShape(Rectangle())
+                .onTapGesture { recheck() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Check the device limit again")
+                .padding(.horizontal, 24)
+
+            Spacer(minLength: 0)
+
+            Text("Need help? Email \(PurchaseLinks.supportEmail).")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 14)
+                .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: - Refunded license
+
+    private var revokedView: some View {
+        VStack(spacing: 16) {
+            Text(ActivationCopy.revokedTitle)
+                .font(.system(size: 18, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .padding(.top, 28)
+            Text(ActivationCopy.revokedMessage)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+            Text("Buy Drobu — $14.99")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor))
+                .contentShape(Rectangle())
+                .onTapGesture { NSWorkspace.shared.open(PurchaseLinks.buy) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Buy Drobu for $14.99")
+                .padding(.horizontal, 24)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Actions
+
     // Keys carry no whitespace, so strip any (email line-wrapping, or a
-    // Return press — axis:.vertical never fires onSubmit on Return), then
-    // auto-activate the instant a full-shaped key is present. Pasting is the
-    // whole interaction; the Activate button remains an explicit fallback.
-    // Focus-proof paste: read the key straight off the clipboard rather than
-    // relying on a simulated Cmd+V (which macOS doesn't reliably route to our
-    // own window). Works whether the key was copied from the email or via the
-    // Drobu panel, which also writes it to the pasteboard.
+    // Return press), then auto-activate the instant a full-shaped key is
+    // present. Focus-proof paste: read straight off the clipboard rather than
+    // a simulated Cmd+V (which macOS doesn't reliably route to our own window).
     private func pasteFromClipboard() {
         guard let s = NSPasteboard.general.string(forType: .string) else { return }
         keyInput = s   // handleKeyInput strips whitespace + auto-activates
@@ -170,7 +271,7 @@ struct ActivationView: View {
 
     private func handleKeyInput(_ newValue: String) {
         errorMessage = nil
-        guard !activationSucceeded else { return }
+        guard !activationSucceeded, !isActivating else { return }
         let cleaned = newValue.filter { !$0.isWhitespace }
         if cleaned != newValue {
             keyInput = cleaned   // re-triggers onChange; that pass activates
@@ -183,21 +284,46 @@ struct ActivationView: View {
 
     private func activate() {
         let cleaned = keyInput.filter { !$0.isWhitespace }
-        guard !cleaned.isEmpty else { return }
-        do {
-            try licenseManager.activate(keyString: cleaned)
-            // Show success briefly so the user sees confirmation —
-            // closing the panel immediately reads as "did anything
-            // happen?" and is the #1 complaint pattern in indie apps.
-            activationSucceeded = true
-            errorMessage = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                onActivated()
+        guard !cleaned.isEmpty, !isActivating else { return }
+        isActivating = true
+        errorMessage = nil
+        Task { @MainActor in
+            defer { isActivating = false }
+            let verdict: ActivationVerdict?
+            do {
+                verdict = try await licenseManager.activate(keyString: cleaned)
+            } catch let error as LicenseError {
+                errorMessage = friendlyMessage(for: error)
+                return
+            } catch {
+                errorMessage = "Activation failed: \(error.localizedDescription)"
+                return
             }
-        } catch let error as LicenseError {
-            errorMessage = friendlyMessage(for: error)
-        } catch {
-            errorMessage = "Activation failed: \(error.localizedDescription)"
+            // Branch on the returned verdict, not `status` (which an active trial
+            // can mask back to .trialActive).
+            switch verdict {
+            case .activated, .unreachable:
+                activationSucceeded = true
+                errorMessage = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { onActivated() }
+            case .overCap, .revoked:
+                // status flips to the blocked state → `mode` shows remediation.
+                errorMessage = nil
+            case nil:
+                break   // superseded by a newer activation
+            }
+        }
+    }
+
+    private func recheck() {
+        guard !isActivating else { return }
+        isActivating = true
+        Task { @MainActor in
+            defer { isActivating = false }
+            // force: this is an explicit user tap — bypass the cadence throttle
+            // that paces background polling, so a just-freed seat is seen now.
+            await licenseManager.revalidateIfNeeded(force: true)
+            if case .activated = licenseManager.status { onActivated() }
         }
     }
 

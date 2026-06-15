@@ -46,6 +46,50 @@ struct LicenseManagerTests {
         func delete(_ key: String) { storage.removeValue(forKey: key) }
     }
 
+    // Canned activation client — no network. @unchecked Sendable is safe: the
+    // tests await it sequentially from the @MainActor suite (no concurrency).
+    private final class StubActivationClient: DeviceActivationClient, @unchecked Sendable {
+        var verdict: ActivationVerdict   // settable so a re-validation can return a different answer
+        var deactivateSucceeds = true    // settable to simulate an unreachable backend
+        // Runs inside activate(), simulating a concurrent state change while the
+        // real call's `await` has released the MainActor. Non-Sendable closure
+        // is fine: the suite is @MainActor-serial and the stub is @unchecked Sendable.
+        var onActivate: (() -> Void)?
+        private(set) var activateCalls = 0
+        private(set) var deactivateCalls = 0
+        init(_ verdict: ActivationVerdict = .activated(email: nil)) { self.verdict = verdict }
+        func activate(key: String, deviceHash: String, deviceName: String) async -> ActivationVerdict {
+            activateCalls += 1
+            onActivate?()
+            return verdict
+        }
+        func deactivate(key: String, deviceHash: String) async -> Bool {
+            deactivateCalls += 1
+            return deactivateSucceeds
+        }
+    }
+
+    private struct StubDeviceIdentity: DeviceIdentifying {
+        var deviceHash = "test-device-hash"
+        var deviceName = "Test Mac"
+    }
+
+    /// Build a manager with stubbed device + activation client so neither IOKit
+    /// nor the network is touched. Defaults to an `.activated` verdict.
+    private func makeManager(
+        store: LicenseStore = InMemoryLicenseStore(),
+        now: @escaping () -> Date = Date.init,
+        client: DeviceActivationClient = StubActivationClient()
+    ) -> LicenseManager {
+        LicenseManager(
+            publicKey: testPublicKey,
+            store: store,
+            now: now,
+            device: StubDeviceIdentity(),
+            activationClient: client
+        )
+    }
+
     // MARK: - Trial state
 
     @Test func freshLaunchStartsTrialAtFullDuration() {
@@ -259,12 +303,12 @@ struct LicenseManagerTests {
         #expect(mgr.status == .trialActive(daysRemaining: 11))
     }
 
-    @Test func activatedNeverTouchesAnchor() throws {
+    @Test func activatedNeverTouchesAnchor() async throws {
         // While a valid license is active, recomputes neither read nor
         // write last-seen — no Keychain churn for paying customers.
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        let mgr = makeManager(store: store)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
         mgr.refresh()
         mgr.refresh()
         #expect(mgr.status == .activated)
@@ -287,39 +331,39 @@ struct LicenseManagerTests {
         #expect(mgr2.status == .trialActive(daysRemaining: 9))
     }
 
-    @Test func anchorWinsAfterDeactivateWhenClockRolledBelowIt() throws {
+    @Test func anchorWinsAfterDeactivateWhenClockRolledBelowIt() async throws {
         // Complement of the accepted-residual deactivate test: when the
         // pre-activation anchor is AHEAD of the rolled-back clock, the
         // clamp engages — deactivate computes from the anchor, not raw now.
         let store = InMemoryLicenseStore()
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         var currentTime = start
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        let mgr = makeManager(store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
         currentTime = start.addingTimeInterval(10 * 86400)
         mgr.refresh()  // anchor advances to day 10
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
 
         currentTime = start.addingTimeInterval(5 * 86400)  // roll below the anchor
         mgr.deactivate()
         #expect(mgr.status == .trialActive(daysRemaining: 4))
     }
 
-    @Test func anchorFreezesAtPreActivationValueWhileActivated() throws {
+    @Test func anchorFreezesAtPreActivationValueWhileActivated() async throws {
         // A non-nil anchor created by the trial path must stop advancing
         // once activated — activatedNeverTouchesAnchor only covers the
         // starts-nil-stays-nil case, which a buggy always-write would pass.
         let store = InMemoryLicenseStore()
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         var currentTime = start
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        let mgr = makeManager(store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
         currentTime = start.addingTimeInterval(3 * 86400)
         mgr.refresh()
         let frozen = store.get("last-seen")
         #expect(frozen == iso(currentTime))
 
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
         currentTime = start.addingTimeInterval(9 * 86400)
         mgr.refresh()
         mgr.refresh()
@@ -363,17 +407,17 @@ struct LicenseManagerTests {
         #expect(mgr.status == .trialActive(daysRemaining: 14))
     }
 
-    @Test func acceptedResidual_deactivateAfterRollbackUsesFrozenAnchor() throws {
+    @Test func acceptedResidual_deactivateAfterRollbackUsesFrozenAnchor() async throws {
         // The anchor is frozen while activated, so deactivating after a
         // rollback computes from max(now, pre-activation anchor). Only
         // someone who already owns a valid license can reach this state.
         let store = InMemoryLicenseStore()
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         var currentTime = start
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        let mgr = makeManager(store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
         currentTime = start.addingTimeInterval(2 * 86400)
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
         currentTime = start.addingTimeInterval(20 * 86400)
         mgr.refresh()
         #expect(mgr.status == .activated)
@@ -385,31 +429,31 @@ struct LicenseManagerTests {
 
     // MARK: - Activation
 
-    @Test func validKeyActivates() throws {
+    @Test func validKeyActivates() async throws {
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        let mgr = makeManager(store: store)
         let key = makeKey(payload: randomPayload())
-        try mgr.activate(keyString: key)
+        try await mgr.activate(keyString: key)
         #expect(mgr.status == .activated)
     }
 
-    @Test func activationPersistsAcrossManagerInstances() throws {
+    @Test func activationPersistsAcrossManagerInstances() async throws {
         // A new LicenseManager built against the same store recovers
         // the activated state on startup — proves the persistence path.
         let store = InMemoryLicenseStore()
-        let mgr1 = LicenseManager(publicKey: testPublicKey, store: store)
-        try mgr1.activate(keyString: makeKey(payload: randomPayload()))
+        let mgr1 = makeManager(store: store)
+        try await mgr1.activate(keyString: makeKey(payload: randomPayload()))
         #expect(mgr1.status == .activated)
 
-        let mgr2 = LicenseManager(publicKey: testPublicKey, store: store)
+        let mgr2 = makeManager(store: store)
         #expect(mgr2.status == .activated)
     }
 
-    @Test func activatedTakesPrecedenceOverExpiredTrial() throws {
+    @Test func activatedTakesPrecedenceOverExpiredTrial() async throws {
         let store = InMemoryLicenseStore()
         let start = Date(timeIntervalSince1970: 1_700_000_000)  // fixed whole second: lossless ISO round-trip → deterministic boundary
         var currentTime = start
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: { currentTime })
+        let mgr = makeManager(store: store, now: { currentTime })
         mgr.recordFirstLaunchIfNeeded()
 
         // Fast-forward past trial expiry.
@@ -418,15 +462,15 @@ struct LicenseManagerTests {
         #expect(mgr.status == .trialExpired)
 
         // Activate after expiry — should flip status to activated.
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
         #expect(mgr.status == .activated)
     }
 
-    @Test func deactivateRevealsTrialState() throws {
+    @Test func deactivateRevealsTrialState() async throws {
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
+        let mgr = makeManager(store: store)
         mgr.recordFirstLaunchIfNeeded()
-        try mgr.activate(keyString: makeKey(payload: randomPayload()))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
         #expect(mgr.status == .activated)
         mgr.deactivate()
         #expect(mgr.status == .trialActive(daysRemaining: 14))
@@ -447,11 +491,11 @@ struct LicenseManagerTests {
             "lowercase-prefix.abc",              // wrong prefix
         ]
     )
-    func malformedKeysAreRejected(_ keyString: String) {
+    func malformedKeysAreRejected(_ keyString: String) async {
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
-        #expect(throws: LicenseError.malformed) {
-            try mgr.activate(keyString: keyString)
+        let mgr = makeManager(store: store)
+        await #expect(throws: LicenseError.malformed) {
+            try await mgr.activate(keyString: keyString)
         }
         // Status must not change on failed activation.
         #expect(mgr.status == .trialExpired)
@@ -459,20 +503,20 @@ struct LicenseManagerTests {
 
     // MARK: - Bad signatures
 
-    @Test func signatureFromDifferentKeypairFails() {
+    @Test func signatureFromDifferentKeypairFails() async {
         // Sign with a foreign private key; verify against ours.
         // Structurally valid, signature lies — should be `.badSignature`.
         let otherKey = Curve25519.Signing.PrivateKey()
         let key = makeKey(payload: randomPayload(), signingWith: otherKey)
 
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
-        #expect(throws: LicenseError.badSignature) {
-            try mgr.activate(keyString: key)
+        let mgr = makeManager(store: store)
+        await #expect(throws: LicenseError.badSignature) {
+            try await mgr.activate(keyString: key)
         }
     }
 
-    @Test func zeroedSignatureFails() {
+    @Test func zeroedSignatureFails() async {
         // Valid base64 structure but the signature is 64 zero bytes —
         // cannot possibly verify.
         let payload = randomPayload()
@@ -480,13 +524,13 @@ struct LicenseManagerTests {
         let key = "DROBU-\(b64url(payload)).\(b64url(zeroSig))"
 
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
-        #expect(throws: LicenseError.badSignature) {
-            try mgr.activate(keyString: key)
+        let mgr = makeManager(store: store)
+        await #expect(throws: LicenseError.badSignature) {
+            try await mgr.activate(keyString: key)
         }
     }
 
-    @Test func tamperedPayloadFails() throws {
+    @Test func tamperedPayloadFails() async throws {
         // Valid signature for one payload, but the payload bytes in the
         // key string have been modified by one byte. Must reject.
         let originalPayload = randomPayload()
@@ -496,9 +540,359 @@ struct LicenseManagerTests {
         let key = "DROBU-\(b64url(tamperedPayload)).\(b64url(sig))"
 
         let store = InMemoryLicenseStore()
-        let mgr = LicenseManager(publicKey: testPublicKey, store: store)
-        #expect(throws: LicenseError.badSignature) {
-            try mgr.activate(keyString: key)
+        let mgr = makeManager(store: store)
+        await #expect(throws: LicenseError.badSignature) {
+            try await mgr.activate(keyString: key)
+        }
+    }
+
+    // MARK: - Device-activation cap
+
+    private func device(_ name: String) -> ActivatedDevice {
+        ActivatedDevice(name: name, activatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    @Test func overCapKeyDoesNotActivateAndSurfacesDevices() async throws {
+        // No trial recorded → trialStatus is expired, so a blocked verdict
+        // actually gates (an active trial would mask it — covered separately).
+        let store = InMemoryLicenseStore()
+        let devices = [device("Mac 1"), device("Mac 2"), device("Mac 3")]
+        let mgr = makeManager(store: store, client: StubActivationClient(.overCap(devices: devices)))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activationLimitReached(devices: devices))
+    }
+
+    @Test func revokedKeyShowsRevoked() async throws {
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.revoked))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .licenseRevoked)
+    }
+
+    @Test func overCapDoesNotDegradeAnActiveTrial() async throws {
+        // A valid-but-over-cap key pasted while the trial is still running must
+        // NOT throw the user into a blocked state — they keep the trial.
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.overCap(devices: [device("Mac 1")])))
+        mgr.recordFirstLaunchIfNeeded()
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .trialActive(daysRemaining: 14))
+    }
+
+    @Test func unreachableFailsOpenOnFirstActivation() async throws {
+        // Backend down during the first activation → optimistic grant (KTD5);
+        // the key is stored but no verdict is recorded, so re-validation retries.
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.unreachable))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        #expect(store.get("active-license") != nil)
+        #expect(store.get("activation-verdict") == nil)
+    }
+
+    @Test func grandfatheredKeyStaysActivatedOfflineThenRegisters() async throws {
+        // A pre-cap install has active-license set but no verdict. On the new
+        // build it must read as activated immediately (R7), and an offline
+        // re-validation must NOT downgrade it.
+        let store = InMemoryLicenseStore()
+        let key = makeKey(payload: randomPayload())
+        store.set("active-license", key)   // seeded by a pre-cap version
+        let client = StubActivationClient(.unreachable)
+        let mgr = makeManager(store: store, client: client)
+        #expect(mgr.status == .activated)              // optimistic on launch
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)             // it did try to register
+        #expect(mgr.status == .activated)              // fail-open: not downgraded
+    }
+
+    @Test func positiveVerdictTrustedWithinGraceWindow() async throws {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(13 * 86400)   // still inside the 14-day grace
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)          // no re-contact within grace
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func positiveVerdictRevalidatesPastGraceAndCanBlock() async throws {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        client.verdict = .overCap(devices: [device("A"), device("B"), device("C")])
+        t = start.addingTimeInterval(15 * 86400)    // past grace
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("expected .activationLimitReached, got \(mgr.status)")
+        }
+    }
+
+    @Test func failsOpenPastGraceWhenBackendUnreachable() async throws {
+        // Grace expired AND backend down, but a valid signature must never be
+        // hard-blocked on OUR outage (R6) — stays activated, keeps retrying.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        client.verdict = .unreachable
+        t = start.addingTimeInterval(40 * 86400)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)          // it tried
+        #expect(mgr.status == .activated)            // but did not downgrade
+    }
+
+    @Test func unreachableRecheckDoesNotRenewThePositiveGrace() async throws {
+        // A transient outage at the grace boundary must NOT reset the positive
+        // grace clock — otherwise a revoked/over-cap key could ride an extra full
+        // 14-day window. Once past grace, re-checks stay on the short cadence.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))   // checked-at = day 0
+        // Past grace, backend unreachable → re-checks, fails open, but must not
+        // renew the positive grace.
+        client.verdict = .unreachable
+        t = start.addingTimeInterval(15 * 86400)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)
+        // Backend recovers with an over_cap verdict 2h later. Because grace was
+        // NOT renewed, this is seen on the short cadence (not 14 days later).
+        client.verdict = .overCap(devices: [device("A"), device("B"), device("C")])
+        t = start.addingTimeInterval(15 * 86400 + 2 * 3600)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 3)
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("expected block on the short cadence, got \(mgr.status)")
+        }
+    }
+
+    @Test func freeingASeatUnblocksOnRecheck() async throws {
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("precondition: expected blocked, got \(mgr.status)")
+        }
+        client.verdict = .activated(email: nil)
+        t = start.addingTimeInterval(2 * 3600)       // past the negative-recheck cadence
+        await mgr.revalidateIfNeeded()
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func activateReturnsVerdictEvenWhenTrialMasksStatus() async throws {
+        // During an active trial a negative verdict is persisted but `status`
+        // stays .trialActive (trial not degraded). activate() must still RETURN
+        // the verdict so the UI can show remediation instead of silent nothing.
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.overCap(devices: [device("A")])))
+        mgr.recordFirstLaunchIfNeeded()
+        let verdict = try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .trialActive(daysRemaining: 14))      // trial preserved
+        #expect(verdict == .overCap(devices: [device("A")]))         // caller still learns over-cap
+    }
+
+    @Test func activateReturnsTheServerVerdict() async throws {
+        for expected in [ActivationVerdict.activated(email: "x@y.com"), .revoked, .unreachable] {
+            let store = InMemoryLicenseStore()
+            let mgr = makeManager(store: store, client: StubActivationClient(expected))
+            let returned = try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+            #expect(returned == expected)
+        }
+    }
+
+    @Test func licensedEmailSurfacedFromActivation() async throws {
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.activated(email: "buyer@example.com")))
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.licensedEmail == "buyer@example.com")
+    }
+
+    @Test func deactivateThisDeviceCallsClientAndClears() async throws {
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        await mgr.deactivateThisDevice()
+        #expect(client.deactivateCalls == 1)
+        #expect(store.get("active-license") == nil)
+        #expect(mgr.status != .activated)
+    }
+
+    @Test func deactivateThisDeviceWithoutKeyIsANoOp() async {
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient()
+        let mgr = makeManager(store: store, client: client)
+        let freed = await mgr.deactivateThisDevice()
+        #expect(freed)                          // nothing to release
+        #expect(client.deactivateCalls == 0)    // no key → no server call
+        #expect(mgr.status != .activated)
+    }
+
+    @Test func deactivateThisDeviceKeepsLicenseWhenServerUnreachable() async throws {
+        // If the server can't confirm the seat was freed, the local license
+        // must be KEPT (clearing it would strand the still-active server seat
+        // with no local state to retry the release).
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        client.deactivateSucceeds = false
+        let freed = await mgr.deactivateThisDevice()
+        #expect(!freed)
+        #expect(client.deactivateCalls == 1)
+        #expect(store.get("active-license") != nil)   // license kept for retry
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func staleRevalidationResultIsDroppedWhenKeyChangedMidFlight() async throws {
+        // A background revalidation is in flight for key A; the user deactivates
+        // (clears active-license) before it returns. The stale result must NOT
+        // resurrect the old key/verdict.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        // Simulate a concurrent deactivate landing during the revalidation await.
+        client.onActivate = { store.delete("active-license") }
+        await mgr.revalidateIfNeeded(force: true)
+        // The guard must drop the stale result: without it, persistVerdict would
+        // re-set active-license back to the old key (resurrecting the license).
+        #expect(store.get("active-license") == nil)
+        mgr.refresh()
+        #expect(mgr.status != .activated)              // user's deactivate stuck
+    }
+
+    @Test func oldVerdictSurvivesUntilReplacementKeyIsPersisted() async throws {
+        // The stale-cache clear must be atomic with storing the new key (inside
+        // persistVerdict), NOT before the await — otherwise a refresh/crash in
+        // the in-flight window would see the old key with no verdict and read it
+        // as optimistic .activated, resurrecting a blocked/refunded license.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(store.get("activation-verdict") == "over_cap")
+        // Capture the verdict as seen mid-flight (inside the stub's activate,
+        // standing in for the real await window).
+        client.verdict = .unreachable
+        var verdictDuringFlight: String?
+        client.onActivate = { verdictDuringFlight = store.get("activation-verdict") }
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(verdictDuringFlight == "over_cap")        // NOT cleared before the await
+        #expect(store.get("activation-verdict") == nil)   // cleared atomically at persist
+        #expect(mgr.status == .activated)                 // replacement fails open
+    }
+
+    @Test func replacementKeyClearsStaleDenialWhenUnreachable() async throws {
+        // Key A is cached as over_cap. The user pastes a DIFFERENT valid key B
+        // while the backend is unreachable. B must fail open (.activated), not
+        // inherit A's stale block.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("precondition: expected blocked, got \(mgr.status)")
+        }
+        // Different key, backend now unreachable.
+        client.verdict = .unreachable
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)              // stale denial cleared → fail open
+        #expect(store.get("activation-verdict") == nil)
+    }
+
+    @Test func negativeVerdictTrustedWithinCadence() async throws {
+        // Symmetric to the positive-grace test: an over_cap verdict still fresh
+        // within the 1-hour cadence must NOT re-contact the server.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(30 * 60)   // 30 min — within the 1-hour cadence
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)        // no re-contact: verdict still fresh
+    }
+
+    @Test func forcedRecheckBypassesCadenceAndUnblocks() async throws {
+        // The "Check again" tap forces a re-validation even within the cadence.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("precondition: expected blocked, got \(mgr.status)")
+        }
+        // A non-forced recheck 5 min later is throttled (no call).
+        t = start.addingTimeInterval(5 * 60)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)
+        // Seat freed elsewhere; the forced recheck contacts the server NOW.
+        client.verdict = .activated(email: nil)
+        await mgr.revalidateIfNeeded(force: true)
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func unreachableThrottlesRetriesToTheShortCadence() async {
+        // A persistently-unreachable backend must re-check on the short cadence,
+        // not on every call (else every app focus fires a network request).
+        let store = InMemoryLicenseStore()
+        let key = makeKey(payload: randomPayload())
+        store.set("active-license", key)   // grandfathered, no verdict yet
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.unreachable)
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        await mgr.revalidateIfNeeded()       // first attempt fires (registers)
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(30 * 60)
+        await mgr.revalidateIfNeeded()       // within cadence → throttled
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(2 * 3600)
+        await mgr.revalidateIfNeeded()       // past cadence → retries
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)    // fail-open throughout
+    }
+
+    @Test func unreachableDoesNotLiftAnExistingNegativeVerdict() async throws {
+        // Backend goes down while over_cap: the block must persist (unreachable
+        // never upgrades a negative verdict, just as it never downgrades a positive).
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        client.verdict = .unreachable
+        t = start.addingTimeInterval(2 * 3600)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)    // it tried
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("expected still-blocked .activationLimitReached, got \(mgr.status)")
         }
     }
 
