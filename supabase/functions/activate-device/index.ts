@@ -17,7 +17,9 @@ function requireEnv(name: string): string {
 // loudly if it's missing/malformed rather than 500-ing every activation.
 const LICENSE_PUBLIC_KEY = decodePublicKey(requireEnv("DROBU_LICENSE_PUBLIC_KEY"));
 
-// The device cap. Single source of truth; passed to the SQL as p_cap.
+// The device cap, passed to the SQL as p_cap. If you change this number, also
+// update the user-facing copy that states "3 Macs": SettingsView.swift (the
+// "up to 3 Macs" disclosure) and website/src/pages/terms.astro.
 const DEVICE_CAP = 3;
 
 const supabase = createClient(

@@ -76,14 +76,26 @@ public struct HTTPDeviceActivationClient: DeviceActivationClient {
         let email: String?
     }
 
-    // ISO8601DateFormatter is documented thread-safe for concurrent parsing;
-    // nonisolated(unsafe) silences the Swift 6 global-state check for this
-    // read-only shared formatter.
-    nonisolated(unsafe) private static let iso: ISO8601DateFormatter = {
+    // Two formatters: `.withFractionalSeconds` makes sub-second digits REQUIRED,
+    // so it rejects a whole-second timestamp; the plain one rejects fractional
+    // digits. Postgres timestamptz can emit either (`…:00Z` or `…:00.123456+00:00`),
+    // so we try fractional first, then plain. (ISO8601DateFormatter is documented
+    // thread-safe for concurrent parsing; nonisolated(unsafe) silences the Swift 6
+    // global-state check for these read-only shared formatters.)
+    nonisolated(unsafe) private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
+    nonisolated(unsafe) private static let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static func parseActivatedAt(_ s: String) -> Date {
+        isoFractional.date(from: s) ?? isoPlain.date(from: s) ?? Date(timeIntervalSince1970: 0)
+    }
 
     private func post(_ url: URL, body: [String: String]) async -> ActivationVerdict {
         var request = URLRequest(url: url)
@@ -112,12 +124,21 @@ public struct HTTPDeviceActivationClient: DeviceActivationClient {
             case "activated":
                 return .activated(email: dto.email)
             case "over_cap":
-                return .overCap(devices: (dto.activeDevices ?? []).map {
+                let devices = (dto.activeDevices ?? []).map {
                     ActivatedDevice(
                         name: $0.device_name ?? "Mac",
-                        activatedAt: Self.iso.date(from: $0.activated_at) ?? Date(timeIntervalSince1970: 0)
+                        activatedAt: Self.parseActivatedAt($0.activated_at)
                     )
-                })
+                }
+                // An over_cap verdict always carries the (>= cap) active set. An
+                // empty list is an internally-inconsistent response (partial body
+                // / server bug) — fail open rather than hard-block with a
+                // nonsensical "0 Macs" remediation screen.
+                if devices.isEmpty {
+                    Log.error("DeviceActivationClient: over_cap with empty device list — treating as unreachable")
+                    return .unreachable
+                }
+                return .overCap(devices: devices)
             case "revoked":
                 return .revoked
             default:

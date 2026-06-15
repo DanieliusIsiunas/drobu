@@ -28,6 +28,11 @@ function assertEquals<T>(actual: T, expected: T, msg?: string) {
   }
 }
 
+// Valid device hashes are 64-char lowercase hex (SHA256). The handler rejects
+// any other shape, so tests use real-shaped hashes.
+const HASH_A = "a".repeat(64);
+const HASH_B = "b".repeat(64);
+
 // --- Test keypair + key construction (real Ed25519) ------------------------
 
 const keyPair = await crypto.subtle.generateKey(
@@ -111,14 +116,14 @@ Deno.test("valid key under cap -> 200 activated, RPC called with payload_hex", a
   const { deps, calls } = makeDeps();
   const key = await makeKey(keyPair.privateKey);
   const res = await handleRequest(
-    activatePost({ key, deviceHash: "devhash1", deviceName: "Daniel's MacBook" }),
+    activatePost({ key, deviceHash: HASH_A, deviceName: "Daniel's MacBook" }),
     deps,
   );
   assertEquals(res.status, 200, "status");
   const json = await res.json();
   assertEquals(json.status, "activated", "verdict");
   assertEquals(calls.activations.length, 1, "one activation");
-  assertEquals(calls.activations[0].deviceHash, "devhash1", "device hash forwarded");
+  assertEquals(calls.activations[0].deviceHash, HASH_A, "device hash forwarded");
   assertEquals(calls.activations[0].deviceName, "Daniel's MacBook", "device name forwarded");
   assert(calls.activations[0].payloadHex.length === 64, "payload_hex is 32-byte hex");
   assert(!calls.logs.some((l) => l.includes("DROBU-")), "no key material in logs");
@@ -130,7 +135,7 @@ Deno.test("at cap, new device -> 200 over_cap with device list", async () => {
   });
   const key = await makeKey(keyPair.privateKey);
   const res = await handleRequest(
-    activatePost({ key, deviceHash: "devhash4", deviceName: "Mac 4" }),
+    activatePost({ key, deviceHash: HASH_B, deviceName: "Mac 4" }),
     deps,
   );
   assertEquals(res.status, 200, "status");
@@ -146,7 +151,7 @@ Deno.test("refunded license -> 200 revoked", async () => {
   });
   const key = await makeKey(keyPair.privateKey);
   const res = await handleRequest(
-    activatePost({ key, deviceHash: "devhash1" }),
+    activatePost({ key, deviceHash: HASH_A }),
     deps,
   );
   assertEquals(res.status, 200, "status");
@@ -158,14 +163,14 @@ Deno.test("email present for vended key, null for manual key", async () => {
     verdict: { status: "activated", activeDevices: devices(1), email: "buyer@x.com" },
   });
   const r1 = await handleRequest(
-    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: "d1" }),
+    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: HASH_A }),
     withEmail.deps,
   );
   assertEquals((await r1.json()).email, "buyer@x.com", "vended key email");
 
   const noEmail = makeDeps(); // default verdict has email: null
   const r2 = await handleRequest(
-    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: "d1" }),
+    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: HASH_A }),
     noEmail.deps,
   );
   assertEquals((await r2.json()).email, null, "manual key email null");
@@ -174,7 +179,7 @@ Deno.test("email present for vended key, null for manual key", async () => {
 Deno.test("malformed key (no DROBU- prefix) -> 400, activate never called", async () => {
   const { deps, calls } = makeDeps();
   const res = await handleRequest(
-    activatePost({ key: "not-a-key", deviceHash: "d1" }),
+    activatePost({ key: "not-a-key", deviceHash: HASH_A }),
     deps,
   );
   assertEquals(res.status, 400, "status");
@@ -185,7 +190,7 @@ Deno.test("valid shape but signed by a different key -> 400 (bad signature)", as
   const { deps, calls } = makeDeps();
   const forged = await makeKey(otherPair.privateKey); // verifies against PUB_RAW => fails
   const res = await handleRequest(
-    activatePost({ key: forged, deviceHash: "d1" }),
+    activatePost({ key: forged, deviceHash: HASH_A }),
     deps,
   );
   assertEquals(res.status, 400, "status");
@@ -197,7 +202,7 @@ Deno.test("wrong-length signature -> 400", async () => {
   const payload = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const shortSig = b64url(new Uint8Array(10));
   const res = await handleRequest(
-    activatePost({ key: `DROBU-${payload}.${shortSig}`, deviceHash: "d1" }),
+    activatePost({ key: `DROBU-${payload}.${shortSig}`, deviceHash: HASH_A }),
     deps,
   );
   assertEquals(res.status, 400, "status");
@@ -227,10 +232,22 @@ Deno.test("invalid json body -> 400", async () => {
   assertEquals(res.status, 400, "status");
 });
 
+Deno.test("non-hex / wrong-length deviceHash -> 400, activate never called", async () => {
+  for (const bad of ["short", "g".repeat(64), "A".repeat(64), "a".repeat(63)]) {
+    const { deps, calls } = makeDeps();
+    const res = await handleRequest(
+      activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: bad }),
+      deps,
+    );
+    assertEquals(res.status, 400, `status for ${bad.slice(0, 8)}`);
+    assertEquals(calls.activations.length, 0, "no activation on bad hash");
+  }
+});
+
 Deno.test("activateDevice throws (DB down) -> 500 (retryable)", async () => {
   const { deps } = makeDeps({ verdict: new Error("activate_device: db down") });
   const res = await handleRequest(
-    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: "d1" }),
+    activatePost({ key: await makeKey(keyPair.privateKey), deviceHash: HASH_A }),
     deps,
   );
   assertEquals(res.status, 500, "status");
@@ -240,12 +257,12 @@ Deno.test("deactivate route with valid key -> 200, deactivateDevice called", asy
   const { deps, calls } = makeDeps();
   const key = await makeKey(keyPair.privateKey);
   const res = await handleRequest(
-    activatePost({ key, deviceHash: "devhash1" }, "/activate-device/deactivate"),
+    activatePost({ key, deviceHash: HASH_A }, "/activate-device/deactivate"),
     deps,
   );
   assertEquals(res.status, 200, "status");
   assertEquals(calls.deactivations.length, 1, "one deactivation");
-  assertEquals(calls.deactivations[0].deviceHash, "devhash1", "device hash forwarded");
+  assertEquals(calls.deactivations[0].deviceHash, HASH_A, "device hash forwarded");
   assertEquals(calls.activations.length, 0, "no activation on deactivate route");
 });
 
@@ -253,7 +270,7 @@ Deno.test("deactivate route with bad signature -> 400", async () => {
   const { deps, calls } = makeDeps();
   const res = await handleRequest(
     activatePost(
-      { key: await makeKey(otherPair.privateKey), deviceHash: "d1" },
+      { key: await makeKey(otherPair.privateKey), deviceHash: HASH_A },
       "/activate-device/deactivate",
     ),
     deps,
@@ -266,7 +283,7 @@ Deno.test("deactivateDevice throws -> 500", async () => {
   const { deps } = makeDeps({ deactivateError: new Error("db down") });
   const res = await handleRequest(
     activatePost(
-      { key: await makeKey(keyPair.privateKey), deviceHash: "d1" },
+      { key: await makeKey(keyPair.privateKey), deviceHash: HASH_A },
       "/activate-device/deactivate",
     ),
     deps,

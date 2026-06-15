@@ -154,7 +154,9 @@ public final class LicenseManager: ObservableObject {
     /// How long a positive activation verdict is trusted offline before a
     /// re-validation is attempted (R5). Generous so a no-Wi-Fi user is never
     /// inconvenienced; expiry only schedules a re-check — it never blocks
-    /// (R6/KTD6: only an affirmative negative verdict blocks).
+    /// (R6/KTD6: only an affirmative negative verdict blocks). Independent of
+    /// `trialDuration`: the trial length is a marketing commitment, this is a
+    /// network-tolerance budget — they happen to be equal today, don't couple them.
     public static let activationGracePeriod: TimeInterval = 14 * 24 * 60 * 60
     /// Shorter cadence for re-checking a NEGATIVE verdict (over_cap/revoked) so
     /// freeing a seat or reversing a refund unblocks quickly.
@@ -294,15 +296,17 @@ public final class LicenseManager: ObservableObject {
     }
 
     /// Re-validate the stored license against the cap when the cached verdict is
-    /// stale (positive past the grace window, or negative past the short
+    /// stale (positive past the grace window, or negative/unknown past the short
     /// cadence). Safe to call often — from the hourly refresh + on app
     /// activation. A no-op without a valid stored key, or when the cache is
     /// still fresh. An unreachable backend never downgrades a positive verdict
-    /// (R6).
-    public func revalidateIfNeeded() async {
+    /// (R6). Pass `force: true` for an explicit user action ("Check again") so
+    /// it bypasses the cadence throttle — the throttle only paces background
+    /// polling, never a deliberate tap.
+    public func revalidateIfNeeded(force: Bool = false) async {
         guard let key = store.get(Self.activeLicenseKey),
               (try? verifyKey(key)) != nil else { return }
-        guard shouldRevalidate() else { return }
+        guard force || shouldRevalidate() else { return }
         let verdict = await activationClient.activate(
             key: key,
             deviceHash: device.deviceHash,
@@ -450,6 +454,11 @@ public final class LicenseManager: ObservableObject {
             store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
         case .unreachable:
             store.set(Self.activeLicenseKey, key)
+            // Record the attempt (but NOT a verdict) so a persistently
+            // unreachable backend re-checks on the short cadence rather than
+            // on every app focus. Verdict stays absent → still fails open;
+            // an existing positive verdict is left untouched (never downgraded).
+            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
         }
     }
 
@@ -465,8 +474,15 @@ public final class LicenseManager: ObservableObject {
         }
         let age = now().timeIntervalSince(checkedAt)
         switch verdict {
-        case "over_cap", "revoked": return age >= Self.negativeRecheckCadence
-        default: return age >= Self.activationGracePeriod
+        case "activated":
+            // Positive verdict trusted for the full offline grace window.
+            return age >= Self.activationGracePeriod
+        default:
+            // Negative verdict (over_cap/revoked) OR no verdict yet
+            // (grandfather/optimistic/unreachable): re-check on the short
+            // cadence so a freed seat — or a first registration after a brief
+            // outage — surfaces quickly, without hammering the network.
+            return age >= Self.negativeRecheckCadence
         }
     }
 

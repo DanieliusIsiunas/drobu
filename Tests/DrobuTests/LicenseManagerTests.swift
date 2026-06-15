@@ -677,6 +677,91 @@ struct LicenseManagerTests {
         #expect(mgr.status != .activated)
     }
 
+    @Test func deactivateThisDeviceWithoutKeyIsANoOp() async {
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient()
+        let mgr = makeManager(store: store, client: client)
+        await mgr.deactivateThisDevice()
+        #expect(client.deactivateCalls == 0)   // no key → no server call
+        #expect(mgr.status != .activated)
+    }
+
+    @Test func negativeVerdictTrustedWithinCadence() async throws {
+        // Symmetric to the positive-grace test: an over_cap verdict still fresh
+        // within the 1-hour cadence must NOT re-contact the server.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(30 * 60)   // 30 min — within the 1-hour cadence
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)        // no re-contact: verdict still fresh
+    }
+
+    @Test func forcedRecheckBypassesCadenceAndUnblocks() async throws {
+        // The "Check again" tap forces a re-validation even within the cadence.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("precondition: expected blocked, got \(mgr.status)")
+        }
+        // A non-forced recheck 5 min later is throttled (no call).
+        t = start.addingTimeInterval(5 * 60)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 1)
+        // Seat freed elsewhere; the forced recheck contacts the server NOW.
+        client.verdict = .activated(email: nil)
+        await mgr.revalidateIfNeeded(force: true)
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func unreachableThrottlesRetriesToTheShortCadence() async {
+        // A persistently-unreachable backend must re-check on the short cadence,
+        // not on every call (else every app focus fires a network request).
+        let store = InMemoryLicenseStore()
+        let key = makeKey(payload: randomPayload())
+        store.set("active-license", key)   // grandfathered, no verdict yet
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.unreachable)
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        await mgr.revalidateIfNeeded()       // first attempt fires (registers)
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(30 * 60)
+        await mgr.revalidateIfNeeded()       // within cadence → throttled
+        #expect(client.activateCalls == 1)
+        t = start.addingTimeInterval(2 * 3600)
+        await mgr.revalidateIfNeeded()       // past cadence → retries
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)    // fail-open throughout
+    }
+
+    @Test func unreachableDoesNotLiftAnExistingNegativeVerdict() async throws {
+        // Backend goes down while over_cap: the block must persist (unreachable
+        // never upgrades a negative verdict, just as it never downgrades a positive).
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        client.verdict = .unreachable
+        t = start.addingTimeInterval(2 * 3600)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)    // it tried
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("expected still-blocked .activationLimitReached, got \(mgr.status)")
+        }
+    }
+
     // MARK: - Base64URL decoding
 
     @Test func base64URLDecodeHandlesStandardCharacters() {

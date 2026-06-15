@@ -12,8 +12,9 @@ public enum ActivationCopy {
     public static func overCapMessage(deviceCount: Int) -> String {
         let macs = deviceCount == 1 ? "1 Mac" : "\(deviceCount) Macs"
         return "Your license is active on \(macs) — the maximum. To use Drobu here, "
-            + "open Settings → License → \u{201C}Deactivate this Mac\u{201D} on a computer "
-            + "you no longer use, then try again."
+            + "open one of those other Macs, go to Settings → License → "
+            + "\u{201C}Deactivate this Mac\u{201D}, then come back here and tap "
+            + "\u{201C}Check again\u{201D}."
     }
 
     public static let revokedTitle = "This license was refunded"

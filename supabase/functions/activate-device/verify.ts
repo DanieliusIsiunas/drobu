@@ -70,8 +70,11 @@ export function parseKey(key: string): ParsedKey {
     throw new MalformedKeyError("payload/signature not base64url");
   }
   // Ed25519 signatures are exactly 64 bytes; the issuer always uses 32-byte
-  // payloads. Anything else is malformed input, not a real-but-failing attempt.
-  if (signature.length !== 64 || payload.length === 0) {
+  // payloads (matches the client's LicenseManager.verifyKey + the mint tools).
+  // Pinning payload to exactly 32 keeps the server's accepted key shape from
+  // ever diverging from the minted shape, so payload_hex can't take a
+  // non-standard length and silently miss the license_keys join.
+  if (signature.length !== 64 || payload.length !== 32) {
     throw new MalformedKeyError("unexpected payload/signature length");
   }
   return { payload, signature, payloadHex: toHexLower(payload) };

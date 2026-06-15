@@ -318,7 +318,9 @@ struct ActivationView: View {
         isActivating = true
         Task { @MainActor in
             defer { isActivating = false }
-            await licenseManager.revalidateIfNeeded()
+            // force: this is an explicit user tap — bypass the cadence throttle
+            // that paces background polling, so a just-freed seat is seen now.
+            await licenseManager.revalidateIfNeeded(force: true)
             if case .activated = licenseManager.status { onActivated() }
         }
     }

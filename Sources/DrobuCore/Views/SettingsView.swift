@@ -34,6 +34,7 @@ public struct SettingsView: View {
     @State private var licenseKeyInput: String = ""
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
+    @State private var isActivatingLicense: Bool = false
     // Closed-lid teardown (the only daemon action not covered by the Set Up
     // checklist's Enable→remediate path)
     @State private var daemonStatus: DaemonStatus = .notRegistered
@@ -514,8 +515,10 @@ public struct SettingsView: View {
 
     private func tryActivate() {
         let cleaned = licenseKeyInput.filter { !$0.isWhitespace }
-        guard !cleaned.isEmpty else { return }
+        guard !cleaned.isEmpty, !isActivatingLicense else { return }
+        isActivatingLicense = true
         Task { @MainActor in
+            defer { isActivatingLicense = false }
             do {
                 try await licenseManager.activate(keyString: cleaned)
             } catch let error as LicenseError {

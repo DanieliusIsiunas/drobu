@@ -89,10 +89,19 @@ export async function handleRequest(
   }
   const key = typeof body?.key === "string" ? body.key : null;
   const deviceHash = typeof body?.deviceHash === "string" ? body.deviceHash : null;
-  const deviceName = typeof body?.deviceName === "string" ? body.deviceName : null;
+  const rawDeviceName = typeof body?.deviceName === "string" ? body.deviceName : null;
   if (!key || !deviceHash) {
     return json(400, { error: "key and deviceHash are required" });
   }
+  // The client always sends SHA256 lowercase hex (64 chars). Reject anything
+  // else: it's garbage or abuse, and a strict shape stops a key holder from
+  // spraying arbitrary distinct hashes to bloat the soft-deleted history.
+  if (!/^[0-9a-f]{64}$/.test(deviceHash)) {
+    return json(400, { error: "deviceHash must be a 64-character hex string" });
+  }
+  // Clamp the human-readable name (attacker-controlled free text on a public
+  // endpoint) before it reaches the DB / the activated-device list.
+  const deviceName = rawDeviceName ? rawDeviceName.slice(0, 200) : null;
 
   let payloadHex: string;
   try {
