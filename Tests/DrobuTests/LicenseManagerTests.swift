@@ -651,6 +651,34 @@ struct LicenseManagerTests {
         #expect(mgr.status == .activated)            // but did not downgrade
     }
 
+    @Test func unreachableRecheckDoesNotRenewThePositiveGrace() async throws {
+        // A transient outage at the grace boundary must NOT reset the positive
+        // grace clock — otherwise a revoked/over-cap key could ride an extra full
+        // 14-day window. Once past grace, re-checks stay on the short cadence.
+        let store = InMemoryLicenseStore()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var t = start
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, now: { t }, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))   // checked-at = day 0
+        // Past grace, backend unreachable → re-checks, fails open, but must not
+        // renew the positive grace.
+        client.verdict = .unreachable
+        t = start.addingTimeInterval(15 * 86400)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 2)
+        #expect(mgr.status == .activated)
+        // Backend recovers with an over_cap verdict 2h later. Because grace was
+        // NOT renewed, this is seen on the short cadence (not 14 days later).
+        client.verdict = .overCap(devices: [device("A"), device("B"), device("C")])
+        t = start.addingTimeInterval(15 * 86400 + 2 * 3600)
+        await mgr.revalidateIfNeeded()
+        #expect(client.activateCalls == 3)
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("expected block on the short cadence, got \(mgr.status)")
+        }
+    }
+
     @Test func freeingASeatUnblocksOnRecheck() async throws {
         let store = InMemoryLicenseStore()
         let start = Date(timeIntervalSince1970: 1_700_000_000)

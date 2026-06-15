@@ -172,7 +172,8 @@ public final class LicenseManager: ObservableObject {
     private static let lastSeenKey = "last-seen"
     // Device-activation cache (online cap layered over the offline key).
     private static let activationVerdictKey = "activation-verdict"    // activated|over_cap|revoked
-    private static let activationCheckedAtKey = "activation-checked-at" // last definite server verdict
+    private static let activationCheckedAtKey = "activation-checked-at" // time of last DEFINITE verdict (drives grace/cadence)
+    private static let activationAttemptedAtKey = "activation-attempted-at" // time of last attempt incl. unreachable (drives retry throttle)
     private static let activationDevicesKey = "activation-devices"     // JSON [ActivatedDevice]
     private static let activationEmailKey = "activation-email"         // "Licensed to {email}"
 
@@ -308,6 +309,7 @@ public final class LicenseManager: ObservableObject {
     private func clearActivationCache() {
         store.delete(Self.activationVerdictKey)
         store.delete(Self.activationCheckedAtKey)
+        store.delete(Self.activationAttemptedAtKey)
         store.delete(Self.activationDevicesKey)
         store.delete(Self.activationEmailKey)
     }
@@ -453,10 +455,10 @@ public final class LicenseManager: ObservableObject {
 
     /// Persist a server verdict. The key is (re)stored on every definite verdict
     /// so an over_cap/revoked state survives relaunch (and self-heals on the
-    /// next re-validation). `.unreachable` fails OPEN: the key is kept but no
-    /// verdict/timestamp is recorded, so the grant stays optimistic and
-    /// re-validation keeps trying — an existing positive verdict is never
-    /// downgraded (R6).
+    /// next re-validation). `.unreachable` fails OPEN and records only the
+    /// ATTEMPT time (never the verdict-time): the grant stays optimistic, an
+    /// existing positive verdict is never downgraded (R6), and — critically — a
+    /// transient outage does NOT renew the positive grace window.
     private func persistVerdict(_ verdict: ActivationVerdict, key: String) {
         // Replacement key: the cached verdict/devices/email belong to the OLD
         // key — drop them so the new key doesn't inherit a stale over_cap/revoked
@@ -467,54 +469,59 @@ public final class LicenseManager: ObservableObject {
         if store.get(Self.activeLicenseKey) != key {
             clearActivationCache()
         }
+        let nowIso = Self.isoFormatter.string(from: now())
+        // Every attempt records attempted-at (drives the unreachable/negative
+        // retry throttle). Only a DEFINITE verdict records checked-at (drives
+        // the positive grace + negative cadence) — so an unreachable attempt
+        // can't postpone the next real check.
+        store.set(Self.activationAttemptedAtKey, nowIso)
         switch verdict {
         case .activated(let email):
             store.set(Self.activeLicenseKey, key)
             store.set(Self.activationVerdictKey, "activated")
-            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+            store.set(Self.activationCheckedAtKey, nowIso)
             store.delete(Self.activationDevicesKey)
             if let email, !email.isEmpty { store.set(Self.activationEmailKey, email) }
         case .overCap(let devices):
             store.set(Self.activeLicenseKey, key)
             store.set(Self.activationVerdictKey, "over_cap")
-            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+            store.set(Self.activationCheckedAtKey, nowIso)
             storeDevices(devices)
         case .revoked:
             store.set(Self.activeLicenseKey, key)
             store.set(Self.activationVerdictKey, "revoked")
-            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
+            store.set(Self.activationCheckedAtKey, nowIso)
         case .unreachable:
+            // Key kept (fail open); attempted-at recorded above for throttling.
+            // checked-at + verdict deliberately untouched: the positive grace is
+            // measured from the last DEFINITE verdict, never renewed by an outage.
             store.set(Self.activeLicenseKey, key)
-            // Record the attempt (but NOT a verdict) so a persistently
-            // unreachable backend re-checks on the short cadence rather than
-            // on every app focus. Verdict stays absent → still fails open;
-            // an existing positive verdict is left untouched (never downgraded).
-            store.set(Self.activationCheckedAtKey, Self.isoFormatter.string(from: now()))
         }
     }
 
-    /// Decide whether the cached verdict is stale enough to re-contact the
-    /// server: an absent verdict (grandfather/optimistic) always re-checks; a
-    /// positive verdict after the grace window; a negative verdict after the
-    /// short cadence.
+    /// Decide whether to re-contact the server. Two clocks:
+    ///   * checked-at (last definite verdict) → positive grace / negative cadence.
+    ///   * attempted-at (last attempt incl. unreachable) → retry throttle once
+    ///     the verdict is stale or absent, so a persistent outage re-checks on
+    ///     the short cadence rather than on every app focus.
     private func shouldRevalidate() -> Bool {
-        let verdict = store.get(Self.activationVerdictKey)
-        guard let checkedIso = store.get(Self.activationCheckedAtKey),
-              let checkedAt = Self.isoFormatter.date(from: checkedIso) else {
-            return true
+        // A still-fresh definite verdict short-circuits (no re-contact).
+        if let checkedIso = store.get(Self.activationCheckedAtKey),
+           let checkedAt = Self.isoFormatter.date(from: checkedIso) {
+            let age = now().timeIntervalSince(checkedAt)
+            if store.get(Self.activationVerdictKey) == "activated" {
+                if age < Self.activationGracePeriod { return false }
+            } else if age < Self.negativeRecheckCadence {
+                return false
+            }
         }
-        let age = now().timeIntervalSince(checkedAt)
-        switch verdict {
-        case "activated":
-            // Positive verdict trusted for the full offline grace window.
-            return age >= Self.activationGracePeriod
-        default:
-            // Negative verdict (over_cap/revoked) OR no verdict yet
-            // (grandfather/optimistic/unreachable): re-check on the short
-            // cadence so a freed seat — or a first registration after a brief
-            // outage — surfaces quickly, without hammering the network.
-            return age >= Self.negativeRecheckCadence
+        // Verdict stale or absent (grandfather/optimistic): re-check, but
+        // throttle repeated attempts (esp. while unreachable) to the short cadence.
+        if let attemptedIso = store.get(Self.activationAttemptedAtKey),
+           let attemptedAt = Self.isoFormatter.date(from: attemptedIso) {
+            return now().timeIntervalSince(attemptedAt) >= Self.negativeRecheckCadence
         }
+        return true
     }
 
     private func storeDevices(_ devices: [ActivatedDevice]) {
