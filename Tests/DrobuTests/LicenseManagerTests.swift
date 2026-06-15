@@ -50,6 +50,7 @@ struct LicenseManagerTests {
     // tests await it sequentially from the @MainActor suite (no concurrency).
     private final class StubActivationClient: DeviceActivationClient, @unchecked Sendable {
         var verdict: ActivationVerdict   // settable so a re-validation can return a different answer
+        var deactivateSucceeds = true    // settable to simulate an unreachable backend
         private(set) var activateCalls = 0
         private(set) var deactivateCalls = 0
         init(_ verdict: ActivationVerdict = .activated(email: nil)) { self.verdict = verdict }
@@ -57,7 +58,10 @@ struct LicenseManagerTests {
             activateCalls += 1
             return verdict
         }
-        func deactivate(key: String, deviceHash: String) async { deactivateCalls += 1 }
+        func deactivate(key: String, deviceHash: String) async -> Bool {
+            deactivateCalls += 1
+            return deactivateSucceeds
+        }
     }
 
     private struct StubDeviceIdentity: DeviceIdentifying {
@@ -681,9 +685,45 @@ struct LicenseManagerTests {
         let store = InMemoryLicenseStore()
         let client = StubActivationClient()
         let mgr = makeManager(store: store, client: client)
-        await mgr.deactivateThisDevice()
-        #expect(client.deactivateCalls == 0)   // no key → no server call
+        let freed = await mgr.deactivateThisDevice()
+        #expect(freed)                          // nothing to release
+        #expect(client.deactivateCalls == 0)    // no key → no server call
         #expect(mgr.status != .activated)
+    }
+
+    @Test func deactivateThisDeviceKeepsLicenseWhenServerUnreachable() async throws {
+        // If the server can't confirm the seat was freed, the local license
+        // must be KEPT (clearing it would strand the still-active server seat
+        // with no local state to retry the release).
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.activated(email: nil))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)
+        client.deactivateSucceeds = false
+        let freed = await mgr.deactivateThisDevice()
+        #expect(!freed)
+        #expect(client.deactivateCalls == 1)
+        #expect(store.get("active-license") != nil)   // license kept for retry
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func replacementKeyClearsStaleDenialWhenUnreachable() async throws {
+        // Key A is cached as over_cap. The user pastes a DIFFERENT valid key B
+        // while the backend is unreachable. B must fail open (.activated), not
+        // inherit A's stale block.
+        let store = InMemoryLicenseStore()
+        let client = StubActivationClient(.overCap(devices: [device("A"), device("B"), device("C")]))
+        let mgr = makeManager(store: store, client: client)
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        if case .activationLimitReached = mgr.status {} else {
+            Issue.record("precondition: expected blocked, got \(mgr.status)")
+        }
+        // Different key, backend now unreachable.
+        client.verdict = .unreachable
+        try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .activated)              // stale denial cleared → fail open
+        #expect(store.get("activation-verdict") == nil)
     }
 
     @Test func negativeVerdictTrustedWithinCadence() async throws {

@@ -28,7 +28,11 @@ public enum ActivationVerdict: Equatable, Sendable {
 /// `LicenseManager` is unit-tested with canned verdicts (no network).
 public protocol DeviceActivationClient: Sendable {
     func activate(key: String, deviceHash: String, deviceName: String) async -> ActivationVerdict
-    func deactivate(key: String, deviceHash: String) async
+    /// Returns true only when the server CONFIRMED the seat was freed (HTTP 200).
+    /// A network/non-200 failure returns false so the caller can keep the local
+    /// license and let the user retry, rather than discarding state while the
+    /// server row stays active.
+    func deactivate(key: String, deviceHash: String) async -> Bool
 }
 
 /// The activate-device function endpoints. Public by design (verify_jwt=false);
@@ -57,11 +61,29 @@ public struct HTTPDeviceActivationClient: DeviceActivationClient {
         )
     }
 
-    public func deactivate(key: String, deviceHash: String) async {
-        _ = await post(
+    public func deactivate(key: String, deviceHash: String) async -> Bool {
+        await postExpectingOK(
             ActivationEndpoint.deactivate,
             body: ["key": key, "deviceHash": deviceHash]
         )
+    }
+
+    /// POST that only cares whether the server returned 200. Transport failure
+    /// or any non-200 → false (the seat was NOT confirmed freed).
+    private func postExpectingOK(_ url: URL, body: [String: String]) async -> Bool {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        request.httpBody = payload
+        do {
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            Log.error("DeviceActivationClient: deactivate request to \(url.lastPathComponent) failed — \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Wire

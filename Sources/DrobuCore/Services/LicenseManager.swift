@@ -263,6 +263,14 @@ public final class LicenseManager: ObservableObject {
     /// stored optimistically and re-validation registers the device later.
     public func activate(keyString: String) async throws {
         try verifyKey(keyString)
+        // A different key than the one cached: drop the old key's verdict /
+        // device list / email so a stale denial can't bleed onto the
+        // replacement — otherwise pasting a fresh valid key while the backend
+        // is unreachable would inherit the old key's over_cap/revoked block
+        // instead of failing open.
+        if store.get(Self.activeLicenseKey) != keyString {
+            clearActivationCache()
+        }
         // keyString is the customer's license key — never logged (see
         // KeychainLicenseStore.set / DeviceActivationClient).
         let verdict = await activationClient.activate(
@@ -277,22 +285,34 @@ public final class LicenseManager: ObservableObject {
     /// Free THIS Mac's seat on the server, then clear the local license so the
     /// seat is genuinely returned to the pool (R3). Distinct from `deactivate()`
     /// which is a local-only clear (support/testing) with no server call.
-    public func deactivateThisDevice() async {
-        if let key = store.get(Self.activeLicenseKey) {
-            await activationClient.deactivate(key: key, deviceHash: device.deviceHash)
-        }
-        deactivate()
+    ///
+    /// Returns true when the seat was confirmed freed (and the local license
+    /// cleared). If the server is unreachable / returns non-200, the local
+    /// license is KEPT and false is returned: clearing it would strand the seat
+    /// (still active server-side) with no local state to retry the release.
+    @discardableResult
+    public func deactivateThisDevice() async -> Bool {
+        guard let key = store.get(Self.activeLicenseKey) else { return true }
+        let freed = await activationClient.deactivate(key: key, deviceHash: device.deviceHash)
+        if freed { deactivate() }
+        return freed
     }
 
     /// Clear the active license + all device-activation cache (e.g. for support
     /// / testing). Status reverts to the underlying trial state.
     public func deactivate() {
         store.delete(Self.activeLicenseKey)
+        clearActivationCache()
+        recomputeStatus()
+    }
+
+    /// Drop the cached activation verdict/devices/email/timestamp (but NOT the
+    /// license key). Used on a key change and as part of a full deactivate.
+    private func clearActivationCache() {
         store.delete(Self.activationVerdictKey)
         store.delete(Self.activationCheckedAtKey)
         store.delete(Self.activationDevicesKey)
         store.delete(Self.activationEmailKey)
-        recomputeStatus()
     }
 
     /// Re-validate the stored license against the cap when the cached verdict is

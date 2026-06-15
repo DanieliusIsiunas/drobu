@@ -327,9 +327,13 @@ public struct SettingsView: View {
                     .hoverHighlight()
                     .onTapGesture {
                         Task { @MainActor in
-                            await licenseManager.deactivateThisDevice()
-                            licenseKeyInput = ""
-                            licenseErrorMessage = nil
+                            let freed = await licenseManager.deactivateThisDevice()
+                            if freed {
+                                licenseKeyInput = ""
+                                licenseErrorMessage = nil
+                            } else {
+                                licenseErrorMessage = "Couldn't reach the server to free this Mac's seat. Try again when you're online."
+                            }
                         }
                     }
                     .accessibilityLabel("Deactivate this Mac and free its license seat")
