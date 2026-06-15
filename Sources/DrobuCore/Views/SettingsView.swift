@@ -529,8 +529,9 @@ public struct SettingsView: View {
         isActivatingLicense = true
         Task { @MainActor in
             defer { isActivatingLicense = false }
+            let verdict: ActivationVerdict?
             do {
-                try await licenseManager.activate(keyString: cleaned)
+                verdict = try await licenseManager.activate(keyString: cleaned)
             } catch let error as LicenseError {
                 switch error {
                 case .malformed:
@@ -545,21 +546,23 @@ public struct SettingsView: View {
                 licenseErrorMessage = "Activation failed: \(error.localizedDescription)"
                 return
             }
-            // Signature valid; branch on the device-cap verdict.
-            switch licenseManager.status {
-            case .activated:
+            // Branch on the returned verdict, not `status` — during an unexpired
+            // trial a negative verdict is persisted but `status` stays
+            // .trialActive, so a status-based switch would show no feedback at all.
+            switch verdict {
+            case .activated, .unreachable:
                 licenseKeyInput = ""
                 licenseErrorMessage = nil
                 licenseSuccessVisible = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     licenseSuccessVisible = false
                 }
-            case .activationLimitReached(let devices):
+            case .overCap(let devices):
                 licenseErrorMessage = ActivationCopy.overCapMessage(deviceCount: devices.count)
-            case .licenseRevoked:
+            case .revoked:
                 licenseErrorMessage = ActivationCopy.revokedMessage
-            default:
-                break
+            case nil:
+                break   // superseded by a newer activation
             }
         }
     }

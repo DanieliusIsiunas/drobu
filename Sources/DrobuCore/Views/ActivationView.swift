@@ -289,8 +289,9 @@ struct ActivationView: View {
         errorMessage = nil
         Task { @MainActor in
             defer { isActivating = false }
+            let verdict: ActivationVerdict?
             do {
-                try await licenseManager.activate(keyString: cleaned)
+                verdict = try await licenseManager.activate(keyString: cleaned)
             } catch let error as LicenseError {
                 errorMessage = friendlyMessage(for: error)
                 return
@@ -298,17 +299,18 @@ struct ActivationView: View {
                 errorMessage = "Activation failed: \(error.localizedDescription)"
                 return
             }
-            // Signature was valid; the device-cap verdict is now in `status`.
-            switch licenseManager.status {
-            case .activated:
+            // Branch on the returned verdict, not `status` (which an active trial
+            // can mask back to .trialActive).
+            switch verdict {
+            case .activated, .unreachable:
                 activationSucceeded = true
                 errorMessage = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { onActivated() }
-            case .activationLimitReached, .licenseRevoked:
-                // The view switches to the remediation mode automatically.
+            case .overCap, .revoked:
+                // status flips to the blocked state → `mode` shows remediation.
                 errorMessage = nil
-            default:
-                break
+            case nil:
+                break   // superseded by a newer activation
             }
         }
     }

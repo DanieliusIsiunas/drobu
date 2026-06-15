@@ -184,6 +184,11 @@ public final class LicenseManager: ObservableObject {
     private let now: () -> Date
     private let device: DeviceIdentifying
     private let activationClient: DeviceActivationClient
+    /// Bumped by every user-initiated license mutation (activate / deactivate /
+    /// deactivateThisDevice). An in-flight `activate` captures it before its
+    /// `await` and drops its result if a newer mutation superseded it — so a
+    /// slow response from one surface can't clobber a newer key from another.
+    private var activationGeneration = 0
 
     /// Designated init for production code (and any caller with an
     /// already-loaded public key). `device`/`activationClient` are injected
@@ -258,12 +263,18 @@ public final class LicenseManager: ObservableObject {
     /// Verify a pasted license key (offline) and register THIS device against
     /// the activation cap (online). Throws `LicenseError` only for a
     /// malformed/bad-signature key — that check is offline and fires before any
-    /// network. The device-cap verdict never throws: it sets `status`
-    /// (`.activated` / `.activationLimitReached` / `.licenseRevoked`) and the
-    /// caller inspects it. An unreachable backend fails OPEN (KTD5): the key is
-    /// stored optimistically and re-validation registers the device later.
-    public func activate(keyString: String) async throws {
+    /// network. The device-cap verdict never throws: it's returned so the caller
+    /// can show feedback (success / over-cap / revoked) regardless of how
+    /// `status` is masked — e.g. during an active trial a negative verdict is
+    /// persisted but `status` stays `.trialActive`, so the caller must branch on
+    /// the returned verdict, not on `status`. An unreachable backend fails OPEN
+    /// (KTD5): stored optimistically, re-validation registers the device later.
+    /// Returns `nil` when a newer mutation superseded this call (drop the result).
+    @discardableResult
+    public func activate(keyString: String) async throws -> ActivationVerdict? {
         try verifyKey(keyString)
+        activationGeneration += 1
+        let generation = activationGeneration
         // keyString is the customer's license key — never logged (see
         // KeychainLicenseStore.set / DeviceActivationClient). The stale-verdict
         // clear for a replacement key happens INSIDE persistVerdict (atomically
@@ -276,8 +287,12 @@ public final class LicenseManager: ObservableObject {
             deviceHash: device.deviceHash,
             deviceName: device.deviceName
         )
+        // A newer activate/deactivate started during the await — its result is
+        // canonical; dropping this stale one avoids clobbering the newer key.
+        guard generation == activationGeneration else { return nil }
         persistVerdict(verdict, key: keyString)
         recomputeStatus()
+        return verdict
     }
 
     /// Free THIS Mac's seat on the server, then clear the local license so the
@@ -291,6 +306,9 @@ public final class LicenseManager: ObservableObject {
     @discardableResult
     public func deactivateThisDevice() async -> Bool {
         guard let key = store.get(Self.activeLicenseKey) else { return true }
+        // Supersede any in-flight activate so its result can't re-store a key
+        // we're about to release.
+        activationGeneration += 1
         let freed = await activationClient.deactivate(key: key, deviceHash: device.deviceHash)
         if freed { deactivate() }
         return freed
@@ -299,6 +317,7 @@ public final class LicenseManager: ObservableObject {
     /// Clear the active license + all device-activation cache (e.g. for support
     /// / testing). Status reverts to the underlying trial state.
     public func deactivate() {
+        activationGeneration += 1   // supersede any in-flight activate/revalidate
         store.delete(Self.activeLicenseKey)
         clearActivationCache()
         recomputeStatus()

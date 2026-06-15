@@ -695,6 +695,27 @@ struct LicenseManagerTests {
         #expect(mgr.status == .activated)
     }
 
+    @Test func activateReturnsVerdictEvenWhenTrialMasksStatus() async throws {
+        // During an active trial a negative verdict is persisted but `status`
+        // stays .trialActive (trial not degraded). activate() must still RETURN
+        // the verdict so the UI can show remediation instead of silent nothing.
+        let store = InMemoryLicenseStore()
+        let mgr = makeManager(store: store, client: StubActivationClient(.overCap(devices: [device("A")])))
+        mgr.recordFirstLaunchIfNeeded()
+        let verdict = try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+        #expect(mgr.status == .trialActive(daysRemaining: 14))      // trial preserved
+        #expect(verdict == .overCap(devices: [device("A")]))         // caller still learns over-cap
+    }
+
+    @Test func activateReturnsTheServerVerdict() async throws {
+        for expected in [ActivationVerdict.activated(email: "x@y.com"), .revoked, .unreachable] {
+            let store = InMemoryLicenseStore()
+            let mgr = makeManager(store: store, client: StubActivationClient(expected))
+            let returned = try await mgr.activate(keyString: makeKey(payload: randomPayload()))
+            #expect(returned == expected)
+        }
+    }
+
     @Test func licensedEmailSurfacedFromActivation() async throws {
         let store = InMemoryLicenseStore()
         let mgr = makeManager(store: store, client: StubActivationClient(.activated(email: "buyer@example.com")))
