@@ -131,9 +131,22 @@ at once; any rectangle is reachable in at most two corner drags.
   — shared by `nearestCorner`, `resetCursorRects`, and `drawCornerHandles` (the draw
   site additionally derives inward `dx`/`dy` from the corner). `Corner.allCases`
   declaration order doubles as the deterministic tie-break order in `nearestCorner`.
-- Shadow: use an **offset-free** blur halo (`shadowOffset = .zero`), not a directional
-  drop shadow. `NSShadow.shadowOffset` is interpreted in the (flipped) context's
-  coordinate space, so a directional offset both inverts visually and is a trap; a
-  zero-offset halo reads on light AND dark content and sidesteps the flip entirely.
+- **A single-tone handle gets lost.** White corner brackets disappeared against
+  white screenshots AND against the (also-white) full-frame border — the handle
+  read as part of the border, not as a separate grab target (live feedback after
+  shipping). Two independent fixes, both needed:
+  - **Dual-tone handle via a two-pass stroke:** draw a dark rim first (`black@0.55`,
+    `edgeWidth = coreWidth + 2`), then a bright core on top (`white`, `coreWidth = 4`),
+    same `NSBezierPath`, round caps/joins. The white core reads on dark media; the
+    dark rim reads on light/white media — legible on ANY content. This replaced an
+    earlier `NSShadow` blur halo, which was both too faint on white and entangled
+    with the flipped-coordinate `shadowOffset` direction trap (offset is interpreted
+    in the flipped context's space — a directional offset inverts; only `.zero`
+    avoided it). The crisp dark rim is stronger and simpler — no shadow, no
+    `saveGraphicsState`.
+  - **Recede the border so the handles win the weight contest:** drop the full-frame
+    crop border to `white@0.45` (a faint guide) and make the corner brackets heavier
+    than it (4pt core vs 2pt border). The border defines the region; the corners are
+    the affordance.
 - The change is interaction + drawing only — the three editors (Image/GIF/Video)
   mount the same overlay and needed no edit.

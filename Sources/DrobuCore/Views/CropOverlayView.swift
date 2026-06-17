@@ -89,7 +89,7 @@ final class CropOverlayNSView: NSView {
     /// shown small ungrabbable — Codex P2, PR #60.)
     private let cornerSlop: CGFloat = 18
     /// Max L-bracket leg length, in points.
-    private let handleLegMax: CGFloat = 18
+    private let handleLegMax: CGFloat = 20
 
     override var isFlipped: Bool { true }
 
@@ -181,8 +181,9 @@ final class CropOverlayNSView: NSView {
         NSColor.clear.setFill()
         cropViewRect.fill(using: .copy)
 
-        // Crop border
-        strokeBorder(around: cropViewRect, color: NSColor.white.withAlphaComponent(0.8))
+        // Crop border — a faint guide line so the corner handles own the visual
+        // weight (the handles, not the border, are the draggable affordance).
+        strokeBorder(around: cropViewRect, color: NSColor.white.withAlphaComponent(0.45))
 
         // Corner grip handles — the visible, draggable affordance.
         drawCornerHandles(in: cropViewRect)
@@ -190,44 +191,45 @@ final class CropOverlayNSView: NSView {
         drawReadoutPill(anchoredIn: cropViewRect)
     }
 
-    /// Four L-shaped corner brackets hugging the crop rect's corners. The
-    /// actively-dragged corner draws in the accent color; the rest are white with
-    /// a soft halo so they read on both light and dark content.
+    /// Four bold L-shaped corner brackets hugging the crop rect's corners — the
+    /// draggable affordance, drawn heavier than the guide border so they stand out.
+    /// Each is a two-pass stroke: a dark rim first, then a bright core on top, so the
+    /// handle stays legible on ANY content (the white core reads on dark media, the
+    /// dark rim reads on light/white media — single-tone white handles were getting
+    /// lost against white screenshots and the border). The actively-dragged corner's
+    /// core is the accent color.
     private func drawCornerHandles(in rect: NSRect) {
         // Leg ~40% of the smaller displayed side, capped at handleLegMax. The 0.4
         // factor keeps the two legs that share an edge from ever crossing
         // (2 × 0.4 < 1), even on a tiny crop — so there is no fixed floor, which
         // would defeat that guarantee.
         let leg = min(handleLegMax, min(rect.width, rect.height) * 0.4)
+        let coreWidth: CGFloat = 4
+        let edgeWidth: CGFloat = coreWidth + 2 // ~1pt dark rim on each side
 
-        // Offset-free blur halo: reads on light AND dark content and is immune to
-        // the flipped-coordinate shadow-offset direction trap.
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-        shadow.shadowBlurRadius = 2
-        shadow.shadowOffset = .zero
-
-        NSGraphicsContext.saveGraphicsState()
-        shadow.set()
         for corner in CropGeometry.Corner.allCases {
             let anchor = corner.point(in: rect)
             // Inward leg directions (view is flipped, so +y is downward).
             let dx: CGFloat = (corner == .topLeft || corner == .bottomLeft) ? 1 : -1
             let dy: CGFloat = (corner == .topLeft || corner == .topRight) ? 1 : -1
-            let color: NSColor = corner == dragCorner
-                ? .controlAccentColor
-                : NSColor.white.withAlphaComponent(0.95)
-            color.setStroke()
+
             let path = NSBezierPath()
-            path.lineWidth = 3
             path.lineCapStyle = .round
             path.lineJoinStyle = .round
             path.move(to: NSPoint(x: anchor.x + dx * leg, y: anchor.y))
             path.line(to: anchor)
             path.line(to: NSPoint(x: anchor.x, y: anchor.y + dy * leg))
+
+            // Dark contrast rim first, bright core on top.
+            NSColor.black.withAlphaComponent(0.55).setStroke()
+            path.lineWidth = edgeWidth
+            path.stroke()
+
+            let core: NSColor = corner == dragCorner ? .controlAccentColor : .white
+            core.setStroke()
+            path.lineWidth = coreWidth
             path.stroke()
         }
-        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func strokeBorder(around rect: NSRect, color: NSColor) {
