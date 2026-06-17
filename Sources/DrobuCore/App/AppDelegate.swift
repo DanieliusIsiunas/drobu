@@ -456,7 +456,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         if let dot = badgeDotView {
             dot.layer?.backgroundColor = color.cgColor
         } else {
-            let dot = NSView(frame: NSRect(x: button.bounds.maxX - 7, y: 1, width: 6, height: 6))
+            // Bottom-right. In the status button's coordinate space y=1 is the
+            // TOP edge (verified visually), so the bottom sits near maxY — this
+            // keeps the sleep dot clear of the top-right update arrow.
+            let dot = NSView(frame: NSRect(x: button.bounds.maxX - 7, y: button.bounds.maxY - 7, width: 6, height: 6))
             dot.wantsLayer = true
             dot.layer?.backgroundColor = color.cgColor
             dot.layer?.cornerRadius = 3
@@ -471,9 +474,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private func ensureUpdateArrow(in button: NSStatusBarButton) {
         guard updateArrowView == nil else { return }
         let size: CGFloat = 9
+        // Top-right. y=1 is the TOP edge in this button's coordinate space
+        // (verified visually); the sleep dot sits at the bottom (near maxY).
         let arrow = NSImageView(frame: NSRect(
             x: button.bounds.maxX - size - 1,
-            y: button.bounds.maxY - size - 1,
+            y: 1,
             width: size,
             height: size
         ))
