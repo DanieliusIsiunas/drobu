@@ -3,8 +3,16 @@ import ApplicationServices
 import HotKey
 import Sparkle
 
+/// Ferries Sparkle's non-Sendable install block across the `nonisolated` →
+/// main-actor hop in `updater(_:willInstallUpdateOnQuit:…)`. Safe as
+/// `@unchecked Sendable` because the block is received, stored, and invoked
+/// only on the main thread (Sparkle's installer driver dispatches to main).
+private struct InstallBlockBox: @unchecked Sendable {
+    let run: () -> Void
+}
+
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUStandardUserDriverDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUStandardUserDriverDelegate, SPUUpdaterDelegate {
     private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
@@ -29,6 +37,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     /// Non-nil when a gentle (background) update is downloaded and waiting; drives
     /// the status-menu items and the icon arrow. Cleared when the user engages.
     private var pendingUpdateVersion: String?
+    /// Set on the automatic-download path (willInstallUpdateOnQuit): invoking it
+    /// installs the already-staged update and relaunches with no UI — what powers
+    /// an instant "Restart to Update". Nil on the alert paths (fall back to
+    /// resuming via the updater).
+    private var immediateInstallBlock: (() -> Void)?
     /// The injected "update available" + "Restart to Update" items, tracked so
     /// they can be rebuilt independently of the sleep status items.
     private var updateMenuItems: [NSMenuItem] = []
@@ -177,13 +190,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
             self?.stopActiveRecording()
         }
 
-        // Start Sparkle auto-update checks. We act as the user-driver delegate so
-        // background/scheduled updates are surfaced gently (status menu + icon
-        // arrow) instead of interrupting with a modal — see the
-        // SPUStandardUserDriverDelegate conformance below.
+        // Start Sparkle auto-update checks. We are BOTH delegates so updates are
+        // surfaced gently (status menu + icon arrow) instead of a modal, on both
+        // Sparkle paths: the updater delegate catches the common silent
+        // auto-download (install-on-quit), and the user-driver delegate catches
+        // the alert paths (impatient/critical/authorization). See the conformances
+        // below.
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: self,
             userDriverDelegate: self
         )
         Log.info("AppDelegate: Sparkle updater started")
@@ -724,8 +739,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private func clearPendingUpdate() {
         guard pendingUpdateVersion != nil else { return }
         pendingUpdateVersion = nil
+        immediateInstallBlock = nil
         Log.info("AppDelegate: gentle update indicator cleared")
         refreshUpdateUI()
+    }
+
+    // MARK: - SPUUpdaterDelegate (automatic-download path)
+
+    /// Fires when a background auto-download (SUAutomaticallyUpdate) has staged an
+    /// update for install-on-quit. This is the COMMON gentle path — it bypasses
+    /// the user-driver alert callbacks above, so without it the menu row/arrow
+    /// would only ever appear on the rarer alert paths. Returning `true` takes
+    /// control of install timing: we keep the staged update and either install it
+    /// now (user clicks "Restart to Update" → immediateInstallBlock) or on quit.
+    /// Called on the main thread (Sparkle's installer driver dispatches to main).
+    public nonisolated func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        let box = InstallBlockBox(run: immediateInstallHandler)
+        let version = item.displayVersionString
+        MainActor.assumeIsolated {
+            immediateInstallBlock = box.run
+            pendingUpdateVersion = version
+            Log.info("AppDelegate: gentle update staged for install (v\(version))")
+            refreshUpdateUI()
+        }
+        return true
     }
 
     /// Refresh both gentle-update surfaces from `pendingUpdateVersion`: the
@@ -781,10 +822,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
             Log.info("AppDelegate: Restart to Update ignored — no pending update")
             return
         }
-        Log.info("AppDelegate: user chose Restart to Update")
-        // The update is already downloaded (SUAutomaticallyUpdate); this resumes
-        // it as a user-initiated action → Sparkle's minimal Install & Relaunch.
-        updaterController?.checkForUpdates(nil)
+        if let installNow = immediateInstallBlock {
+            // Automatic-download path: the update is already staged — install and
+            // relaunch immediately, no UI (Sparkle's immediate-install handler).
+            Log.info("AppDelegate: installing staged update immediately")
+            installNow()
+        } else {
+            // Alert path (impatient/critical/authorization): resume via the updater,
+            // which re-presents Sparkle's Install & Relaunch.
+            Log.info("AppDelegate: user chose Restart to Update — resuming via updater")
+            updaterController?.checkForUpdates(nil)
+        }
     }
 
     @objc private func openPreferences() {
