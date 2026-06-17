@@ -4,7 +4,7 @@ import HotKey
 import Sparkle
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUStandardUserDriverDelegate {
     private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
@@ -23,6 +23,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
+    /// Top-right blue down-arrow glyph shown when a Sparkle update is waiting.
+    /// Independent of badgeDotView (bottom-right sleep dot) so both can coexist.
+    private var updateArrowView: NSView?
+    /// Non-nil when a gentle (background) update is downloaded and waiting; drives
+    /// the status-menu items and the icon arrow. Cleared when the user engages.
+    private var pendingUpdateVersion: String?
+    /// The injected "update available" + "Restart to Update" items, tracked so
+    /// they can be rebuilt independently of the sleep status items.
+    private var updateMenuItems: [NSMenuItem] = []
     private var sleepStatusItems: [NSMenuItem] = []
     private var keepAwakeStatusItem: NSMenuItem?
     private var closedLidStatusItem: NSMenuItem?
@@ -168,11 +177,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             self?.stopActiveRecording()
         }
 
-        // Start Sparkle auto-update checks
+        // Start Sparkle auto-update checks. We act as the user-driver delegate so
+        // background/scheduled updates are surfaced gently (status menu + icon
+        // arrow) instead of interrupting with a modal — see the
+        // SPUStandardUserDriverDelegate conformance below.
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: self
         )
         Log.info("AppDelegate: Sparkle updater started")
 
@@ -181,11 +193,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
         // Badge + status menu items: update when either sleep service changes state
         caffeinateService.onStateChange = { [weak self] _ in
-            self?.refreshMenuBarBadge()
+            self?.refreshStatusIcon()
             self?.refreshSleepStatusItems()
         }
         closedLidService.onStateChange = { [weak self] _ in
-            self?.refreshMenuBarBadge()
+            self?.refreshStatusIcon()
             self?.refreshSleepStatusItems()
         }
 
@@ -378,34 +390,50 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         statusItem?.menu = menu
     }
 
-    enum SleepMode {
-        case none
-        case keepAwake
-        case closedLid
+    /// Current sleep mode for the icon, Closed Lid taking precedence over Keep
+    /// Awake (matches the historical badge-dot precedence).
+    private var currentSleepMode: SleepMode {
+        if closedLidService.isActive { return .closedLid }
+        if caffeinateService.isActive { return .keepAwake }
+        return .none
     }
 
-    private func refreshMenuBarBadge() {
-        let mode: SleepMode
-        if closedLidService.isActive {
-            mode = .closedLid
-        } else if caffeinateService.isActive {
-            mode = .keepAwake
-        } else {
-            mode = .none
-        }
-        updateMenuBarBadge(mode: mode)
-    }
-
-    private func updateMenuBarBadge(mode: SleepMode) {
+    /// Single source of truth for the menu-bar icon overlays: the bottom-right
+    /// sleep dot and the top-right update arrow, both rendered from the pure
+    /// `StatusItemPresentation` decision so they never collide. Replaces the old
+    /// refreshMenuBarBadge/updateMenuBarBadge pair (which only knew about the
+    /// sleep dot).
+    private func refreshStatusIcon() {
         guard let button = statusItem?.button else { return }
-        switch mode {
-        case .none:
+        let updatePending = pendingUpdateVersion != nil
+        let indicators = StatusItemPresentation.statusIconIndicators(
+            sleepMode: currentSleepMode,
+            updatePending: updatePending
+        )
+
+        if let dotColor = indicators.sleepDot {
+            ensureBadgeDot(in: button, color: nsColor(for: dotColor))
+        } else {
             badgeDotView?.removeFromSuperview()
             badgeDotView = nil
-        case .keepAwake:
-            ensureBadgeDot(in: button, color: .systemGreen)
-        case .closedLid:
-            ensureBadgeDot(in: button, color: .systemOrange)
+        }
+
+        if indicators.showsUpdateArrow {
+            ensureUpdateArrow(in: button)
+        } else {
+            updateArrowView?.removeFromSuperview()
+            updateArrowView = nil
+        }
+
+        button.setAccessibilityLabel(
+            StatusItemPresentation.statusButtonAccessibilityLabel(updatePending: updatePending)
+        )
+    }
+
+    private func nsColor(for dot: SleepDotColor) -> NSColor {
+        switch dot {
+        case .green: return .systemGreen
+        case .orange: return .systemOrange
         }
     }
 
@@ -420,6 +448,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             button.addSubview(dot)
             badgeDotView = dot
         }
+    }
+
+    /// Blue down-arrow glyph in the top-right corner — deliberately `.systemBlue`
+    /// (not the system accent) and a distinct shape from the sleep dot, so an
+    /// available update never reads as a third sleep mode.
+    private func ensureUpdateArrow(in button: NSStatusBarButton) {
+        guard updateArrowView == nil else { return }
+        let size: CGFloat = 9
+        let arrow = NSImageView(frame: NSRect(
+            x: button.bounds.maxX - size - 1,
+            y: button.bounds.maxY - size - 1,
+            width: size,
+            height: size
+        ))
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .semibold)
+        arrow.image = NSImage(
+            systemSymbolName: "arrow.down.circle.fill",
+            accessibilityDescription: "Update available"
+        )?.withSymbolConfiguration(config)
+        arrow.contentTintColor = .systemBlue
+        arrow.imageScaling = .scaleProportionallyUpOrDown
+        button.addSubview(arrow)
+        updateArrowView = arrow
     }
 
     // MARK: - Sleep Status Menu Items
@@ -477,11 +528,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
         guard !items.isEmpty else { return }
         items.append(.separator())
+        // Sit below the update items (if any) so the update block stays at the
+        // very top of the menu regardless of which state changed last. INVARIANT:
+        // refreshUpdateMenuItems() must have run first so `updateMenuItems` is
+        // current — both menu callers (menuWillOpen/menuDidClose) order it that
+        // way; see `sleepItemInsertionBase`.
         for (index, item) in items.enumerated() {
-            menu.insertItem(item, at: index)
+            menu.insertItem(item, at: sleepItemInsertionBase + index)
         }
         sleepStatusItems = items
     }
+
+    /// Index at which sleep status items insert — directly below the update
+    /// block. A derived value, not a magic number: making the dependency on
+    /// `updateMenuItems` explicit so the temporal coupling with
+    /// `refreshUpdateMenuItems()` is visible at the call site.
+    private var sleepItemInsertionBase: Int { updateMenuItems.count }
 
     private func sleepStatusTitle(name: String, remaining: TimeInterval) -> String {
         "\(name) — \(SleepCommand.formatRemaining(remaining))"
@@ -572,6 +634,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         guard menu === statusItem?.menu else { return }
         // Rebuild while still safe (isMenuOpen not yet set), so the menu
         // opens with current state even if a change arrived while closed.
+        // Update items first so the sleep items offset below them.
+        refreshUpdateMenuItems()
         refreshSleepStatusItems()
         isMenuOpen = true
         guard !sleepStatusItems.isEmpty else { return }
@@ -595,7 +659,132 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         sleepStatusTimer = nil
         isMenuOpen = false
         // Apply any state changes that arrived while the menu was open
+        refreshUpdateMenuItems()
         refreshSleepStatusItems()
+    }
+
+    // MARK: - Gentle Update Reminders (Sparkle)
+
+    // The protocol is not `@MainActor`-isolated, so each witness is declared
+    // `nonisolated` and hops onto the main actor inside — keeping the conformance
+    // off the @MainActor class's isolation boundary. `assumeIsolated` is safe
+    // because Sparkle 2.9.1 invokes every SPUStandardUserDriverDelegate method on
+    // the main thread (the suppressed-update callback is dispatched to the main
+    // queue; the synchronous ones run inside main-thread-asserted driver methods).
+
+    /// Required to opt into Sparkle's gentle scheduled-update reminders for a
+    /// background (`.accessory`) app — without it Sparkle warns and falls back
+    /// to its standard modal presentation.
+    public nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    /// Decide whether Sparkle shows its standard modal for a *scheduled* update.
+    /// Returning `false` suppresses it so we surface the update gently (menu +
+    /// icon) instead. We defer to Sparkle (`true`) only when it proposes
+    /// immediate focus — Sparkle sets this when the app launched recently or the
+    /// system has been idle, i.e. a moment the user is plausibly attentive.
+    /// User-initiated "Check for Updates…" never reaches this method — it always
+    /// shows the standard dialog.
+    public nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem,
+        andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        immediateFocus
+    }
+
+    /// Fires just before any update is presented. We light up the gentle
+    /// surfaces only when WE are handling the presentation (`!handleShowingUpdate`)
+    /// for a non-user-initiated update — otherwise Sparkle is already showing its
+    /// own dialog (user-initiated check, or the immediate-focus scheduled path),
+    /// and a second gentle indicator behind it would be redundant.
+    public nonisolated func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        MainActor.assumeIsolated {
+            guard !state.userInitiated, !handleShowingUpdate else { return }
+            pendingUpdateVersion = update.displayVersionString
+            Log.info("AppDelegate: gentle update pending (v\(update.displayVersionString))")
+            refreshUpdateUI()
+        }
+    }
+
+    /// The user engaged with the update (e.g. via our menu item resuming the
+    /// install) — clear the gentle indicators.
+    public nonisolated func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        MainActor.assumeIsolated { clearPendingUpdate() }
+    }
+
+    /// The update session ended. Clear the indicators; if the update is still
+    /// uninstalled, the next scheduled check re-surfaces it.
+    public nonisolated func standardUserDriverWillFinishUpdateSession() {
+        MainActor.assumeIsolated { clearPendingUpdate() }
+    }
+
+    private func clearPendingUpdate() {
+        guard pendingUpdateVersion != nil else { return }
+        pendingUpdateVersion = nil
+        Log.info("AppDelegate: gentle update indicator cleared")
+        refreshUpdateUI()
+    }
+
+    /// Refresh both gentle-update surfaces from `pendingUpdateVersion`: the
+    /// status-menu items and the menu-bar icon arrow.
+    private func refreshUpdateUI() {
+        refreshUpdateMenuItems()
+        refreshStatusIcon()
+    }
+
+    /// State-derived rebuild of the "update available" items pinned to the very
+    /// top of the status menu. Mirrors `refreshSleepStatusItems`: rebuild only
+    /// while the menu is closed (no structural mutation of an open NSMenu).
+    /// The items are static text, so no open-menu refresh timer is needed.
+    private func refreshUpdateMenuItems() {
+        guard !isMenuOpen, let menu = statusItem?.menu else { return }
+
+        for item in updateMenuItems where item.menu === menu {
+            menu.removeItem(item)
+        }
+        updateMenuItems.removeAll()
+
+        guard let version = pendingUpdateVersion else { return }
+
+        // Disabled informational line — no action ⇒ auto-disabled (greyed); its
+        // title doubles as the VoiceOver label.
+        let info = NSMenuItem(
+            title: StatusItemPresentation.menuItemTitle(version: version),
+            action: nil,
+            keyEquivalent: ""
+        )
+        info.isEnabled = false
+        let restart = NSMenuItem(
+            title: "Restart to Update",
+            action: #selector(restartToUpdate),
+            keyEquivalent: ""
+        )
+        restart.target = self
+        let separator = NSMenuItem.separator()
+
+        // Insert at the very top, above any sleep status items.
+        menu.insertItem(separator, at: 0)
+        menu.insertItem(restart, at: 0)
+        menu.insertItem(info, at: 0)
+        updateMenuItems = [info, restart, separator]
+    }
+
+    @objc private func restartToUpdate() {
+        // Guard against a stale item: if the session ended while the menu was
+        // held open, the item can linger one cycle. Without this, a click would
+        // start a fresh user-initiated check (the "Checking for Updates" modal
+        // this feature exists to suppress) instead of resuming.
+        guard pendingUpdateVersion != nil else {
+            Log.info("AppDelegate: Restart to Update ignored — no pending update")
+            return
+        }
+        Log.info("AppDelegate: user chose Restart to Update")
+        // The update is already downloaded (SUAutomaticallyUpdate); this resumes
+        // it as a user-initiated action → Sparkle's minimal Install & Relaunch.
+        updaterController?.checkForUpdates(nil)
     }
 
     @objc private func openPreferences() {
