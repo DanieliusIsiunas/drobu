@@ -81,8 +81,12 @@ final class CropOverlayNSView: NSView {
     /// View-space offset from the grabbed corner's anchor to the mousedown point,
     /// so dragging tracks the cursor delta instead of teleporting the corner to it.
     private var grabOffset: CGSize = .zero
-    /// Max corner grab radius; the effective slop shrinks on a tiny crop so adjacent
-    /// zones never overlap (see `effectiveCornerSlop`).
+    /// Corner grab radius. Held CONSTANT (never scaled down with crop size): a
+    /// usable target matters more than non-overlapping zones. On a crop displayed
+    /// smaller than `2 * cornerSlop` the four zones overlap, but `nearestCorner`
+    /// resolves a click to the proximate corner — and at that size the corners are
+    /// near-coincident anyway. (Clamping this to `minSide/2` made a high-res crop
+    /// shown small ungrabbable — Codex P2, PR #60.)
     private let cornerSlop: CGFloat = 18
     /// Max L-bracket leg length, in points.
     private let handleLegMax: CGFloat = 18
@@ -95,22 +99,13 @@ final class CropOverlayNSView: NSView {
     // Prevent window dragging when interacting with a crop corner handle
     override var mouseDownCanMoveWindow: Bool { false }
 
-    /// The corner grab radius for the current crop, clamped so adjacent corners'
-    /// square zones never overlap (half the smaller displayed side). On a normal
-    /// crop this is just `cornerSlop`; it only shrinks on a very small crop.
-    private func effectiveCornerSlop(forFitted fitted: NSRect) -> CGFloat {
-        let rect = geometry.viewCropRect(fittedRect: fitted)
-        return min(cornerSlop, min(rect.width, rect.height) / 2)
-    }
-
     /// Only claim clicks near a crop corner; everything else falls through to the
     /// player below (keeps window-drag-by-background working mid-frame).
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isInteractionEnabled, geometry.isCroppable else { return nil }
         let local = convert(point, from: superview)
         let fitted = geometry.fittedRect(in: bounds.size)
-        let slop = effectiveCornerSlop(forFitted: fitted)
-        guard geometry.nearestCorner(atViewPoint: local, fittedRect: fitted, slop: slop) != nil else {
+        guard geometry.nearestCorner(atViewPoint: local, fittedRect: fitted, slop: cornerSlop) != nil else {
             return nil
         }
         return self
@@ -122,8 +117,7 @@ final class CropOverlayNSView: NSView {
         guard isInteractionEnabled, geometry.isCroppable else { return }
         let location = convert(event.locationInWindow, from: nil)
         let fitted = geometry.fittedRect(in: bounds.size)
-        let slop = effectiveCornerSlop(forFitted: fitted)
-        guard let corner = geometry.nearestCorner(atViewPoint: location, fittedRect: fitted, slop: slop) else {
+        guard let corner = geometry.nearestCorner(atViewPoint: location, fittedRect: fitted, slop: cornerSlop) else {
             dragCorner = nil
             return
         }
@@ -155,13 +149,12 @@ final class CropOverlayNSView: NSView {
         let fitted = geometry.fittedRect(in: bounds.size)
         let rect = geometry.viewCropRect(fittedRect: fitted)
 
-        // A square grab zone centered on each corner, sized to the same effective
-        // slop the hit-test uses. macOS exposes no public diagonal-resize NSCursor —
+        // A square grab zone centered on each corner, sized to the same cornerSlop
+        // the hit-test uses. macOS exposes no public diagonal-resize NSCursor —
         // crosshair is the honest "grab this point" cue.
-        let slop = effectiveCornerSlop(forFitted: fitted)
         for corner in CropGeometry.Corner.allCases {
             let p = corner.point(in: rect)
-            let zone = NSRect(x: p.x - slop, y: p.y - slop, width: slop * 2, height: slop * 2)
+            let zone = NSRect(x: p.x - cornerSlop, y: p.y - cornerSlop, width: cornerSlop * 2, height: cornerSlop * 2)
             addCursorRect(zone.intersection(bounds), cursor: .crosshair)
         }
     }

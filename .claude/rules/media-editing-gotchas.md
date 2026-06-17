@@ -113,13 +113,16 @@ at once; any rectangle is reachable in at most two corner drags.
   that guarantee: when `0.4·side < 6` the floor forced 6pt legs that crossed on a
   sub-12pt displayed crop — reachable with 2x pasted media or large content shown
   small). Legs shrink proportionally on small crops; that's correct.
-- **The corner grab slop must shrink on a small crop too**, or the four 18pt square
-  zones overlap and a click resolves to the wrong corner. Clamp to half the smaller
-  displayed side: `effectiveCornerSlop = min(cornerSlop, min(cropW, cropH) / 2)`,
-  computed from `viewCropRect` and used by `hitTest`, `mouseDown`, AND
-  `resetCursorRects` (so the crosshair zone matches the live hit area). On a normal
-  crop this is just `cornerSlop`; it only kicks in when the crop is displayed
-  smaller than `2·cornerSlop`.
+- **Keep the corner grab slop CONSTANT — do NOT scale it down with crop size.** It's
+  tempting to clamp the slop to `min(cornerSlop, minSide/2)` so adjacent zones never
+  overlap, but that backfires: a valid near-minimum crop of high-res media is
+  displayed only a few points wide, so the clamp shrinks the grab target to ~1–2pt
+  and the user **cannot re-grab a corner to enlarge it** — defeating the feature
+  (caught by Codex on PR #60, after it was shipped as a "fix"). A usable target beats
+  non-overlapping zones. With a constant 18pt slop the four zones overlap once the
+  crop is displayed smaller than `2·cornerSlop`, but `nearestCorner` resolves the
+  click to the proximate corner and at that size the corners are near-coincident
+  anyway — a deterministic, accepted nuance, not a defect.
 - **Capture a grab offset on mouseDown** (`anchor − clickPoint`) and add it back on
   mouseDragged, or the corner teleports to the cursor on the first drag delta — the
   jump scales with the slop times the content/view zoom, so it's worst on high-res
