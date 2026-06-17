@@ -144,12 +144,36 @@ all learned the hard way:
   "frontmost" — so a scheduled check shortly after launch still shows the modal,
   by design.
 
-- **`SUAutomaticallyUpdate=true` only pre-downloads; it never weakens the EdDSA
-  gate.** Verified against `SUUpdateValidator.m` (`validateDownloadPath` gates
-  install on `passedDSACheck || passedCodeSigning`, independent of the user-driver
-  delegate and of whether the download was automatic). Suppressing the scheduled
-  modal hides UI only — install still requires the user invoking
-  `checkForUpdates(nil)` ("Restart to Update"), which routes through the same
-  verified Install & Relaunch. Guard that menu action against a stale click
+- **`SUAutomaticallyUpdate=true` BYPASSES the user-driver gentle hooks — you must
+  also implement `SPUUpdaterDelegate.willInstallUpdateOnQuit`.** This is the trap
+  that silently broke the feature (caught in PR review, not before). With
+  automatic downloads on, the common scheduled background check runs through
+  `SPUAutomaticUpdateDriver`, which downloads silently and, on completion, calls
+  `SPUUpdaterDelegate.updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)`
+  — it does **NOT** call the `SPUStandardUserDriverDelegate` alert callbacks
+  (`standardUserDriverWillHandleShowingUpdate` etc.); in that driver the user
+  driver is "only used for a termination callback" (`SPUAutomaticUpdateDriver.m`).
+  So a gentle UI keyed only off the user-driver hooks **never fires in the common
+  case** — only on the rarer impatient/critical/authorization alert paths (which
+  DO use the UI-based driver). Wire **both** delegates: `SPUUpdaterDelegate` for
+  the silent auto-download path, `SPUStandardUserDriverDelegate` for the alert
+  paths. The Sparkle gentle-reminders doc example omits `SUAutomaticallyUpdate`
+  entirely, which is why it gets away with the user driver alone.
+  - Return `true` from `willInstallUpdateOnQuit` to "take control" of install
+    timing: keep the staged update and invoke `immediateInstallHandler` to
+    install + relaunch **with no UI** (the true instant "Restart to Update"); it
+    installs on quit otherwise. Return `false` to let Sparkle's scheduler keep
+    running (and present later). Called on the main thread (`SPUUpdater` is
+    main-thread-bound; `SPUInstallerDriver` dispatches callbacks to main), so
+    `MainActor.assumeIsolated` is safe — but the `() -> Void` install block is
+    **not** `Sendable` (unlike `SUAppcastItem`/`SPUUserUpdateState`, which are
+    `NS_SWIFT_SENDABLE`), so ferry it across the `nonisolated`→main hop in an
+    `@unchecked Sendable` box.
+
+- **`SUAutomaticallyUpdate=true` never weakens the EdDSA gate.** Verified against
+  `SUUpdateValidator.m` (`validateDownloadPath` gates install on `passedDSACheck
+  || passedCodeSigning`, independent of the user-driver delegate and of whether
+  the download was automatic). Suppressing the scheduled modal hides UI only.
+  Guard the "Restart to Update" menu action against a stale click
   (`pendingUpdateVersion == nil`) or it starts a fresh "Checking for Updates"
   modal — the exact thing the feature suppresses.
