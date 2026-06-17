@@ -78,3 +78,37 @@ clean it up in that guard (the video early-return deletes the orphaned export).
 The panel must stay visible during video exports (cleanup deferral is gated on
 panel visibility), and `FloatingPanel.resignKey` closes the panel — the residual
 race is documented in the v1.4 review artifacts.
+
+## Crop handles: corner grips as composed edge clamps (v1.9.x)
+
+The crop overlay (`CropOverlayView`) exposes **corner handles only** — four
+L-bracket grips, no edge handles. The discoverability problem they fixed: the
+prior edge-drag affordance was invisible (only a dim + thin border), gated on a
+thin 10pt edge band, so users couldn't tell the crop was draggable or where to
+grab. Corners are a point target (easy to hit, unambiguous) and reframe two sides
+at once; any rectangle is reachable in at most two corner drags.
+
+- **Implement a corner drag as the composition of its two adjacent edge clamps**,
+  not as new geometry. `CropGeometry.drag(corner:toContentPoint:)` calls
+  `drag(edge: .left/.right)` + `drag(edge: .top/.bottom)` for that corner. The
+  diagonally opposite corner stays anchored for free, and whole-pixel rounding +
+  per-axis `minimumCropSize` + bounds clamping are all inherited from the
+  already-tested `drag(edge:)`. The two axes are independent, so the order of the
+  two edge drags is irrelevant. This kept the release-critical `isFullFrame`
+  sentinel and `evenRoundedCropRect` (H.264 even-dim floor) **untouched** — corner
+  drags route through the same clamps the video passthrough branch already trusts.
+- `nearestCorner` uses a **square (Chebyshev) hit test** (within `slop` on BOTH
+  axes — a generous grab zone, ~18pt vs the old 10pt edge band) and breaks ties by
+  **Euclidean distance, then declaration order** (topLeft, topRight, bottomLeft,
+  bottomRight) so a click equidistant from multiple corners on a tiny crop is
+  deterministic, not probabilistic. Pure + unit-tested in `CropGeometryTests`.
+- **There is no public diagonal-resize `NSCursor`** (no
+  `resizeNorthWestSoutheast`-style member). For corner grips, `.crosshair` is the
+  honest public cue ("grab this point"); the private `_windowResize*` selectors
+  exist but are fragile and unnecessary here. Cursor zones are square rects
+  centered on each corner, matching `nearestCorner`'s slop.
+- Bracket **leg length is clamped** to `max(6, min(18, 0.4·cropW, 0.4·cropH))` so
+  the four L-brackets never cross on a tiny crop. They draw white@0.95 with a soft
+  `NSShadow` (reads on light AND dark content); the actively-dragged corner draws
+  in `controlAccentColor`. The change is interaction + drawing only — the three
+  editors (Image/GIF/Video) mount the same overlay and needed no edit.
