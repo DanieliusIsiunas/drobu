@@ -22,6 +22,21 @@ struct CropGeometry: Equatable {
         case left, right, top, bottom
     }
 
+    enum Corner: CaseIterable {
+        case topLeft, topRight, bottomLeft, bottomRight
+
+        /// The corner's anchor point within a rect. Single source of truth for the
+        /// corner→point mapping, shared by hit-testing, cursor rects, and drawing.
+        func point(in rect: CGRect) -> CGPoint {
+            switch self {
+            case .topLeft: return CGPoint(x: rect.minX, y: rect.minY)
+            case .topRight: return CGPoint(x: rect.maxX, y: rect.minY)
+            case .bottomLeft: return CGPoint(x: rect.minX, y: rect.maxY)
+            case .bottomRight: return CGPoint(x: rect.maxX, y: rect.maxY)
+            }
+        }
+    }
+
     init(contentWidth: Int, contentHeight: Int) {
         self.contentWidth = max(0, contentWidth)
         self.contentHeight = max(0, contentHeight)
@@ -105,30 +120,28 @@ struct CropGeometry: Equatable {
 
     // MARK: - Hit testing
 
-    /// The nearest crop edge within `slop` view-points of `point`, or nil.
-    /// A corner click resolves to the closer edge; exact ties resolve in declaration
-    /// order (left, right, top, bottom) — deterministic, not probabilistic.
-    func nearestEdge(atViewPoint point: CGPoint, fittedRect: CGRect, slop: CGFloat) -> Edge? {
+    /// The nearest crop corner within `slop` view-points of `point` (a square grab
+    /// zone — within `slop` on BOTH axes), or nil. Ties resolve by Euclidean
+    /// distance, then declaration order (topLeft, topRight, bottomLeft, bottomRight)
+    /// — deterministic, not probabilistic.
+    func nearestCorner(atViewPoint point: CGPoint, fittedRect: CGRect, slop: CGFloat) -> Corner? {
         guard isCroppable else { return nil }
         let rect = viewCropRect(fittedRect: fittedRect)
-        let withinX = point.x >= rect.minX - slop && point.x <= rect.maxX + slop
-        let withinY = point.y >= rect.minY - slop && point.y <= rect.maxY + slop
 
-        let candidates: [(edge: Edge, distance: CGFloat, inSpan: Bool)] = [
-            (.left, abs(point.x - rect.minX), withinY),
-            (.right, abs(point.x - rect.maxX), withinY),
-            (.top, abs(point.y - rect.minY), withinX),
-            (.bottom, abs(point.y - rect.maxY), withinX),
-        ]
-
-        var best: (edge: Edge, distance: CGFloat)?
-        for candidate in candidates {
-            guard candidate.inSpan, candidate.distance <= slop else { continue }
-            if best == nil || candidate.distance < best!.distance {
-                best = (candidate.edge, candidate.distance)
+        // Corner.allCases is declaration order (topLeft, topRight, bottomLeft,
+        // bottomRight), which is also the tie-break order on an exact distance tie.
+        var best: (corner: Corner, distance: CGFloat)?
+        for corner in Corner.allCases {
+            let anchor = corner.point(in: rect)
+            let dx = abs(point.x - anchor.x)
+            let dy = abs(point.y - anchor.y)
+            guard dx <= slop, dy <= slop else { continue }
+            let distance = (dx * dx + dy * dy).squareRoot()
+            if best == nil || distance < best!.distance {
+                best = (corner, distance)
             }
         }
-        return best?.edge
+        return best?.corner
     }
 
     // MARK: - Dragging
@@ -153,6 +166,29 @@ struct CropGeometry: Equatable {
         case .bottom:
             let y = min(max(point.y.rounded(), cropRect.minY + minSize), CGFloat(contentHeight))
             cropRect = CGRect(x: cropRect.minX, y: cropRect.minY, width: cropRect.width, height: y - cropRect.minY)
+        }
+    }
+
+    /// Move `corner` to the given content-pixel position by composing the two
+    /// adjacent edge clamps (e.g. .topLeft = left + top). The diagonally opposite
+    /// corner stays anchored; whole-pixel rounding, the per-axis minimum size, and
+    /// bounds clamping are inherited from `drag(edge:)`. The two axes are
+    /// independent, so the order of the two edge drags does not matter.
+    mutating func drag(corner: Corner, toContentPoint point: CGPoint) {
+        guard isCroppable else { return }
+        switch corner {
+        case .topLeft:
+            drag(edge: .left, toContentPoint: point)
+            drag(edge: .top, toContentPoint: point)
+        case .topRight:
+            drag(edge: .right, toContentPoint: point)
+            drag(edge: .top, toContentPoint: point)
+        case .bottomLeft:
+            drag(edge: .left, toContentPoint: point)
+            drag(edge: .bottom, toContentPoint: point)
+        case .bottomRight:
+            drag(edge: .right, toContentPoint: point)
+            drag(edge: .bottom, toContentPoint: point)
         }
     }
 
