@@ -107,8 +107,30 @@ at once; any rectangle is reachable in at most two corner drags.
   honest public cue ("grab this point"); the private `_windowResize*` selectors
   exist but are fragile and unnecessary here. Cursor zones are square rects
   centered on each corner, matching `nearestCorner`'s slop.
-- Bracket **leg length is clamped** to `max(6, min(18, 0.4·cropW, 0.4·cropH))` so
-  the four L-brackets never cross on a tiny crop. They draw white@0.95 with a soft
-  `NSShadow` (reads on light AND dark content); the actively-dragged corner draws
-  in `controlAccentColor`. The change is interaction + drawing only — the three
-  editors (Image/GIF/Video) mount the same overlay and needed no edit.
+- Bracket **leg length is `min(handleLegMax, min(cropW, cropH) · 0.4)`** — the 0.4
+  factor (2 × 0.4 < 1) guarantees the two legs sharing an edge never cross, even on
+  a tiny crop. **Do NOT add a fixed floor** (an earlier `max(6, …)` floor *defeated*
+  that guarantee: when `0.4·side < 6` the floor forced 6pt legs that crossed on a
+  sub-12pt displayed crop — reachable with 2x pasted media or large content shown
+  small). Legs shrink proportionally on small crops; that's correct.
+- **The corner grab slop must shrink on a small crop too**, or the four 18pt square
+  zones overlap and a click resolves to the wrong corner. Clamp to half the smaller
+  displayed side: `effectiveCornerSlop = min(cornerSlop, min(cropW, cropH) / 2)`,
+  computed from `viewCropRect` and used by `hitTest`, `mouseDown`, AND
+  `resetCursorRects` (so the crosshair zone matches the live hit area). On a normal
+  crop this is just `cornerSlop`; it only kicks in when the crop is displayed
+  smaller than `2·cornerSlop`.
+- **Capture a grab offset on mouseDown** (`anchor − clickPoint`) and add it back on
+  mouseDragged, or the corner teleports to the cursor on the first drag delta — the
+  jump scales with the slop times the content/view zoom, so it's worst on high-res
+  media shown small.
+- The corner→point mapping lives in **one** place — `CropGeometry.Corner.point(in:)`
+  — shared by `nearestCorner`, `resetCursorRects`, and `drawCornerHandles` (the draw
+  site additionally derives inward `dx`/`dy` from the corner). `Corner.allCases`
+  declaration order doubles as the deterministic tie-break order in `nearestCorner`.
+- Shadow: use an **offset-free** blur halo (`shadowOffset = .zero`), not a directional
+  drop shadow. `NSShadow.shadowOffset` is interpreted in the (flipped) context's
+  coordinate space, so a directional offset both inverts visually and is a trap; a
+  zero-offset halo reads on light AND dark content and sidesteps the flip entirely.
+- The change is interaction + drawing only — the three editors (Image/GIF/Video)
+  mount the same overlay and needed no edit.

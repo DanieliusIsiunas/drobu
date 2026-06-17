@@ -78,15 +78,30 @@ final class CropOverlayNSView: NSView {
     }
 
     private var dragCorner: CropGeometry.Corner?
+    /// View-space offset from the grabbed corner's anchor to the mousedown point,
+    /// so dragging tracks the cursor delta instead of teleporting the corner to it.
+    private var grabOffset: CGSize = .zero
+    /// Max corner grab radius; the effective slop shrinks on a tiny crop so adjacent
+    /// zones never overlap (see `effectiveCornerSlop`).
     private let cornerSlop: CGFloat = 18
+    /// Max L-bracket leg length, in points.
+    private let handleLegMax: CGFloat = 18
 
     override var isFlipped: Bool { true }
 
     // Respond to first click without needing window activation
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    // Prevent window dragging when interacting with a crop edge
+    // Prevent window dragging when interacting with a crop corner handle
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// The corner grab radius for the current crop, clamped so adjacent corners'
+    /// square zones never overlap (half the smaller displayed side). On a normal
+    /// crop this is just `cornerSlop`; it only shrinks on a very small crop.
+    private func effectiveCornerSlop(forFitted fitted: NSRect) -> CGFloat {
+        let rect = geometry.viewCropRect(fittedRect: fitted)
+        return min(cornerSlop, min(rect.width, rect.height) / 2)
+    }
 
     /// Only claim clicks near a crop corner; everything else falls through to the
     /// player below (keeps window-drag-by-background working mid-frame).
@@ -94,7 +109,8 @@ final class CropOverlayNSView: NSView {
         guard isInteractionEnabled, geometry.isCroppable else { return nil }
         let local = convert(point, from: superview)
         let fitted = geometry.fittedRect(in: bounds.size)
-        guard geometry.nearestCorner(atViewPoint: local, fittedRect: fitted, slop: cornerSlop) != nil else {
+        let slop = effectiveCornerSlop(forFitted: fitted)
+        guard geometry.nearestCorner(atViewPoint: local, fittedRect: fitted, slop: slop) != nil else {
             return nil
         }
         return self
@@ -106,14 +122,24 @@ final class CropOverlayNSView: NSView {
         guard isInteractionEnabled, geometry.isCroppable else { return }
         let location = convert(event.locationInWindow, from: nil)
         let fitted = geometry.fittedRect(in: bounds.size)
-        dragCorner = geometry.nearestCorner(atViewPoint: location, fittedRect: fitted, slop: cornerSlop)
+        let slop = effectiveCornerSlop(forFitted: fitted)
+        guard let corner = geometry.nearestCorner(atViewPoint: location, fittedRect: fitted, slop: slop) else {
+            dragCorner = nil
+            return
+        }
+        dragCorner = corner
+        // Remember where inside the grab zone the corner was clicked, so the first
+        // drag delta doesn't snap the corner to the cursor.
+        let anchor = corner.point(in: geometry.viewCropRect(fittedRect: fitted))
+        grabOffset = CGSize(width: anchor.x - location.x, height: anchor.y - location.y)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let corner = dragCorner else { return }
         let location = convert(event.locationInWindow, from: nil)
         let fitted = geometry.fittedRect(in: bounds.size)
-        let contentPoint = geometry.contentPoint(fromViewPoint: location, fittedRect: fitted)
+        let tracked = CGPoint(x: location.x + grabOffset.width, y: location.y + grabOffset.height)
+        let contentPoint = geometry.contentPoint(fromViewPoint: tracked, fittedRect: fitted)
         geometry.drag(corner: corner, toContentPoint: contentPoint)
         onGeometryChange?(geometry)
     }
@@ -129,17 +155,13 @@ final class CropOverlayNSView: NSView {
         let fitted = geometry.fittedRect(in: bounds.size)
         let rect = geometry.viewCropRect(fittedRect: fitted)
 
-        // A square grab zone centered on each corner (matches nearestCorner's slop).
-        // macOS exposes no public diagonal-resize NSCursor — crosshair is the honest
-        // "grab this point" cue.
-        let side = cornerSlop * 2
-        for corner in [
-            NSPoint(x: rect.minX, y: rect.minY),
-            NSPoint(x: rect.maxX, y: rect.minY),
-            NSPoint(x: rect.minX, y: rect.maxY),
-            NSPoint(x: rect.maxX, y: rect.maxY),
-        ] {
-            let zone = NSRect(x: corner.x - cornerSlop, y: corner.y - cornerSlop, width: side, height: side)
+        // A square grab zone centered on each corner, sized to the same effective
+        // slop the hit-test uses. macOS exposes no public diagonal-resize NSCursor —
+        // crosshair is the honest "grab this point" cue.
+        let slop = effectiveCornerSlop(forFitted: fitted)
+        for corner in CropGeometry.Corner.allCases {
+            let p = corner.point(in: rect)
+            let zone = NSRect(x: p.x - slop, y: p.y - slop, width: slop * 2, height: slop * 2)
             addCursorRect(zone.intersection(bounds), cursor: .crosshair)
         }
     }
@@ -177,30 +199,29 @@ final class CropOverlayNSView: NSView {
 
     /// Four L-shaped corner brackets hugging the crop rect's corners. The
     /// actively-dragged corner draws in the accent color; the rest are white with
-    /// a soft shadow so they read on both light and dark content. Leg length is
-    /// clamped to a fraction of the crop size so the brackets never cross on a
-    /// tiny crop.
+    /// a soft halo so they read on both light and dark content.
     private func drawCornerHandles(in rect: NSRect) {
-        let leg = max(6, min(18, rect.width * 0.4, rect.height * 0.4))
+        // Leg ~40% of the smaller displayed side, capped at handleLegMax. The 0.4
+        // factor keeps the two legs that share an edge from ever crossing
+        // (2 × 0.4 < 1), even on a tiny crop — so there is no fixed floor, which
+        // would defeat that guarantee.
+        let leg = min(handleLegMax, min(rect.width, rect.height) * 0.4)
 
+        // Offset-free blur halo: reads on light AND dark content and is immune to
+        // the flipped-coordinate shadow-offset direction trap.
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
         shadow.shadowBlurRadius = 2
-        shadow.shadowOffset = NSSize(width: 0, height: -1)
-
-        // Each corner: its anchor point and the inward x/y directions the two legs
-        // travel (view is flipped, so +y is downward).
-        let corners: [(corner: CropGeometry.Corner, point: NSPoint, dx: CGFloat, dy: CGFloat)] = [
-            (.topLeft, NSPoint(x: rect.minX, y: rect.minY), 1, 1),
-            (.topRight, NSPoint(x: rect.maxX, y: rect.minY), -1, 1),
-            (.bottomLeft, NSPoint(x: rect.minX, y: rect.maxY), 1, -1),
-            (.bottomRight, NSPoint(x: rect.maxX, y: rect.maxY), -1, -1),
-        ]
+        shadow.shadowOffset = .zero
 
         NSGraphicsContext.saveGraphicsState()
         shadow.set()
-        for entry in corners {
-            let color: NSColor = entry.corner == dragCorner
+        for corner in CropGeometry.Corner.allCases {
+            let anchor = corner.point(in: rect)
+            // Inward leg directions (view is flipped, so +y is downward).
+            let dx: CGFloat = (corner == .topLeft || corner == .bottomLeft) ? 1 : -1
+            let dy: CGFloat = (corner == .topLeft || corner == .topRight) ? 1 : -1
+            let color: NSColor = corner == dragCorner
                 ? .controlAccentColor
                 : NSColor.white.withAlphaComponent(0.95)
             color.setStroke()
@@ -208,9 +229,9 @@ final class CropOverlayNSView: NSView {
             path.lineWidth = 3
             path.lineCapStyle = .round
             path.lineJoinStyle = .round
-            path.move(to: NSPoint(x: entry.point.x + entry.dx * leg, y: entry.point.y))
-            path.line(to: entry.point)
-            path.line(to: NSPoint(x: entry.point.x, y: entry.point.y + entry.dy * leg))
+            path.move(to: NSPoint(x: anchor.x + dx * leg, y: anchor.y))
+            path.line(to: anchor)
+            path.line(to: NSPoint(x: anchor.x, y: anchor.y + dy * leg))
             path.stroke()
         }
         NSGraphicsContext.restoreGraphicsState()

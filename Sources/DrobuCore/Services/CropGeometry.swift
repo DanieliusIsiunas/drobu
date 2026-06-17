@@ -24,6 +24,17 @@ struct CropGeometry: Equatable {
 
     enum Corner: CaseIterable {
         case topLeft, topRight, bottomLeft, bottomRight
+
+        /// The corner's anchor point within a rect. Single source of truth for the
+        /// corner→point mapping, shared by hit-testing, cursor rects, and drawing.
+        func point(in rect: CGRect) -> CGPoint {
+            switch self {
+            case .topLeft: return CGPoint(x: rect.minX, y: rect.minY)
+            case .topRight: return CGPoint(x: rect.maxX, y: rect.minY)
+            case .bottomLeft: return CGPoint(x: rect.minX, y: rect.maxY)
+            case .bottomRight: return CGPoint(x: rect.maxX, y: rect.maxY)
+            }
+        }
     }
 
     init(contentWidth: Int, contentHeight: Int) {
@@ -116,21 +127,18 @@ struct CropGeometry: Equatable {
     func nearestCorner(atViewPoint point: CGPoint, fittedRect: CGRect, slop: CGFloat) -> Corner? {
         guard isCroppable else { return nil }
         let rect = viewCropRect(fittedRect: fittedRect)
-        let anchors: [(corner: Corner, point: CGPoint)] = [
-            (.topLeft, CGPoint(x: rect.minX, y: rect.minY)),
-            (.topRight, CGPoint(x: rect.maxX, y: rect.minY)),
-            (.bottomLeft, CGPoint(x: rect.minX, y: rect.maxY)),
-            (.bottomRight, CGPoint(x: rect.maxX, y: rect.maxY)),
-        ]
 
+        // Corner.allCases is declaration order (topLeft, topRight, bottomLeft,
+        // bottomRight), which is also the tie-break order on an exact distance tie.
         var best: (corner: Corner, distance: CGFloat)?
-        for anchor in anchors {
-            let dx = abs(point.x - anchor.point.x)
-            let dy = abs(point.y - anchor.point.y)
+        for corner in Corner.allCases {
+            let anchor = corner.point(in: rect)
+            let dx = abs(point.x - anchor.x)
+            let dy = abs(point.y - anchor.y)
             guard dx <= slop, dy <= slop else { continue }
             let distance = (dx * dx + dy * dy).squareRoot()
             if best == nil || distance < best!.distance {
-                best = (anchor.corner, distance)
+                best = (corner, distance)
             }
         }
         return best?.corner

@@ -160,6 +160,20 @@ struct CropGeometryTests {
         #expect(geo.cropRect == CGRect(x: 0, y: 0, width: 60, height: 70))
     }
 
+    @Test func cornerDragTopRightMovesRightAndTop() {
+        var geo = CropGeometry(contentWidth: 100, contentHeight: 100)
+        geo.drag(corner: .topRight, toContentPoint: CGPoint(x: 80, y: 30))
+        // right edge -> x=80, top edge -> y=30; left/bottom anchored (bottomLeft fixed).
+        #expect(geo.cropRect == CGRect(x: 0, y: 30, width: 80, height: 70))
+    }
+
+    @Test func cornerDragBottomLeftMovesLeftAndBottom() {
+        var geo = CropGeometry(contentWidth: 100, contentHeight: 100)
+        geo.drag(corner: .bottomLeft, toContentPoint: CGPoint(x: 20, y: 70))
+        // left edge -> x=20, bottom edge -> y=70; right/top anchored (topRight fixed).
+        #expect(geo.cropRect == CGRect(x: 20, y: 0, width: 80, height: 70))
+    }
+
     @Test func cornerDragClampsMinimumSizeBothAxes() {
         var geo = CropGeometry(contentWidth: 100, contentHeight: 100)
         // Drag topLeft past the opposite corner on both axes — clamps to 20×20
@@ -229,6 +243,14 @@ struct CropGeometryTests {
         // The top-left corner now sits at (40, 40) in view space.
         #expect(geo.nearestCorner(atViewPoint: CGPoint(x: 41, y: 41), fittedRect: fitted, slop: 18) == .topLeft)
         #expect(geo.nearestCorner(atViewPoint: CGPoint(x: 2, y: 2), fittedRect: fitted, slop: 18) == nil)
+    }
+
+    @Test func cornerPointMapsToRectCorners() {
+        let rect = CGRect(x: 10, y: 20, width: 100, height: 50)
+        #expect(CropGeometry.Corner.topLeft.point(in: rect) == CGPoint(x: 10, y: 20))
+        #expect(CropGeometry.Corner.topRight.point(in: rect) == CGPoint(x: 110, y: 20))
+        #expect(CropGeometry.Corner.bottomLeft.point(in: rect) == CGPoint(x: 10, y: 70))
+        #expect(CropGeometry.Corner.bottomRight.point(in: rect) == CGPoint(x: 110, y: 70))
     }
 
     @Test func nearestCornerTieBreaksDeterministically() {
