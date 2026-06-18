@@ -1,12 +1,15 @@
 ---
 // Positioning vs the macOS 26 (Tahoe) Spotlight clipboard history.
-// Claims are grounded in verified facts (8h default / 7-day max retention,
-// plain-text only, ~16k char cap, no search/pinning/source-tracking/capture;
-// requires macOS 26). Kept conservative ("a few hours") so it stays accurate
-// as Apple iterates retention.
+// Claims are grounded in verified facts: 7-day MAX retention (8h default,
+// 30min/8h/7-day options in 26.1), formatting stripped from text, ~16k char
+// cap, no source-app tracking, no screen capture, requires macOS 26. Each
+// claim is stated as a defensible ceiling so it stays accurate across Tahoe
+// point releases (Spotlight DOES handle images/files — only formatting is
+// stripped — and its retention can reach 7 days, so we don't say "text-only"
+// or "a few hours").
 const spotlightLimits = [
-  "Recent items expire in hours (7 days at most)",
-  "Plain text only — formatting is stripped",
+  "Clips kept 7 days at most, then cleared",
+  "Strips formatting from copied text",
   "Caps each clip at ~16,000 characters",
   "No record of which app a clip came from",
   "No screen, GIF, or video capture",
@@ -33,7 +36,7 @@ const drobuWins = [
         macOS 26 added a clipboard. <span class="text-accent">Drobu is the one you'll actually use.</span>
       </h2>
       <p class="mt-6 text-text-secondary text-lg max-w-2xl mx-auto">
-        Tahoe's Spotlight clipboard keeps recent text and images for a few hours, then drops them. Drobu keeps far more, for as long as you choose — searchable, editable, one keystroke away, on macOS 14 too.
+        Tahoe's Spotlight clipboard holds recent clips for up to 7 days, then clears them — and only on macOS 26. Drobu keeps far more, for as long as you choose — searchable, editable, one keystroke away, on macOS 14 too.
       </p>
     </div>
 
