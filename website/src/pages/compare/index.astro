@@ -3,16 +3,17 @@ import Landing from "../../layouts/Landing.astro";
 import { DOWNLOAD_URL } from "../../config";
 import { comparisons, masterMatrix } from "../../data/comparisons";
 
-const title = "Drobu vs Maccy, Paste & CleanShot X — Comparison";
+const title = "Drobu vs Maccy, Paste, CleanShot & Spotlight";
 const description =
-  "How Drobu compares to Maccy, Paste, and CleanShot X — clipboard history, screen capture, pricing, and privacy for Mac, side by side.";
+  "How Drobu compares to Maccy, Paste, CleanShot X, and the macOS Spotlight clipboard on history, capture, pricing, and privacy for Mac.";
 
-const products = ["drobu", "maccy", "paste", "cleanshot"] as const;
+const products = ["drobu", "maccy", "paste", "cleanshot", "spotlight"] as const;
 const productLabels: Record<string, string> = {
   drobu: "Drobu",
   maccy: "Maccy",
   paste: "Paste",
   cleanshot: "CleanShot X",
+  spotlight: "Spotlight",
 };
 ---
 
@@ -30,7 +31,7 @@ const productLabels: Record<string, string> = {
         How Drobu compares
       </h1>
       <p class="mt-6 text-lg text-text-secondary max-w-2xl mx-auto leading-relaxed">
-        Drobu is the only one of these that pairs a searchable clipboard history with screen-to-GIF capture, for a one-time price, fully local. Here's the honest side-by-side — including where the others win.
+        Drobu is the only one of these that pairs a searchable clipboard history with screen-to-GIF capture, for a one-time price, fully local. Here's the honest side-by-side, including where the others win.
       </p>
     </header>
 
@@ -55,16 +56,17 @@ const productLabels: Record<string, string> = {
                 <td class="px-4 py-3 text-text-secondary">{row.maccy}</td>
                 <td class="px-4 py-3 text-text-secondary">{row.paste}</td>
                 <td class="px-4 py-3 text-text-secondary">{row.cleanshot}</td>
+                <td class="px-4 py-3 text-text-secondary">{row.spotlight}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p class="mt-3 text-xs text-text-muted text-center">Competitor details verified June 2026; prices can change — check each vendor for the latest.</p>
+      <p class="mt-3 text-xs text-text-muted text-center">Competitor details verified June 2026. Prices can change, so check each vendor for the latest.</p>
     </section>
 
     <!-- Per-comparison cards -->
-    <section class="grid md:grid-cols-3 gap-4 mb-16">
+    <section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
       {comparisons.map((c) => (
         <a href={`/compare/${c.slug}`} class="group p-6 rounded-2xl border border-white/5 bg-bg-card hover:border-white/10 hover:-translate-y-1 transition-all duration-300">
           <h2 class="text-lg font-semibold text-text-primary mb-2">{c.h1}</h2>
