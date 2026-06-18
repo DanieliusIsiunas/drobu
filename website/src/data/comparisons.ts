@@ -103,7 +103,7 @@ const paste: Comparison = {
   subhead:
     "Paste is a polished, cross-device clipboard manager — on a subscription. Drobu is a one-time $14.99 purchase that adds screen capture and keeps everything local. The trade-off is sync: here's how it shakes out.",
   priceLine:
-    "Drobu is $14.99 one-time. Paste is $29.99/year (or a $89.99 one-time license) — so a year of Paste already costs about double Drobu, and it keeps billing.",
+    "Drobu is $14.99 one-time. Paste is $29.99/year or a $89.99 one-time license — either way, several times Drobu's price.",
   rows: [
     { dimension: "Price", drobu: "$14.99 one-time", rival: "$29.99/year (or $89.99 lifetime)", advantage: "drobu" },
     { dimension: "Clipboard history", drobu: "Full history, retention up to 365 days", rival: "Unlimited history, pinboards", advantage: "even" },
@@ -198,7 +198,7 @@ export const masterMatrix: MasterRow[] = [
   { dimension: "Screen capture (GIF/video)", drobu: "Yes", maccy: "No", paste: "No", cleanshot: "Yes — advanced" },
   { dimension: "Inline media editing", drobu: "Crop & trim", maccy: "No", paste: "No", cleanshot: "Annotation" },
   { dimension: "Cross-device sync", drobu: "No", maccy: "No", paste: "iCloud (Mac + iOS)", cleanshot: "No" },
-  { dimension: "Storage / account", drobu: "Local, no account", maccy: "Local, no account", paste: "iCloud / Apple ID", cleanshot: "Local core" },
+  { dimension: "Storage / account", drobu: "Local, no account", maccy: "Local, no account", paste: "Local-first, opt. sync", cleanshot: "Local core" },
   { dimension: "Open source", drobu: "No", maccy: "Yes (MIT)", paste: "No", cleanshot: "No" },
   { dimension: "Platform", drobu: "macOS 14+", maccy: "macOS 14+", paste: "macOS + iOS", cleanshot: "macOS 10.15+" },
 ];
