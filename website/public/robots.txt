@@ -1,0 +1,5 @@
+# https://drobu.app
+User-agent: *
+Allow: /
+
+Sitemap: https://drobu.app/sitemap-index.xml
