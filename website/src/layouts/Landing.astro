@@ -10,7 +10,7 @@ interface Props {
 }
 
 const {
-  title = "Drobu — Mac Clipboard Manager with Screen Capture",
+  title = "Drobu | Mac Clipboard Manager with Screen Capture",
   description = "Mac clipboard manager with full copy history, instant search, and screen-to-GIF recording. Paste anything with one keystroke. $14.99 once, 14-day trial.",
   noindex = false,
 } = Astro.props;
@@ -22,9 +22,9 @@ const ogImage = new URL("/og-image.png", Astro.site);
 // of the per-page `description` so the schema/alt stay accurate on every page
 // (e.g. /privacy, /terms) rather than inheriting that page's description.
 const PRODUCT_DESCRIPTION =
-  "Drobu is a clipboard manager for macOS that keeps your full copy history, captures your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local — no cloud, no account, no tracking.";
+  "Drobu is a clipboard manager for macOS that keeps your full copy history, captures your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local, with no cloud, no account, and no tracking.";
 const OG_IMAGE_ALT =
-  "Drobu — clipboard history and screen capture for macOS";
+  "Drobu: clipboard history and screen capture for macOS";
 
 const softwareSchema = {
   "@context": "https://schema.org",
@@ -112,7 +112,7 @@ const softwareSchema = {
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-    <!-- Structured Data — product schema only on indexable pages -->
+    <!-- Structured data: product schema only on indexable pages -->
     {
       !noindex && (
         <script

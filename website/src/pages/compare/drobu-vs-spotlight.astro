@@ -1,0 +1,11 @@
+---
+import Landing from "../../layouts/Landing.astro";
+import CompareBody from "../../components/CompareBody.astro";
+import { getComparison } from "../../data/comparisons";
+
+const c = getComparison("drobu-vs-spotlight")!;
+---
+
+<Landing title={c.title} description={c.description}>
+  <CompareBody comparison={c} />
+</Landing>
