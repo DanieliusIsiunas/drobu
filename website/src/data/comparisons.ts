@@ -113,15 +113,14 @@ const paste: Comparison = {
     { dimension: "Cross-device sync", drobu: "No — Mac only", rival: "iCloud across Mac, iPhone, iPad", advantage: "rival" },
     { dimension: "iPhone / iPad app", drobu: "No", rival: "Yes, with a keyboard extension", advantage: "rival" },
     { dimension: "Shared pinboards", drobu: "No", rival: "Yes — saved, shareable collections", advantage: "rival" },
-    { dimension: "Account required", drobu: "No account, fully local", rival: "Requires Apple ID / iCloud", advantage: "drobu" },
+    { dimension: "Local-first storage", drobu: "Fully local — no cloud component", rival: "Local-first; optional iCloud sync", advantage: "even" },
     { dimension: "System slash commands", drobu: "/sleep, keep-awake, closed-lid", rival: "None", advantage: "drobu" },
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS, iOS, iPadOS, visionOS", advantage: "rival" },
   ],
   drobuWins: [
     "Built-in screen capture — GIF and video recording Paste doesn't offer",
     "Region recording plus inline crop & trim of captured media",
-    "A true one-time price — no recurring bill",
-    "Fully local storage, no account or iCloud required",
+    "Much lower one-time price — $14.99 vs Paste's $29.99/year or $89.99 lifetime",
     "System slash commands (/sleep, keep-awake, closed-lid)",
   ],
   rivalWins: [
