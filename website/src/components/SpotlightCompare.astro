@@ -1,0 +1,75 @@
+---
+// Positioning vs the macOS 26 (Tahoe) Spotlight clipboard history.
+// Claims are grounded in verified facts: 7-day MAX retention (8h default,
+// 30min/8h/7-day options in 26.1), formatting stripped from text, ~16k char
+// cap, no source-app tracking, no screen capture, requires macOS 26. Each
+// claim is stated as a defensible ceiling so it stays accurate across Tahoe
+// point releases (Spotlight DOES handle images/files — only formatting is
+// stripped — and its retention can reach 7 days, so we don't say "text-only"
+// or "a few hours").
+const spotlightLimits = [
+  "Clips kept 7 days at most, then cleared",
+  "Strips formatting from copied text",
+  "Caps each clip at ~16,000 characters",
+  "No record of which app a clip came from",
+  "No screen, GIF, or video capture",
+  "Requires macOS 26 — nothing on macOS 14 or 15",
+];
+
+const drobuWins = [
+  "Keep clips up to a year — retention you control",
+  "FTS5 full-text search — results as you type",
+  "Source app tracked on every clip",
+  "Screen to GIF & video, with crop and trim",
+  "Paste anything with one keystroke",
+  "Works on macOS 14 (Sonoma) and later",
+];
+---
+
+<section id="spotlight" class="py-24 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="text-center mb-12">
+      <p class="text-xs uppercase tracking-widest text-text-muted mb-4">
+        macOS 26 Spotlight clipboard?
+      </p>
+      <h2 class="text-3xl md:text-4xl font-bold text-text-primary">
+        macOS 26 added a clipboard. <span class="text-accent">Drobu is the one you'll actually use.</span>
+      </h2>
+      <p class="mt-6 text-text-secondary text-lg max-w-2xl mx-auto">
+        Tahoe's Spotlight clipboard holds recent clips for up to 7 days, then clears them — and only on macOS 26. Drobu keeps far more, for up to a year — searchable, editable, one keystroke away, on macOS 14 too.
+      </p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <!-- Spotlight clipboard -->
+      <div class="p-6 rounded-2xl border border-white/5 bg-bg-card">
+        <h3 class="text-lg font-semibold text-text-secondary mb-4">Spotlight clipboard</h3>
+        <ul class="space-y-3">
+          {spotlightLimits.map((item) => (
+            <li class="flex items-start gap-3 text-sm text-text-secondary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted shrink-0 mt-0.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" />
+              </svg>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- Drobu -->
+      <div class="p-6 rounded-2xl border border-accent/30 bg-bg-card">
+        <h3 class="text-lg font-semibold text-text-primary mb-4">Drobu</h3>
+        <ul class="space-y-3">
+          {drobuWins.map((item) => (
+            <li class="flex items-start gap-3 text-sm text-text-primary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0 mt-0.5" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
