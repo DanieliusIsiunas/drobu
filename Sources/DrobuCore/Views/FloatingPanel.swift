@@ -402,6 +402,15 @@ final class FloatingPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
+        // Required for ARC — prevents an over-release (double-free) on close().
+        // A programmatically-created NSWindow defaults isReleasedWhenClosed = true,
+        // so close() (fired from the dismiss closure below, which is the window's
+        // only strong owner) injects an unbalanced autorelease. That extra release
+        // lands one cycle later in the main run loop's autorelease-pool drain and
+        // crashes in objc_release. Every other window in the app sets this
+        // (FloatingPanel:42, RecordingIndicatorWindow:21, ActivationPanel,
+        // SettingsPanel, LargePreviewPanel) — this HUD was the lone exception.
+        hud.isReleasedWhenClosed = false
         hud.isOpaque = false
         hud.backgroundColor = .clear
         hud.level = .floating

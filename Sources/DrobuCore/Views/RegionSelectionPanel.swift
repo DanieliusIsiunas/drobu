@@ -18,6 +18,14 @@ final class RegionSelectionPanel: NSPanel {
             defer: false
         )
 
+        // Required for ARC — this panel is owned by the capture service's strong
+        // `selectionPanel` ref and self-close()s from its callbacks (every close
+        // path also nils that ref). A programmatic NSPanel defaults
+        // isReleasedWhenClosed = true, so close() would inject an unbalanced
+        // autorelease and over-release on the next main-thread pool drain — the
+        // same hazard fixed in the FloatingPanel HUD. Matches every other window.
+        isReleasedWhenClosed = false
+
         level = .screenSaver
         isOpaque = false
         backgroundColor = .clear
