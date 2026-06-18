@@ -82,7 +82,7 @@ const maccy: Comparison = {
   rivalWins: [
     "Genuinely free — full functionality at zero cost",
     "Open source (MIT) — auditable, and can never be paywalled or sunset",
-    "Tiny footprint — a ~1.7 MB app with no background database",
+    "Tiny footprint — a ~1.7 MB app, light on memory",
     "Nuanced password-manager handling (honors concealed pasteboard flags)",
     "Homebrew-installable, fits dotfile/automation setups",
     "Regex search for power users",
@@ -158,7 +158,7 @@ const cleanshot: Comparison = {
     { dimension: "Screen capture", drobu: "GIF + video, region select", rival: "Screenshot, window, scrolling, 4K video, GIF", advantage: "rival" },
     { dimension: "Annotation / markup", drobu: "None", rival: "Rich — arrows, blur, text, shapes", advantage: "rival" },
     { dimension: "OCR", drobu: "No", rival: "Yes — 20+ languages", advantage: "rival" },
-    { dimension: "Cloud share links", drobu: "No", rival: "Yes — password & self-destruct", advantage: "rival" },
+    { dimension: "Cloud share links", drobu: "No", rival: "Yes — Cloud links (Pro tier for password/self-destruct)", advantage: "rival" },
     { dimension: "Price", drobu: "$14.99 once, no renewal", rival: "$29 once (+$19/yr to stay current)", advantage: "drobu" },
   ],
   drobuWins: [
@@ -173,7 +173,7 @@ const cleanshot: Comparison = {
     "A rich annotation toolset — arrows, blur, highlight, text, shapes",
     "Scrolling capture that auto-stitches long pages",
     "On-device OCR from any screenshot (20+ languages)",
-    "Cloud share links with passwords, self-destruct, and view notifications",
+    "CleanShot Cloud share links (password protection & self-destruct on the Cloud Pro tier)",
     "4K video recording with system-audio capture",
     "The de-facto standard Mac capture suite — broad and mature",
   ],
