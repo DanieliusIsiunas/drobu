@@ -4,15 +4,72 @@ import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  /** When true, emit `noindex` and suppress the product JSON-LD (used on
+   *  thin/transient pages: /thank-you, /404). */
+  noindex?: boolean;
 }
 
 const {
   title = "Drobu — Clipboard History for macOS",
   description = "Drobu keeps everything you copy and lets you find it instantly. $14.99 one-time, 14-day free trial. Fully local, no cloud.",
+  noindex = false,
 } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL("/og-image.png", Astro.site);
+
+// Product-level copy for structured data + share previews. Kept independent
+// of the per-page `description` so the schema/alt stay accurate on every page
+// (e.g. /privacy, /terms) rather than inheriting that page's description.
+const PRODUCT_DESCRIPTION =
+  "Drobu is a clipboard manager for macOS that keeps your full copy history, captures your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local — no cloud, no account, no tracking.";
+const OG_IMAGE_ALT =
+  "Drobu — clipboard history and screen capture for macOS";
+
+const softwareSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Drobu",
+  url: "https://drobu.app",
+  operatingSystem: "macOS 14.0 or later",
+  applicationCategory: "UtilitiesApplication",
+  applicationSubCategory: "Clipboard Manager",
+  downloadUrl:
+    "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg",
+  image: ogImage.href,
+  screenshot: ogImage.href,
+  featureList: [
+    "Clipboard history",
+    "Full-text search",
+    "Screen recording",
+    "GIF capture",
+    "Video trimming",
+    "Image and GIF cropping",
+    "One-keystroke paste",
+    "Slash commands",
+    "Source-app tracking",
+    "Multi-select paste",
+    "Local-only storage",
+  ],
+  offers: {
+    "@type": "Offer",
+    price: "14.99",
+    priceCurrency: "USD",
+    availability: "https://schema.org/InStock",
+    url: "https://drobu.app/buy",
+  },
+  author: {
+    "@type": "Person",
+    name: "Danielius Isiūnas",
+    url: "https://drobu.app",
+  },
+  publisher: {
+    "@type": "Organization",
+    name: "Drobu",
+    url: "https://drobu.app",
+  },
+  description: PRODUCT_DESCRIPTION,
+};
 ---
 
 <!doctype html>
@@ -26,38 +83,44 @@ const ogImage = new URL("/og-image.png", Astro.site);
     <!-- SEO -->
     <title>{title}</title>
     <meta name="description" content={description} />
-    <link rel="canonical" href={canonicalURL} />
+    {/* Canonical only on indexable pages — a noindex page (e.g. /404) has no
+        meaningful canonical URL, and on the 404 it would point at /404/, which
+        GitHub Pages never serves. */}
+    {!noindex && <link rel="canonical" href={canonicalURL} />}
+    {noindex && <meta name="robots" content="noindex, follow" />}
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:site_name" content="Drobu" />
+    <meta property="og:locale" content="en_US" />
+    {!noindex && <meta property="og:url" content={canonicalURL} />}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={OG_IMAGE_ALT} />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={OG_IMAGE_ALT} />
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-    <!-- Structured Data -->
-    <script type="application/ld+json" set:html={JSON.stringify({
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Drobu",
-      "operatingSystem": "macOS 14+",
-      "applicationCategory": "UtilitiesApplication",
-      "offers": {
-        "@type": "Offer",
-        "price": "14.99",
-        "priceCurrency": "USD"
-      },
-      "description": description,
-    })} />
+    <!-- Structured Data — product schema only on indexable pages -->
+    {
+      !noindex && (
+        <script
+          type="application/ld+json"
+          set:html={JSON.stringify(softwareSchema)}
+        />
+      )
+    }
   </head>
   <body class="font-sans antialiased bg-bg-primary text-text-primary min-h-screen">
     <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-accent focus:text-white focus:rounded-lg">

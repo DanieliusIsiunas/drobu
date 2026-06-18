@@ -1,0 +1,44 @@
+---
+import Landing from "../layouts/Landing.astro";
+import { DOWNLOAD_URL } from "../config";
+---
+
+<Landing
+  title="Page not found — Drobu"
+  description="That page doesn't exist. Head back to drobu.app to get the macOS clipboard manager that captures, edits, and pastes."
+  noindex={true}
+>
+  <main id="main" class="min-h-screen flex items-center justify-center px-6 py-24">
+    <div class="max-w-md mx-auto text-center">
+      <img
+        src="/drobule.png"
+        alt="Drobu mascot"
+        width="96"
+        height="96"
+        class="mx-auto mb-8"
+      />
+      <p class="text-sm font-mono uppercase tracking-widest text-text-muted mb-3">404</p>
+      <h1 class="text-3xl md:text-4xl font-bold text-text-primary mb-4">
+        This page wandered off.
+      </h1>
+      <p class="text-text-secondary mb-10">
+        The page you're looking for doesn't exist or has moved.
+      </p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          href="/"
+          class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
+        >
+          Back to home
+        </a>
+        <a
+          href={DOWNLOAD_URL}
+          download="Drobu.dmg"
+          class="text-sm text-text-muted hover:text-text-secondary transition-colors"
+        >
+          Download Drobu
+        </a>
+      </div>
+    </div>
+  </main>
+</Landing>
