@@ -192,7 +192,7 @@ export interface MasterRow {
 }
 
 export const masterMatrix: MasterRow[] = [
-  { dimension: "Price", drobu: "$14.99 once", maccy: "Free (or $9.99)", paste: "$29.99/yr", cleanshot: "$29 once" },
+  { dimension: "Price", drobu: "$14.99 once", maccy: "Free (or $9.99)", paste: "$29.99/yr or $89.99 once", cleanshot: "$29 once" },
   { dimension: "Clipboard history", drobu: "Yes — searchable", maccy: "Yes", paste: "Yes (+ pinboards)", cleanshot: "No" },
   { dimension: "Full-text search", drobu: "FTS5 indexed", maccy: "Fuzzy / regex", paste: "Full-text + OCR", cleanshot: "—" },
   { dimension: "Screen capture (GIF/video)", drobu: "Yes", maccy: "No", paste: "No", cleanshot: "Yes — advanced" },
