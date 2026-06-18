@@ -1,0 +1,138 @@
+---
+import { DOWNLOAD_URL } from "../config";
+import { comparisons, type Comparison } from "../data/comparisons";
+
+interface Props {
+  comparison: Comparison;
+}
+
+const { comparison: c } = Astro.props;
+const others = comparisons.filter((o) => o.slug !== c.slug);
+
+const cellClass = (who: "drobu" | "rival", advantage: string) =>
+  advantage === who
+    ? "text-text-primary font-medium"
+    : "text-text-secondary";
+---
+
+<main id="main" class="max-w-4xl mx-auto px-6 pt-28 pb-24">
+  <!-- Breadcrumb -->
+  <nav aria-label="Breadcrumb" class="text-sm text-text-muted mb-10">
+    <a href="/" class="hover:text-text-secondary transition-colors">Home</a>
+    <span class="mx-2" aria-hidden="true">/</span>
+    <a href="/compare" class="hover:text-text-secondary transition-colors">Compare</a>
+    <span class="mx-2" aria-hidden="true">/</span>
+    <span class="text-text-secondary">{c.h1}</span>
+  </nav>
+
+  <!-- Hero -->
+  <header class="text-center mb-16">
+    <p class="text-xs uppercase tracking-widest text-text-muted mb-4">Comparison</p>
+    <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary">
+      {c.h1}
+    </h1>
+    <p class="mt-6 text-lg text-text-secondary max-w-2xl mx-auto leading-relaxed">
+      {c.subhead}
+    </p>
+    <div class="mt-8">
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
+      >
+        Download Free Trial
+      </a>
+      <p class="mt-4 text-sm text-text-muted max-w-xl mx-auto">{c.priceLine}</p>
+    </div>
+  </header>
+
+  <!-- Feature table -->
+  <section class="mb-16">
+    <h2 class="text-2xl font-bold text-text-primary mb-6 text-center">
+      Drobu vs {c.rival}, feature by feature
+    </h2>
+    <div class="overflow-x-auto rounded-2xl border border-white/5 bg-bg-card">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-white/10">
+            <th scope="col" class="text-left font-medium text-text-muted px-4 py-3 w-1/3">Feature</th>
+            <th scope="col" class="text-left font-semibold text-accent px-4 py-3">Drobu</th>
+            <th scope="col" class="text-left font-medium text-text-secondary px-4 py-3">{c.rival}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {c.rows.map((row) => (
+            <tr class="border-b border-white/5 last:border-0 align-top">
+              <th scope="row" class="text-left font-normal text-text-muted px-4 py-3">{row.dimension}</th>
+              <td class={`px-4 py-3 ${cellClass("drobu", row.advantage)}`}>{row.drobu}</td>
+              <td class={`px-4 py-3 ${cellClass("rival", row.advantage)}`}>{row.rival}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Honest wins / losses -->
+  <section class="grid md:grid-cols-2 gap-4 mb-16">
+    <div class="p-6 rounded-2xl border border-accent/30 bg-bg-card">
+      <h2 class="text-lg font-semibold text-text-primary mb-4">Where Drobu wins</h2>
+      <ul class="space-y-3">
+        {c.drobuWins.map((item) => (
+          <li class="flex items-start gap-3 text-sm text-text-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0 mt-0.5" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+    <div class="p-6 rounded-2xl border border-white/5 bg-bg-card">
+      <h2 class="text-lg font-semibold text-text-secondary mb-4">Where {c.rival} wins</h2>
+      <ul class="space-y-3">
+        {c.rivalWins.map((item) => (
+          <li class="flex items-start gap-3 text-sm text-text-secondary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted shrink-0 mt-0.5" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <!-- Verdict -->
+  <section class="max-w-2xl mx-auto text-center mb-16">
+    <h2 class="text-2xl font-bold text-text-primary mb-4">The honest verdict</h2>
+    <p class="text-text-secondary leading-relaxed">{c.verdict}</p>
+    <p class="mt-4 text-sm text-text-muted">
+      Learn more about
+      <a href={c.rivalUrl} target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">{c.rival}</a>.
+    </p>
+  </section>
+
+  <!-- CTA + cross-links -->
+  <section class="text-center border-t border-white/5 pt-12">
+    <h2 class="text-2xl md:text-3xl font-bold text-text-primary mb-4">Try Drobu free for 14 days.</h2>
+    <p class="text-text-secondary mb-8">$14.99 once, then it's yours. No subscription, no account, no cloud.</p>
+    <a
+      href={DOWNLOAD_URL}
+      download="Drobu.dmg"
+      class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+    >
+      Download Free Trial
+    </a>
+    <p class="mt-10 text-sm text-text-muted">
+      Compare with
+      {others.map((o, i) => (
+        <>
+          <a href={`/compare/${o.slug}`} class="text-accent hover:underline">{o.rival}</a><span>{i < others.length - 1 ? ", " : ""}</span>
+        </>
+      ))}
+      <span> · </span>
+      <a href="/compare" class="hover:text-text-secondary transition-colors">All comparisons</a>
+    </p>
+  </section>
+</main>
