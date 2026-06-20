@@ -1,0 +1,109 @@
+---
+import Landing from "../layouts/Landing.astro";
+
+const title = "Drobu FAQ | Mac Clipboard Manager Questions";
+const description =
+  "Answers about Drobu, the macOS clipboard manager that also records your screen: pricing, privacy, how it compares to Maccy and the macOS Spotlight clipboard, and more.";
+
+const quickFacts = [
+  { label: "What it is", value: "macOS clipboard manager + screen recorder" },
+  { label: "Price", value: "$14.99 one-time (no subscription)" },
+  { label: "Trial", value: "14 days, no card required" },
+  { label: "Platform", value: "macOS 14 (Sonoma) and later" },
+  { label: "Storage", value: "100% local, no account, no tracking" },
+  { label: "Capture", value: "GIF + video, with crop and trim" },
+];
+
+// Plain-text Q&A reused verbatim for the visible page and the FAQPage JSON-LD.
+const faqs = [
+  {
+    q: "What is Drobu?",
+    a: "Drobu is a macOS clipboard manager that also records your screen. It keeps a searchable history of everything you copy, records any region of your screen as a GIF or video, lets you crop and trim before pasting, and pastes anything with one keystroke. Everything stays on your Mac. It is a one-time $14.99 purchase and runs on macOS 14 or later.",
+  },
+  {
+    q: "What is the best clipboard manager for Mac?",
+    a: "It depends on what you need. Maccy is a great free, open-source choice for plain clipboard history. Paste is polished and syncs across iPhone and Mac on a subscription. Drobu is the best fit if you want clipboard history and screen recording in one tool, kept fully local, for a one-time price. The built-in macOS 26 Spotlight clipboard works for short-term text but clears clips within days.",
+  },
+  {
+    q: "Can a clipboard manager record your screen?",
+    a: "Most cannot. Clipboard managers like Maccy and Paste only store what you copy. Drobu is the clipboard manager that also records your screen: select a region, capture it as a GIF or video, trim it, and paste it straight into Slack, GitHub, or any app. Screen recordings land in your clipboard history alongside text and images, with no separate file to manage.",
+  },
+  {
+    q: "How do I see clipboard history on a Mac?",
+    a: "macOS only remembers the last thing you copied, so to see older items you need a clipboard manager. macOS 26 added a Spotlight clipboard that keeps recent clips for up to seven days. For a full, searchable history that does not expire, a dedicated app like Drobu keeps everything you copy and lets you find it with a keystroke and a few letters.",
+  },
+  {
+    q: "How is Drobu different from Maccy?",
+    a: "Maccy is a free, open-source clipboard manager that does text and image history very well. Drobu is a paid app ($14.99 one-time) that adds what Maccy does not: recording your screen as a GIF or video, cropping and trimming media inline, and full-text search across your history. Choose Maccy if you only need clipboard history; choose Drobu if you also want capture and editing in the same tool.",
+  },
+  {
+    q: "Is Drobu better than the built-in macOS 26 Spotlight clipboard?",
+    a: "They serve different needs. The macOS 26 Spotlight clipboard is free and built in, but it clears clips within about seven days, strips formatting, and cannot capture your screen. Drobu keeps your history for up to a year, preserves formatting, records your screen to GIF or video, and runs on macOS 14 and later, not just macOS 26. Spotlight is fine for a quick recent buffer; Drobu is for keeping and reusing more.",
+  },
+  {
+    q: "Is Drobu private, and where is my data stored?",
+    a: "Yes. Drobu stores everything locally on your Mac in a private database. There is no cloud, no account, and no tracking, so your clipboard history never leaves your device. Drobu also ignores passwords and concealed items from password managers like 1Password, so they are never saved to your history.",
+  },
+  {
+    q: "How much does Drobu cost, and is there a free trial?",
+    a: "Drobu is a one-time $14.99 purchase, not a subscription. You can try it free for 14 days with full functionality and no payment method required upfront. The purchase includes all updates to Drobu 1.x and a license you can use on up to three of your Macs.",
+  },
+  {
+    q: "What macOS version does Drobu need?",
+    a: "Drobu requires macOS 14 (Sonoma) or later. Unlike the built-in macOS 26 Spotlight clipboard, which needs macOS 26, Drobu also runs on macOS 14 and 15.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((f) => ({
+    "@type": "Question",
+    name: f.q,
+    acceptedAnswer: { "@type": "Answer", text: f.a },
+  })),
+};
+---
+
+<Landing title={title} description={description} extraSchema={faqSchema}>
+  <main id="main" class="max-w-3xl mx-auto px-6 pt-28 pb-24">
+    <header class="mb-12">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">FAQ</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary mb-5">
+        Frequently asked questions
+      </h1>
+      <p class="text-lg text-text-secondary leading-relaxed">
+        Drobu is a macOS clipboard manager that also records your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local, a one-time $14.99 purchase, macOS 14 and later.
+      </p>
+    </header>
+
+    <!-- Quick facts -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-px bg-white/5 rounded-2xl overflow-hidden border border-white/5 mb-14">
+      {quickFacts.map((f) => (
+        <div class="bg-bg-card px-5 py-4">
+          <p class="text-[11px] uppercase tracking-wide text-text-muted mb-1">{f.label}</p>
+          <p class="text-sm text-text-primary">{f.value}</p>
+        </div>
+      ))}
+    </div>
+
+    <!-- Q&A -->
+    <div class="space-y-8">
+      {faqs.map((f) => (
+        <div class="border-b border-white/5 pb-8 last:border-0">
+          <h2 class="text-lg md:text-xl font-semibold text-text-primary mb-3">{f.q}</h2>
+          <p class="text-text-secondary leading-relaxed">{f.a}</p>
+        </div>
+      ))}
+    </div>
+
+    <!-- Related comparisons (internal links) -->
+    <div class="mt-14 text-sm text-text-muted">
+      Compare Drobu in detail:
+      <a href="/compare/drobu-vs-maccy" class="text-accent hover:underline">vs Maccy</a>,
+      <a href="/compare/drobu-vs-paste" class="text-accent hover:underline">vs Paste</a>,
+      <a href="/compare/drobu-vs-cleanshot-x" class="text-accent hover:underline">vs CleanShot X</a>,
+      <a href="/compare/drobu-vs-spotlight" class="text-accent hover:underline">vs the macOS Spotlight clipboard</a>.
+    </div>
+  </main>
+</Landing>
