@@ -1,5 +1,6 @@
 ---
 import Landing from "../layouts/Landing.astro";
+import { PRODUCT_DESCRIPTION } from "../data/product";
 
 const title = "Drobu FAQ | Mac Clipboard Manager Questions";
 const description =
@@ -73,7 +74,7 @@ const faqSchema = {
         Frequently asked questions
       </h1>
       <p class="text-lg text-text-secondary leading-relaxed">
-        Drobu is a macOS clipboard manager that also records your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local, a one-time $14.99 purchase, macOS 14 and later.
+        {PRODUCT_DESCRIPTION}
       </p>
     </header>
 
