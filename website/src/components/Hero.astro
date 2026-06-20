@@ -24,7 +24,7 @@ import { DOWNLOAD_URL } from "../config";
         <a
           href={DOWNLOAD_URL}
           download="Drobu.dmg"
-          class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-base"
+          class="js-app-download inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-base"
           id="download-cta"
         >
           <span class="download-label">Download Free Trial</span>
@@ -83,19 +83,3 @@ import { DOWNLOAD_URL } from "../config";
     animation: heroRecPulse 1.4s ease-in-out infinite;
   }
 </style>
-
-<script>
-  // Platform detection: disable CTA for non-macOS visitors
-  const label = document.querySelector(".download-label");
-  const cta = document.getElementById("download-cta");
-  if (label && cta) {
-    const isMac = navigator.platform?.includes("Mac") ||
-      (navigator as any).userAgentData?.platform === "macOS";
-    if (!isMac) {
-      label.textContent = "macOS only";
-      cta.setAttribute("href", "#");
-      cta.classList.remove("bg-accent", "hover:bg-accent-hover");
-      cta.classList.add("bg-white/10", "cursor-not-allowed", "opacity-60");
-    }
-  }
-</script>

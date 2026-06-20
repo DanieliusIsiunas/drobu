@@ -29,9 +29,9 @@ const cellClass = (who: "drobu" | "rival", advantage: string) =>
       <a
         href={DOWNLOAD_URL}
         download="Drobu.dmg"
-        class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
+        class="js-app-download inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
       >
-        Download Free Trial
+        <span class="download-label">Download Free Trial</span>
       </a>
       <p class="mt-4 text-sm text-text-muted max-w-xl mx-auto">{c.priceLine}</p>
     </div>
@@ -107,9 +107,9 @@ const cellClass = (who: "drobu" | "rival", advantage: string) =>
     <a
       href={DOWNLOAD_URL}
       download="Drobu.dmg"
-      class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
     >
-      Download Free Trial
+      <span class="download-label">Download Free Trial</span>
     </a>
     <p class="mt-10 text-sm text-text-muted">
       Compare with
