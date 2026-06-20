@@ -1,0 +1,77 @@
+---
+import MacWindow from "./MacWindow.astro";
+
+const points = [
+  "Crop a screenshot or image to just the right frame",
+  "Trim a GIF or video down to the part that matters",
+  "Built in, so there is no round trip to Preview or QuickTime",
+];
+---
+
+<section class="py-24 px-6">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 lg:gap-16 items-center">
+    <!-- Visual: trim + crop editor (first on desktop, second on mobile) -->
+    <MacWindow title="Edit" class="md:order-1 order-2">
+      <div class="bg-bg-primary p-4">
+        <!-- Preview with crop frame -->
+        <div class="relative rounded-lg overflow-hidden bg-gradient-to-br from-accent/15 via-purple-500/10 to-blue-500/10 mb-4" style="aspect-ratio: 16 / 9;">
+          <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_48%,rgba(255,255,255,0.03)_48%,rgba(255,255,255,0.03)_52%,transparent_52%)] bg-[length:10px_10px]" aria-hidden="true"></div>
+          <!-- crop frame -->
+          <div class="absolute inset-5 border-2 border-accent/70 rounded">
+            <span class="absolute -top-px -left-px w-3.5 h-3.5 border-t-2 border-l-2 border-accent"></span>
+            <span class="absolute -top-px -right-px w-3.5 h-3.5 border-t-2 border-r-2 border-accent"></span>
+            <span class="absolute -bottom-px -left-px w-3.5 h-3.5 border-b-2 border-l-2 border-accent"></span>
+            <span class="absolute -bottom-px -right-px w-3.5 h-3.5 border-b-2 border-r-2 border-accent"></span>
+          </div>
+        </div>
+        <!-- Trim timeline -->
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-mono text-text-muted shrink-0">0:00</span>
+          <div class="relative flex-1 h-9 rounded-md bg-white/5 overflow-hidden">
+            <div class="absolute inset-0 flex gap-px p-px" aria-hidden="true">
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+              <div class="flex-1 bg-white/[0.04] rounded-sm"></div>
+            </div>
+            <!-- selected range -->
+            <div class="absolute top-0 bottom-0 bg-accent/15 border-x-[3px] border-accent" style="left: 22%; right: 30%;">
+              <span class="absolute top-1/2 -translate-y-1/2 -left-[3px] w-[3px] h-4 bg-accent rounded-full"></span>
+              <span class="absolute top-1/2 -translate-y-1/2 -right-[3px] w-[3px] h-4 bg-accent rounded-full"></span>
+            </div>
+          </div>
+          <span class="text-[10px] font-mono text-text-muted shrink-0">0:04</span>
+        </div>
+        <div class="flex items-center justify-between mt-3">
+          <span class="text-[11px] text-text-muted">Trimming to 1.8s</span>
+          <span class="text-[11px] px-2 py-0.5 rounded-md bg-accent/15 text-accent font-medium">Paste</span>
+        </div>
+      </div>
+    </MacWindow>
+
+    <!-- Copy -->
+    <div class="md:order-2 order-1">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Edited</p>
+      <h2 class="text-3xl md:text-4xl font-bold text-text-primary mb-5 leading-tight">
+        Fix it before it lands.
+      </h2>
+      <p class="text-text-secondary text-lg leading-relaxed mb-7">
+        Crop a screenshot down to just the right frame. Trim a recording to the moment that matters. Drobu has a built-in editor, so you go straight from capture to paste without a detour through another app.
+      </p>
+      <ul class="space-y-3">
+        {points.map((p) => (
+          <li class="flex items-start gap-3 text-text-secondary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0 mt-0.5" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>{p}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>

@@ -16,15 +16,6 @@ const cellClass = (who: "drobu" | "rival", advantage: string) =>
 ---
 
 <main id="main" class="max-w-4xl mx-auto px-6 pt-28 pb-24">
-  <!-- Breadcrumb -->
-  <nav aria-label="Breadcrumb" class="text-sm text-text-muted mb-10">
-    <a href="/" class="hover:text-text-secondary transition-colors">Home</a>
-    <span class="mx-2" aria-hidden="true">/</span>
-    <a href="/compare" class="hover:text-text-secondary transition-colors">Compare</a>
-    <span class="mx-2" aria-hidden="true">/</span>
-    <span class="text-text-secondary">{c.h1}</span>
-  </nav>
-
   <!-- Hero -->
   <header class="text-center mb-16">
     <p class="text-xs uppercase tracking-widest text-text-muted mb-4">Comparison</p>
@@ -38,9 +29,9 @@ const cellClass = (who: "drobu" | "rival", advantage: string) =>
       <a
         href={DOWNLOAD_URL}
         download="Drobu.dmg"
-        class="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
+        class="js-app-download inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
       >
-        Download Free Trial
+        <span class="download-label">Download Free Trial</span>
       </a>
       <p class="mt-4 text-sm text-text-muted max-w-xl mx-auto">{c.priceLine}</p>
     </div>
@@ -116,9 +107,9 @@ const cellClass = (who: "drobu" | "rival", advantage: string) =>
     <a
       href={DOWNLOAD_URL}
       download="Drobu.dmg"
-      class="inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
     >
-      Download Free Trial
+      <span class="download-label">Download Free Trial</span>
     </a>
     <p class="mt-10 text-sm text-text-muted">
       Compare with

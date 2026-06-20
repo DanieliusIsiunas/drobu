@@ -1,9 +1,10 @@
 ---
+import { DOWNLOAD_URL } from "../config";
+
 const navLinks = [
   { label: "Features", href: "/#features" },
   { label: "Compare", href: "/compare" },
   { label: "Privacy", href: "/#privacy" },
-  { label: "Download", href: "/#download" },
 ];
 ---
 
@@ -14,7 +15,7 @@ const navLinks = [
       <span>Drobu</span>
     </a>
 
-    <div class="hidden md:flex items-center gap-8">
+    <div class="hidden md:flex items-center gap-7">
       {navLinks.map(({ label, href }) => (
         <a
           href={href}
@@ -23,6 +24,34 @@ const navLinks = [
           {label}
         </a>
       ))}
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        id="nav-download"
+        class="js-app-download inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-colors duration-200"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        <span class="download-label">Download</span>
+      </a>
     </div>
   </nav>
 </header>
+
+<script>
+  // Platform guard for every app-download button site-wide: a non-macOS
+  // visitor should never be handed a .dmg they cannot use.
+  const isMac =
+    navigator.platform?.includes("Mac") ||
+    (navigator as any).userAgentData?.platform === "macOS";
+  if (!isMac) {
+    document.querySelectorAll(".js-app-download").forEach((el) => {
+      const label = el.querySelector(".download-label");
+      if (label) label.textContent = "macOS only";
+      el.classList.add("opacity-50", "pointer-events-none", "cursor-not-allowed");
+    });
+  }
+</script>
