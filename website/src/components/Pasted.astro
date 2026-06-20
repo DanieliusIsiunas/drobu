@@ -1,0 +1,87 @@
+---
+import MacWindow from "./MacWindow.astro";
+
+const points = [
+  "One shortcut opens your history over any app",
+  "Type a few letters to find it, Return to paste",
+  "Select several clips and paste them together",
+];
+---
+
+<section class="py-24 px-6">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 lg:gap-16 items-center">
+    <!-- Copy -->
+    <div>
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Pasted</p>
+      <h2 class="text-3xl md:text-4xl font-bold text-text-primary mb-5 leading-tight">
+        Find it, paste it, without leaving the keyboard.
+      </h2>
+      <p class="text-text-secondary text-lg leading-relaxed mb-7">
+        One shortcut opens your history over whatever app you are in. Type a few letters to find that link from last week, then hit Return to paste. Need a few clips at once? Select them and paste them together.
+      </p>
+      <ul class="space-y-3">
+        {points.map((p) => (
+          <li class="flex items-start gap-3 text-text-secondary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0 mt-0.5" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>{p}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+
+    <!-- Visual: panel over an app, search + multi-select -->
+    <MacWindow title="Mail">
+      <div class="relative bg-bg-primary" style="min-height: 300px;">
+        <!-- Faded composer behind -->
+        <div class="p-4 opacity-25 select-none" aria-hidden="true">
+          <div class="flex gap-2 mb-3"><span class="text-xs text-text-muted w-12">To</span><div class="h-2.5 flex-1 rounded bg-white/10"></div></div>
+          <div class="flex gap-2 mb-3"><span class="text-xs text-text-muted w-12">Subject</span><div class="h-2.5 flex-1 rounded bg-white/10"></div></div>
+          <div class="border-t border-white/5 pt-3 space-y-2">
+            <div class="h-2.5 w-full rounded bg-white/10"></div>
+            <div class="h-2.5 w-5/6 rounded bg-white/10"></div>
+            <div class="h-2.5 w-2/3 rounded bg-white/10"></div>
+          </div>
+        </div>
+
+        <!-- Drobu panel floating over -->
+        <div class="absolute left-1/2 -translate-x-1/2 top-6 w-[88%] rounded-xl border border-white/10 bg-bg-card shadow-2xl overflow-hidden">
+          <!-- search -->
+          <div class="flex items-center gap-2 px-3 py-2.5 border-b border-white/5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted shrink-0" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <span class="text-sm text-text-primary font-mono">q2</span>
+            <span class="ml-auto text-[10px] text-text-muted">2 selected</span>
+          </div>
+          <!-- results -->
+          <div class="p-1.5 space-y-1">
+            <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-accent/15 border-l-2 border-accent">
+              <span class="w-4 h-4 rounded-full bg-accent flex items-center justify-center shrink-0">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="text-white" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              </span>
+              <span class="text-xs text-text-primary truncate flex-1">Meeting notes: <mark class="bg-accent/30 text-accent px-0.5 rounded">Q2</mark> planning</span>
+              <kbd class="text-[9px] text-text-muted bg-white/5 px-1.5 py-0.5 rounded font-mono shrink-0">&#8984;&#8679;V</kbd>
+            </div>
+            <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-accent/15 border-l-2 border-accent">
+              <span class="w-4 h-4 rounded-full bg-accent flex items-center justify-center shrink-0">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="text-white" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              </span>
+              <span class="text-xs text-text-primary truncate flex-1"><mark class="bg-accent/30 text-accent px-0.5 rounded">Q2</mark> revenue figures</span>
+            </div>
+            <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg">
+              <span class="w-4 h-4 rounded-full border border-white/15 shrink-0"></span>
+              <span class="text-xs text-text-secondary truncate flex-1">roadmap-<mark class="bg-accent/30 text-accent px-0.5 rounded">q2</mark>.png</span>
+            </div>
+          </div>
+          <!-- footer -->
+          <div class="flex items-center justify-center gap-1.5 px-3 py-2 border-t border-white/5">
+            <span class="text-[10px] text-accent font-medium">Return</span>
+            <span class="text-[10px] text-text-muted">to paste both</span>
+          </div>
+        </div>
+      </div>
+    </MacWindow>
+  </div>
+</section>
