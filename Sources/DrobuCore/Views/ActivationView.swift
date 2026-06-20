@@ -125,7 +125,7 @@ struct ActivationView: View {
 
             Spacer(minLength: 0)
 
-            Text("Already paid? Email \(PurchaseLinks.supportEmail) — we'll send your key.")
+            Text("Paid but no key? Email \(PurchaseLinks.supportEmail) and we'll sort it out.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
