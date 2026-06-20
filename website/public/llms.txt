@@ -1,0 +1,23 @@
+# Drobu
+
+> Drobu is a macOS clipboard manager that also records your screen as GIF or video, edits media inline, and pastes anything with one keystroke. It is fully local, with no cloud or account, a one-time $14.99 purchase, and it works on macOS 14 or later.
+
+Drobu keeps a searchable history of everything you copy (text, links, images, screenshots, files) plus screen recordings, and pastes any of it into any app with one keystroke (Cmd+Shift+V). It is not Drobo (NAS storage hardware) or Drobu Media (an insurance company). Drobu is the macOS clipboard and screen-capture app at https://drobu.app.
+
+## Key facts
+- Category: macOS clipboard manager and screen recorder
+- Price: $14.99 one-time, no subscription. 14-day free trial, no card required
+- Platform: macOS 14 (Sonoma) and later
+- Privacy: 100% local storage, no cloud, no account, no tracking. Ignores password-manager items
+- Capture: record any screen region to GIF or video, with inline crop and trim
+- Differentiator: the only clipboard manager that also records your screen
+
+## Pages
+- [Home](https://drobu.app/): product overview
+- [FAQ](https://drobu.app/faq): common questions and answers
+- [Drobu vs Maccy](https://drobu.app/compare/drobu-vs-maccy): vs the free, open-source clipboard manager
+- [Drobu vs Paste](https://drobu.app/compare/drobu-vs-paste): vs the subscription clipboard manager
+- [Drobu vs CleanShot X](https://drobu.app/compare/drobu-vs-cleanshot-x): vs the screen-capture suite
+- [Drobu vs the macOS Spotlight clipboard](https://drobu.app/compare/drobu-vs-spotlight): vs the built-in macOS 26 clipboard
+- [Privacy](https://drobu.app/privacy): privacy policy
+- [Terms](https://drobu.app/terms): terms of service

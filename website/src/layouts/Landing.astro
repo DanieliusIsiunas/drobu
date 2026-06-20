@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
+import { PRODUCT_DESCRIPTION } from "../data/product";
 
 interface Props {
   title?: string;
@@ -9,12 +10,16 @@ interface Props {
   /** When true, emit `noindex` and suppress the product JSON-LD (used on
    *  thin/transient pages: /thank-you, /404). */
   noindex?: boolean;
+  /** Extra JSON-LD object(s) emitted in <head> on indexable pages, e.g. the
+   *  FAQPage schema on /faq. */
+  extraSchema?: object | object[];
 }
 
 const {
   title = "Drobu | Mac Clipboard Manager with Screen Capture",
   description = "Mac clipboard manager with full copy history, instant search, and screen-to-GIF recording. Paste anything with one keystroke. $14.99 once, 14-day trial.",
   noindex = false,
+  extraSchema,
 } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
@@ -23,54 +28,70 @@ const ogImage = new URL("/og-image.png", Astro.site);
 // Product-level copy for structured data + share previews. Kept independent
 // of the per-page `description` so the schema/alt stay accurate on every page
 // (e.g. /privacy, /terms) rather than inheriting that page's description.
-const PRODUCT_DESCRIPTION =
-  "Drobu is a clipboard manager for macOS that keeps your full copy history, captures your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Fully local, with no cloud, no account, and no tracking.";
+// PRODUCT_DESCRIPTION (the canonical "what is Drobu" sentence) is shared from
+// ../data/product so the JSON-LD, the FAQ lead, and llms.txt stay in lockstep.
 const OG_IMAGE_ALT =
   "Drobu: clipboard history and screen capture for macOS";
 
-const softwareSchema = {
+const ORG_ID = "https://drobu.app/#drobu";
+
+// One JSON-LD @graph: an Organization (with sameAs entity anchors + logo) and
+// the SoftwareApplication that points back to it as publisher.
+const productSchema = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Drobu",
-  url: "https://drobu.app",
-  operatingSystem: "macOS 14.0 or later",
-  applicationCategory: "UtilitiesApplication",
-  applicationSubCategory: "Clipboard Manager",
-  downloadUrl:
-    "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg",
-  image: ogImage.href,
-  screenshot: ogImage.href,
-  featureList: [
-    "Clipboard history",
-    "Full-text search",
-    "Screen recording",
-    "GIF capture",
-    "Video trimming",
-    "Image and GIF cropping",
-    "One-keystroke paste",
-    "Slash commands",
-    "Source-app tracking",
-    "Multi-select paste",
-    "Local-only storage",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": ORG_ID,
+      name: "Drobu",
+      url: "https://drobu.app",
+      logo: "https://drobu.app/drobule.png",
+      description: PRODUCT_DESCRIPTION,
+      // Entity-disambiguation anchors. Add AlternativeTo / Product Hunt /
+      // Crunchbase / Wikidata URLs here as those profiles go live.
+      sameAs: ["https://github.com/DanieliusIsiunas/drobu"],
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://drobu.app/#app",
+      name: "Drobu",
+      url: "https://drobu.app",
+      operatingSystem: "macOS 14.0 or later",
+      applicationCategory: "UtilitiesApplication",
+      applicationSubCategory: "Clipboard Manager",
+      downloadUrl:
+        "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg",
+      image: ogImage.href,
+      screenshot: ogImage.href,
+      featureList: [
+        "Clipboard history",
+        "Full-text search",
+        "Screen recording",
+        "GIF capture",
+        "Video trimming",
+        "Image and GIF cropping",
+        "One-keystroke paste",
+        "Slash commands",
+        "Source-app tracking",
+        "Multi-select paste",
+        "Local-only storage",
+      ],
+      offers: {
+        "@type": "Offer",
+        price: "14.99",
+        priceCurrency: "USD",
+        availability: "https://schema.org/InStock",
+        url: "https://drobu.app/buy",
+      },
+      author: {
+        "@type": "Person",
+        name: "Danielius Isiūnas",
+        url: "https://drobu.app",
+      },
+      publisher: { "@id": ORG_ID },
+      description: PRODUCT_DESCRIPTION,
+    },
   ],
-  offers: {
-    "@type": "Offer",
-    price: "14.99",
-    priceCurrency: "USD",
-    availability: "https://schema.org/InStock",
-    url: "https://drobu.app/buy",
-  },
-  author: {
-    "@type": "Person",
-    name: "Danielius Isiūnas",
-    url: "https://drobu.app",
-  },
-  publisher: {
-    "@type": "Organization",
-    name: "Drobu",
-    url: "https://drobu.app",
-  },
-  description: PRODUCT_DESCRIPTION,
 };
 ---
 
@@ -119,9 +140,15 @@ const softwareSchema = {
       !noindex && (
         <script
           type="application/ld+json"
-          set:html={JSON.stringify(softwareSchema)}
+          set:html={JSON.stringify(productSchema)}
         />
       )
+    }
+    {
+      !noindex && extraSchema &&
+        (Array.isArray(extraSchema) ? extraSchema : [extraSchema]).map((s) => (
+          <script type="application/ld+json" set:html={JSON.stringify(s)} />
+        ))
     }
   </head>
   <body class="font-sans antialiased bg-bg-primary text-text-primary min-h-screen">
