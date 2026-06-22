@@ -47,4 +47,55 @@ struct SettingsNavigationModelTests {
         model.selected = .about
         #expect(model.selected == .about)
     }
+
+    @Test("selectNext advances one section at a time")
+    func selectNextAdvances() {
+        let model = SettingsNavigationModel(firstRun: true)   // setUp
+        model.selectNext()
+        #expect(model.selected == .shortcuts)
+        model.selectNext()
+        #expect(model.selected == .history)
+    }
+
+    @Test("selectNext clamps at the last section (no wrap)")
+    func selectNextClamps() {
+        let model = SettingsNavigationModel(firstRun: false)
+        model.selected = .about
+        model.selectNext()
+        #expect(model.selected == .about)
+    }
+
+    @Test("selectPrevious steps back one section")
+    func selectPreviousSteps() {
+        let model = SettingsNavigationModel(firstRun: false)  // shortcuts
+        model.selectPrevious()
+        #expect(model.selected == .setUp)
+    }
+
+    @Test("selectPrevious clamps at the first section (no wrap)")
+    func selectPreviousClamps() {
+        let model = SettingsNavigationModel(firstRun: true)   // setUp
+        model.selectPrevious()
+        #expect(model.selected == .setUp)
+    }
+
+    @Test("select(number:) jumps to the 1-based section")
+    func selectByNumber() {
+        let model = SettingsNavigationModel(firstRun: true)
+        model.select(number: 1)
+        #expect(model.selected == .setUp)
+        model.select(number: 3)
+        #expect(model.selected == .history)
+        model.select(number: 5)
+        #expect(model.selected == .about)
+    }
+
+    @Test("select(number:) ignores out-of-range numbers")
+    func selectByNumberOutOfRange() {
+        let model = SettingsNavigationModel(firstRun: false)  // shortcuts
+        model.select(number: 0)
+        #expect(model.selected == .shortcuts)
+        model.select(number: 6)
+        #expect(model.selected == .shortcuts)
+    }
 }

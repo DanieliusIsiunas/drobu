@@ -63,4 +63,29 @@ final class SettingsNavigationModel: ObservableObject {
 
     /// Sidebar sections in display order.
     var sections: [SettingsSection] { SettingsSection.allCases }
+
+    /// Position of `selected` within `sections`.
+    private var selectedIndex: Int {
+        sections.firstIndex(of: selected) ?? 0
+    }
+
+    /// Move selection one section down, clamping at the last (no wrap).
+    func selectNext() {
+        let next = selectedIndex + 1
+        if next < sections.count { selected = sections[next] }
+    }
+
+    /// Move selection one section up, clamping at the first (no wrap).
+    func selectPrevious() {
+        let previous = selectedIndex - 1
+        if previous >= 0 { selected = sections[previous] }
+    }
+
+    /// Jump to a section by its 1-based sidebar position (1 = first section).
+    /// Out-of-range numbers are ignored, so unmapped digit keys are harmless.
+    func select(number: Int) {
+        let index = number - 1
+        guard sections.indices.contains(index) else { return }
+        selected = sections[index]
+    }
 }

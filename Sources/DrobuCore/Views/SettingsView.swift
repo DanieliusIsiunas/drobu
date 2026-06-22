@@ -41,6 +41,9 @@ public struct SettingsView: View {
     @State private var isUninstalling = false
     // Sidebar hover highlight (indicates the clickable row under the cursor).
     @State private var hoveredSection: SettingsSection?
+    // Keyboard navigation: the root holds key focus so arrows/number keys drive
+    // the sidebar the moment the window opens (no click needed).
+    @FocusState private var keyboardNavFocused: Bool
 
     init(nav: SettingsNavigationModel,
          onboardingModel: OnboardingViewModel,
@@ -65,15 +68,53 @@ public struct SettingsView: View {
         }
         .frame(width: 680, height: 460)
         .background(.regularMaterial)
+        // Keyboard-drive the sidebar like the rest of the app. The root holds key
+        // focus by default, so arrows/number keys work the moment the window opens
+        // (no click). Clicking into a text field moves focus there, so typing a
+        // digit into the license field types it rather than jumping sections.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($keyboardNavFocused)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleSidebarKeyPress(press)
+        }
         .onAppear {
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
             refreshDaemonStatus()
+            keyboardNavFocused = true
         }
         // Re-read daemon status when the app regains focus — picks up an approval
         // the user just toggled in System Settings.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDaemonStatus()
+        }
+    }
+
+    /// Keyboard navigation for the sidebar — mirrors the clipboard panel's arrow
+    /// handling (`PanelView.handleClipboardKeyPress`). Match on `press.key`, never
+    /// `modifiers.isEmpty`: arrow keys carry `.numericPad` on macOS.
+    private func handleSidebarKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        switch press.key {
+        case .upArrow:
+            nav.selectPrevious()
+            return .handled
+        case .downArrow:
+            nav.selectNext()
+            return .handled
+        case .escape:
+            windowProvider()?.close()
+            return .handled
+        default:
+            // Number keys 1–5 jump straight to a section. Ignore digits carrying a
+            // command/control/option modifier so menu shortcuts (e.g. ⌘,) pass through.
+            let mods = press.modifiers
+            if !mods.contains(.command), !mods.contains(.control), !mods.contains(.option),
+               let number = Int(press.characters), (1...5).contains(number) {
+                nav.select(number: number)
+                return .handled
+            }
+            return .ignored
         }
     }
 
