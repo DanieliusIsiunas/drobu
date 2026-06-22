@@ -82,7 +82,13 @@ public struct SettingsView: View {
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
             refreshDaemonStatus()
-            keyboardNavFocused = true
+            // Defer the focus assignment one runloop hop. A synchronous @FocusState
+            // write in .onAppear can fire before the NSHostingView is installed in
+            // the window's responder chain and get silently dropped (the panel is
+            // recreated on each show). Mirrors PanelView's search-field focus.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                keyboardNavFocused = true
+            }
         }
         // Re-read daemon status when the app regains focus — picks up an approval
         // the user just toggled in System Settings.
@@ -106,11 +112,13 @@ public struct SettingsView: View {
             windowProvider()?.close()
             return .handled
         default:
-            // Number keys 1–5 jump straight to a section. Ignore digits carrying a
-            // command/control/option modifier so menu shortcuts (e.g. ⌘,) pass through.
+            // Number keys jump straight to a section by its 1-based position. Bound
+            // the range to the live section count (not a hardcoded literal) so it
+            // tracks SettingsSection.allCases. Ignore digits carrying a command/
+            // control/option modifier so menu shortcuts (e.g. ⌘,) pass through.
             let mods = press.modifiers
             if !mods.contains(.command), !mods.contains(.control), !mods.contains(.option),
-               let number = Int(press.characters), (1...5).contains(number) {
+               let number = Int(press.characters), (1...nav.sections.count).contains(number) {
                 nav.select(number: number)
                 return .handled
             }
