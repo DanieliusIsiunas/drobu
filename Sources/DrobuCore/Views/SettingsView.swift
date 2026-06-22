@@ -480,7 +480,10 @@ public struct SettingsView: View {
                     description: "Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.") {
             actionLink("Uninstall…", destructive: true,
                        a11yLabel: "Uninstall Drobu") { confirmAndUninstall() }
-                .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
+                // The visible row description (read aloud by VoiceOver) already
+                // covers what is removed/kept, so the hint adds only the one thing
+                // it doesn't say — avoids speaking the same content twice.
+                .accessibilityHint("A confirmation appears first.")
         }
     }
 
