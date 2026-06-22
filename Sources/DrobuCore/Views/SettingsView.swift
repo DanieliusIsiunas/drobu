@@ -172,7 +172,16 @@ public struct SettingsView: View {
         )
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
-        .onTapGesture { nav.selected = section }
+        .onTapGesture {
+            nav.selected = section
+            // Reclaim keyboard focus to the root. The .onKeyPress handler only fires
+            // while the root holds key focus; after a pane control (text field /
+            // hotkey recorder) takes first responder, nothing restores it and
+            // arrow/number/Esc nav goes dead for the session. Clicking any section is
+            // the discoverable way back — and it can't steal focus from an active
+            // text field, since the click is what moved focus off it.
+            keyboardNavFocused = true
+        }
         .onHover { hovering in
             if hovering {
                 hoveredSection = section
