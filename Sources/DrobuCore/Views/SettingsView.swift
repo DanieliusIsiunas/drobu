@@ -41,6 +41,9 @@ public struct SettingsView: View {
     @State private var isUninstalling = false
     // Sidebar hover highlight (indicates the clickable row under the cursor).
     @State private var hoveredSection: SettingsSection?
+    // Keyboard navigation: the root holds key focus so arrows/number keys drive
+    // the sidebar the moment the window opens (no click needed).
+    @FocusState private var keyboardNavFocused: Bool
 
     init(nav: SettingsNavigationModel,
          onboardingModel: OnboardingViewModel,
@@ -65,15 +68,73 @@ public struct SettingsView: View {
         }
         .frame(width: 680, height: 460)
         .background(.regularMaterial)
+        // Keyboard-drive the sidebar like the rest of the app. The root holds key
+        // focus by default, so arrows/number keys work the moment the window opens
+        // (no click). Clicking into a text field moves focus there, so typing a
+        // digit into the license field types it rather than jumping sections.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($keyboardNavFocused)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleSidebarKeyPress(press)
+        }
         .onAppear {
             retentionDays = RetentionDefaults.loadRetentionDays()
             maxItemCount = RetentionDefaults.loadMaxItemCount()
             refreshDaemonStatus()
+            // Defer the focus assignment one runloop hop. A synchronous @FocusState
+            // write in .onAppear can fire before the NSHostingView is installed in
+            // the window's responder chain and get silently dropped (the panel is
+            // recreated on each show). Mirrors PanelView's search-field focus.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                keyboardNavFocused = true
+            }
         }
         // Re-read daemon status when the app regains focus — picks up an approval
         // the user just toggled in System Settings.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDaemonStatus()
+        }
+    }
+
+    /// Keyboard navigation for the sidebar — mirrors the clipboard panel's arrow
+    /// handling (`PanelView.handleClipboardKeyPress`). Match on `press.key`, never
+    /// `modifiers.isEmpty`: arrow keys carry `.numericPad` on macOS.
+    private func handleSidebarKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // Yield while an in-pane AppKit control is actively taking the keyboard. The
+        // root's .onKeyPress can otherwise intercept keys — including Esc — before they
+        // reach an AppKit first responder that doesn't participate in @FocusState: a
+        // text-field editor, or the hotkey recorder *while recording* (where Esc is its
+        // cancel path). The recorder keeps first responder after recording ends without
+        // resigning, so gate on `isRecording` — otherwise sidebar nav stays dead until
+        // the user clicks a row. (A focused SwiftUI TextField already consumes its own
+        // keys; this covers the AppKit responders that don't.)
+        if let responder = windowProvider()?.firstResponder,
+           responder is NSText || (responder as? HotkeyRecorderNSView)?.isRecording == true {
+            return .ignored
+        }
+        switch press.key {
+        case .upArrow:
+            nav.selectPrevious()
+            return .handled
+        case .downArrow:
+            nav.selectNext()
+            return .handled
+        case .escape:
+            windowProvider()?.close()
+            return .handled
+        default:
+            // Number keys jump straight to a section by its 1-based position. Bound
+            // the range to the live section count (not a hardcoded literal) so it
+            // tracks SettingsSection.allCases. Ignore digits carrying a command/
+            // control/option modifier so menu shortcuts (e.g. ⌘,) pass through.
+            let mods = press.modifiers
+            if !mods.contains(.command), !mods.contains(.control), !mods.contains(.option),
+               let number = Int(press.characters), (1...nav.sections.count).contains(number) {
+                nav.select(number: number)
+                return .handled
+            }
+            return .ignored
         }
     }
 
@@ -123,7 +184,16 @@ public struct SettingsView: View {
         )
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
-        .onTapGesture { nav.selected = section }
+        .onTapGesture {
+            nav.selected = section
+            // Reclaim keyboard focus to the root. The .onKeyPress handler only fires
+            // while the root holds key focus; after a pane control (text field /
+            // hotkey recorder) takes first responder, nothing restores it and
+            // arrow/number/Esc nav goes dead for the session. Clicking any section is
+            // the discoverable way back — and it can't steal focus from an active
+            // text field, since the click is what moved focus off it.
+            keyboardNavFocused = true
+        }
         .onHover { hovering in
             if hovering {
                 hoveredSection = section
