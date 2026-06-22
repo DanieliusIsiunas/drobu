@@ -332,18 +332,15 @@ run_pre() {
         check_fail "built bundle says v$bundle_version (build $bundle_build), expected v$VERSION ($BUILD) — stale build?"
     fi
 
-    # R7b: version-in-3-places (delimiter-anchored: a bare v1.5 would
-    # prefix-match v1.5.2).
+    # R7b: version-in-2-places (delimiter-anchored: a bare v1.5 would
+    # prefix-match v1.5.2). The download CTA stopped displaying a version in
+    # the v1.9.3 homepage redesign (#69); the footer is now the only website
+    # surface that shows the version, so it is the only one checked here.
     if [[ $SKIP_WEBSITE_CHECK -eq 0 ]]; then
-        if grep -qF "Version $VERSION<" website/src/components/DownloadCTA.astro; then
-            pass "DownloadCTA.astro shows Version $VERSION"
-        else
-            check_fail "website/src/components/DownloadCTA.astro does not contain 'Version $VERSION<' — update the version in 3 places (CLAUDE.md) [or the markup moved: update this check]"
-        fi
         if grep -qF ">v$VERSION<" website/src/components/Footer.astro; then
             pass "Footer.astro shows v$VERSION"
         else
-            check_fail "website/src/components/Footer.astro does not contain '>v$VERSION<' — update the version in 3 places (CLAUDE.md) [or the markup moved: update this check]"
+            check_fail "website/src/components/Footer.astro does not contain '>v$VERSION<' — update the version in 2 places (CLAUDE.md) [or the markup moved: update this check]"
         fi
     fi
 

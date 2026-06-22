@@ -211,7 +211,7 @@ run_case "build == published max fails the strictly-greater check" \
         --version "$LIVE_VERSION" --build "$LIVE_BUILD" \
         --ed-sig "$LIVE_SIG" --length "$LIVE_LENGTH" --skip-website-check
 
-# Version-in-3-places: a version the website does not show.
+# Version-in-2-places: a version the website (footer) does not show.
 run_case "bogus version fails the website consistency check" \
     "does not contain" \
     "$VERIFY" --pre --app "$APP" --dmg "$DMG" \

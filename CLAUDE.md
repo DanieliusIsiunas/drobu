@@ -183,9 +183,10 @@ Truly trivial changes (docs, internal refactors, CI) don't need a bump — they 
 
 `CFBundleShortVersionString` is the human-readable `MAJOR.MINOR.PATCH` string shown to users. `CFBundleVersion` is a **separate, strictly-increasing integer** build number for Sparkle's update comparison — increment it by one every release (2, 3, 4, 5...) regardless of which semver component changed.
 
-**Version is set in 3 places — update all of them in the same commit as the change:**
+**Version is set in 2 places — update both in the same commit as the change:**
 1. `Sources/DrobuCore/Info.plist` — `CFBundleShortVersionString` (display version) and `CFBundleVersion` (build number)
-2. `website/src/components/DownloadCTA.astro` — `Version X.Y.Z` in the download CTA
-3. `website/src/components/Footer.astro` — `vX.Y.Z` in the footer
+2. `website/src/components/Footer.astro` — `vX.Y.Z` in the footer
+
+(The download CTA `website/src/components/DownloadCTA.astro` used to carry a `Version X.Y.Z` string too, but the v1.9.3 homepage redesign (#69) removed it — the footer is now the only website version surface. The `tools/verify-release.sh --pre` gate checks the footer accordingly.)
 
 The Settings "About" text reads `CFBundleShortVersionString` at runtime (`SettingsView.swift`), so it updates automatically — no edit needed there.
