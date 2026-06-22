@@ -101,15 +101,16 @@ public struct SettingsView: View {
     /// handling (`PanelView.handleClipboardKeyPress`). Match on `press.key`, never
     /// `modifiers.isEmpty`: arrow keys carry `.numericPad` on macOS.
     private func handleSidebarKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        // Yield entirely while an in-pane AppKit control holds the keyboard. The root's
-        // .onKeyPress can otherwise intercept keys — including Esc — before they reach an
-        // AppKit first responder that doesn't participate in @FocusState: the hotkey
-        // recorder (where Esc cancels recording) and a text-field editor. Returning
-        // .ignored lets the event fall through to them instead of jumping a section or
-        // closing the window. (A focused SwiftUI TextField already consumes its own keys;
-        // this also covers the AppKit responders that don't.)
+        // Yield while an in-pane AppKit control is actively taking the keyboard. The
+        // root's .onKeyPress can otherwise intercept keys — including Esc — before they
+        // reach an AppKit first responder that doesn't participate in @FocusState: a
+        // text-field editor, or the hotkey recorder *while recording* (where Esc is its
+        // cancel path). The recorder keeps first responder after recording ends without
+        // resigning, so gate on `isRecording` — otherwise sidebar nav stays dead until
+        // the user clicks a row. (A focused SwiftUI TextField already consumes its own
+        // keys; this covers the AppKit responders that don't.)
         if let responder = windowProvider()?.firstResponder,
-           responder is NSText || responder is HotkeyRecorderNSView {
+           responder is NSText || (responder as? HotkeyRecorderNSView)?.isRecording == true {
             return .ignored
         }
         switch press.key {
