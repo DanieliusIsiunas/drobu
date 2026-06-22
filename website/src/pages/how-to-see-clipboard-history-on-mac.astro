@@ -1,0 +1,100 @@
+---
+import Landing from "../layouts/Landing.astro";
+import { DOWNLOAD_URL } from "../config";
+
+const title = "How to See Clipboard History on a Mac | Drobu";
+const description =
+  "macOS only keeps your last copy. Here is how to see your full clipboard history on a Mac: the built-in macOS 26 Spotlight clipboard, and a dedicated app for a searchable history kept for up to a year.";
+
+const steps = [
+  {
+    h: "Install a clipboard manager",
+    p: "macOS does not keep a history on its own beyond Spotlight's short-lived buffer, so you install a small menu-bar app. Drobu is one option; Maccy is a free, open-source one.",
+  },
+  {
+    h: "Let it capture automatically",
+    p: "From then on, everything you copy is saved to your history in the background. Passwords from password managers are ignored.",
+  },
+  {
+    h: "Open your history with a keystroke",
+    p: "Press the app's shortcut from any app. In Drobu that is Cmd+Shift+V.",
+  },
+  {
+    h: "Search and paste",
+    p: "Type a few letters to find the clip you want, then press Return to paste it where you are. With Drobu you can also select several clips and paste them together.",
+  },
+];
+---
+
+<Landing title={title} description={description}>
+  <main id="main" class="max-w-3xl mx-auto px-6 pt-28 pb-24">
+    <header class="mb-14">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Guide</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary mb-5 leading-tight">
+        How to see clipboard history on a Mac
+      </h1>
+      <p class="text-lg text-text-secondary leading-relaxed">
+        macOS only keeps the last thing you copied. To see older items you need either the macOS 26 Spotlight clipboard, which keeps recent clips for up to seven days, or a dedicated clipboard manager, which keeps a full, searchable history. Here are both.
+      </p>
+    </header>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">What macOS gives you on its own</h2>
+      <p class="text-text-secondary leading-relaxed mb-4">
+        By default, macOS remembers only your most recent copy. There is no built-in way to scroll back through earlier items.
+      </p>
+      <p class="text-text-secondary leading-relaxed">
+        macOS 26 (Tahoe) added a clipboard history to Spotlight that keeps recent text and images for up to seven days, then clears them. It is free and handy for a quick look back, but it forgets clips within days, strips formatting, and is only available on macOS 26.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-6">How to keep a full, searchable history</h2>
+      <p class="text-text-secondary leading-relaxed mb-6">
+        For a history that does not vanish in a few days, use a clipboard manager. It runs in the menu bar and keeps what you copy so you can find and reuse it later.
+      </p>
+      <ol class="space-y-5">
+        {steps.map((s, i) => (
+          <li class="flex gap-4">
+            <span class="shrink-0 w-7 h-7 rounded-full bg-accent/15 text-accent font-semibold text-sm flex items-center justify-center">{i + 1}</span>
+            <div>
+              <p class="text-text-primary font-medium">{s.h}</p>
+              <p class="text-text-secondary text-sm leading-relaxed mt-1">{s.p}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">Which one should you use?</h2>
+      <p class="text-text-secondary leading-relaxed mb-4">
+        If you just need to glance at the last few days of copied text and you are on macOS 26, the Spotlight clipboard is enough. If you want a free, open-source history of text and images, Maccy is excellent.
+      </p>
+      <p class="text-text-secondary leading-relaxed">
+        Drobu is worth the $14.99 if you want your history kept for up to a year, full-text search, the app each clip came from, and the ability to record your screen to a GIF or video and paste that from the same history. It runs on macOS 14 and later, stays fully local, and is a one-time purchase.
+      </p>
+    </section>
+
+    <section class="text-center border-t border-white/5 pt-12">
+      <h2 class="text-2xl md:text-3xl font-bold text-text-primary mb-4">Give your Mac a clipboard memory.</h2>
+      <p class="text-text-secondary mb-8">Free for 14 days, then $14.99 once. No subscription, no account, no cloud.</p>
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      >
+        <span class="download-label">Download Free Trial</span>
+      </a>
+      <p class="mt-10 text-sm text-text-muted">
+        More:
+        <a href="/compare/drobu-vs-spotlight" class="text-accent hover:underline">Drobu vs the Spotlight clipboard</a>,
+        <a href="/compare/drobu-vs-maccy" class="text-accent hover:underline">Drobu vs Maccy</a>
+        &middot;
+        <a href="/clipboard-manager-screen-recorder" class="text-accent hover:underline">The clipboard manager that records your screen</a>
+        &middot;
+        <a href="/faq" class="text-accent hover:underline">FAQ</a>
+      </p>
+    </section>
+  </main>
+</Landing>
