@@ -46,3 +46,38 @@ show). Consequences worth remembering:
   via the pure, tested `SettingsNavigationModel` (`landingSection`/
   `showsWelcomeChrome`). `OnboardingView` takes a `presentation` mode so the same
   checklist serves first-run onboarding and the revisitable "Set Up" section.
+
+## Settings rows go through `settingsRow` + `actionLink` — keep the label column plain (v1.9.3)
+
+Every Settings pane (Shortcuts, History, License, About) uses one row grammar:
+**label (+ optional description) on the left, action/control on the right.** Two
+private builders in `SettingsView` own it — do NOT hand-roll an `HStack` row:
+
+- `settingsRow(_:description:verticalAlignment:trailing:)` — leading `VStack`
+  (label + optional `.caption` description) / `Spacer(minLength:)` / trailing slot.
+  Default `verticalAlignment` is `.firstTextBaseline` (text actions align to the
+  label's first line, not a wrapped description); pass **`.center`** for a bordered
+  trailing control (hotkey recorder, text field) or it sits visually low.
+- `actionLink(_:destructive:a11yLabel:action:)` — inline text button for the
+  trailing slot. Bundles the clickable affordance + the VoiceOver trio
+  (`.accessibilityElement(children:.ignore)` + label + `.isButton`), so a11y can't
+  be forgotten per-site. Append `.accessibilityHint(_:)` at the call site for the
+  few actions that need one. It sets **no font** (inherits body) on purpose.
+
+**The leading column MUST stay plain, non-padded `Text`.** That is the whole
+alignment fix: `hoverHighlight()` adds `+7pt` horizontal padding, so if a label
+ever carries it (the old per-site pattern), the label indents out of line with
+descriptions/other rows. Labels never get `hoverHighlight`; only the trailing
+`actionLink` does.
+
+**A `settingsRow` `description:` is read by VoiceOver** (it's a plain `Text`, not
+hidden) — that's correct for informative copy (mirrors the History retention
+caption). So a trailing action's `.accessibilityHint` must add only what the
+visible description does NOT say (e.g. "A confirmation appears first."), never
+restate it — or VoiceOver speaks the same content twice (caught in the v1.9.3
+review on the About "Uninstall" row).
+
+Deliberate non-members: `licenseStatusRow` (value display, not actions), the
+History retention field rows (composite control+unit trailing), and the Set-Up
+"Remove Closed-Lid Helper" row (lives in `OnboardingView`'s own spacing context).
+Leaving those hand-rolled is intentional, not an oversight.

@@ -241,6 +241,59 @@ public struct SettingsView: View {
             .padding(.bottom, 2)
     }
 
+    // MARK: - Shared row grammar
+
+    /// The settings row used across every pane: a leading label (with an optional
+    /// secondary description) on the left, the action or control on the right.
+    /// Defining it once is what keeps the panes aligned — the leading column is
+    /// always plain, non-padded `Text`, so a label never inherits the `+7pt`
+    /// `hoverHighlight()` padding that used to indent inline actions out of line.
+    /// `verticalAlignment` defaults to `.firstTextBaseline` (text actions align
+    /// with the label's first line, not a wrapped description); pass `.center` for
+    /// bordered trailing controls like a hotkey recorder or text field.
+    @ViewBuilder
+    private func settingsRow<Trailing: View>(
+        _ label: String,
+        description: String? = nil,
+        verticalAlignment: VerticalAlignment = .firstTextBaseline,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: verticalAlignment) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                if let description {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 12)
+            trailing()
+        }
+    }
+
+    /// Inline text button for a `settingsRow` trailing slot. Bundles the clickable
+    /// affordance (accent tint, or `.red` when destructive, + `hoverHighlight()`)
+    /// with the VoiceOver traits, so every action reads as clickable and is
+    /// reachable without each call site re-deriving the `.isButton` trait. Append
+    /// `.accessibilityHint(_:)` at the call site for the few actions that need one.
+    private func actionLink(
+        _ title: String,
+        destructive: Bool = false,
+        a11yLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Text(title)
+            .foregroundStyle(destructive ? Color.red : Color.accentColor)
+            .hoverHighlight()
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(a11yLabel)
+            .accessibilityAddTraits(.isButton)
+    }
+
     // MARK: - Set Up pane (embeds the onboarding checklist)
 
     @ViewBuilder
@@ -291,9 +344,9 @@ public struct SettingsView: View {
 
     private func shortcutRow(_ label: String, binding: Binding<KeyCombo?>,
                              save: @escaping @MainActor (KeyCombo?) -> Void, a11y: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
+        // `.center` keeps the bordered recorder vertically aligned with the label
+        // (the row's text-baseline default suits text actions, not controls).
+        settingsRow(label, verticalAlignment: .center) {
             HotkeyRecorderView(keyCombo: binding, saveAction: save, accessibilityLabelText: a11y)
                 .frame(width: 160, height: 24)
         }
@@ -341,15 +394,9 @@ public struct SettingsView: View {
             .fixedSize(horizontal: false, vertical: true)
 
         Divider().padding(.top, 6)
-        HStack {
-            Text("Delete all data")
-            Spacer()
-            Text("Delete")
-                .foregroundStyle(.red)
-                .hoverHighlight()
-                .onTapGesture { confirmAndDeleteAll() }
-                .accessibilityLabel("Delete all clipboard history")
-                .accessibilityAddTraits(.isButton)
+        settingsRow("Delete all data") {
+            actionLink("Delete", destructive: true,
+                       a11yLabel: "Delete all clipboard history") { confirmAndDeleteAll() }
         }
     }
 
@@ -387,49 +434,26 @@ public struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // Frees THIS Mac's seat on the server so it can be used elsewhere
-            // (R3) — distinct from "Deactivate license", which only clears the
-            // key locally.
-            HStack {
-                Text("Deactivate this Mac")
-                    .foregroundStyle(Color.accentColor)
-                    .font(.caption)
-                    .hoverHighlight()
-                    .onTapGesture {
-                        Task { @MainActor in
-                            let freed = await licenseManager.deactivateThisDevice()
-                            if freed {
-                                licenseKeyInput = ""
-                                licenseErrorMessage = nil
-                            } else {
-                                licenseErrorMessage = "Couldn't reach the server to free this Mac's seat. Try again when you're online."
-                            }
+            // Frees THIS Mac's seat on the server AND clears the local key — the
+            // single deactivation action a user needs. The local-only
+            // `LicenseManager.deactivate()` has deliberately no UI: it leaves the
+            // seat consumed server-side, so exposing it beside this only invited a
+            // "wrong button -> stranded seat" mistake (the method stays — it is
+            // called internally once the seat is freed).
+            settingsRow("Deactivate this Mac",
+                        description: "Frees this seat so you can use Drobu on another computer.") {
+                actionLink("Deactivate",
+                           a11yLabel: "Deactivate this Mac and free its license seat") {
+                    Task { @MainActor in
+                        let freed = await licenseManager.deactivateThisDevice()
+                        if freed {
+                            licenseKeyInput = ""
+                            licenseErrorMessage = nil
+                        } else {
+                            licenseErrorMessage = "Couldn't reach the server to free this Mac's seat. Try again when you're online."
                         }
                     }
-                    .accessibilityLabel("Deactivate this Mac and free its license seat")
-                    .accessibilityAddTraits(.isButton)
-                Spacer()
-            }
-
-            // Local-only key removal. The visible label must say it does NOT
-            // free the server seat, or a user moving Macs would strand a seat
-            // by clicking here instead of "Deactivate this Mac".
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Remove key from this Mac only")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                    .hoverHighlight()
-                    .onTapGesture {
-                        licenseManager.deactivate()
-                        licenseKeyInput = ""
-                        licenseErrorMessage = nil
-                    }
-                    .accessibilityLabel("Remove the license key from this Mac only — does not free your license seat")
-                    .accessibilityAddTraits(.isButton)
-                Text("Keeps your seat — use \u{201C}Deactivate this Mac\u{201D} to free it.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
+                }
             }
         }
     }
@@ -452,23 +476,15 @@ public struct SettingsView: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(.secondary)
             .accessibilityHidden(true)
-        HStack {
-            Text("Uninstall Drobu…")
-                .foregroundStyle(.red)
-                .hoverHighlight()
-                .contentShape(Rectangle())
-                .onTapGesture { confirmAndUninstall() }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Uninstall Drobu")
-                .accessibilityHint("Removes the background helper and login item, then moves Drobu to the Trash. Your license stays saved. A confirmation appears first.")
-                .accessibilityAddTraits(.isButton)
-            Spacer()
+        settingsRow("Uninstall Drobu…",
+                    description: "Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.") {
+            actionLink("Uninstall…", destructive: true,
+                       a11yLabel: "Uninstall Drobu") { confirmAndUninstall() }
+                // The visible row description (read aloud by VoiceOver) already
+                // covers what is removed/kept, so the hint adds only the one thing
+                // it doesn't say — avoids speaking the same content twice.
+                .accessibilityHint("A confirmation appears first.")
         }
-        Text("Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityHidden(true)
     }
 
     // MARK: - Helpers
