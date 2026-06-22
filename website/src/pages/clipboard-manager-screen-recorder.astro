@@ -1,0 +1,102 @@
+---
+import Landing from "../layouts/Landing.astro";
+import { DOWNLOAD_URL } from "../config";
+
+const title = "Mac Clipboard Manager That Records Your Screen | Drobu";
+const description =
+  "Drobu is the macOS clipboard manager that also records your screen. Capture a region as a GIF or video, trim it, and paste it from your history with one keystroke.";
+
+const steps = [
+  {
+    h: "Capture a region",
+    p: "Trigger Drobu from the menu bar and drag a box around any part of your screen.",
+  },
+  {
+    h: "Record to GIF or video",
+    p: "Drobu records the region. Stop whenever you are done. Nothing is written to a file on your disk.",
+  },
+  {
+    h: "Trim it inline",
+    p: "Cut the recording down to the moment that matters, right inside Drobu. No QuickTime, no GIF converter.",
+  },
+  {
+    h: "Paste from your history",
+    p: "Your recording lands in your clipboard history. Open Drobu with one keystroke and paste it into Slack, GitHub, a doc, or anywhere.",
+  },
+];
+---
+
+<Landing title={title} description={description}>
+  <main id="main" class="max-w-3xl mx-auto px-6 pt-28 pb-24">
+    <header class="mb-14">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Clipboard manager + screen recorder</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary mb-5 leading-tight">
+        The Mac clipboard manager that records your screen
+      </h1>
+      <p class="text-lg text-text-secondary leading-relaxed mb-8">
+        Drobu is a macOS clipboard manager that also records your screen. Capture any region as a GIF or video, trim it inline, and paste it straight from your clipboard history into Slack, GitHub, or any app, with one keystroke. No QuickTime, no exports, no files to clean up.
+      </p>
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="js-app-download inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200"
+      >
+        <span class="download-label">Download Free Trial</span>
+      </a>
+      <p class="mt-4 text-sm text-text-muted">Free for 14 days, then $14.99 once &middot; no subscription &middot; macOS 14+</p>
+    </header>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">The one thing other clipboard managers can't do</h2>
+      <p class="text-text-secondary leading-relaxed mb-4">
+        Clipboard managers like Maccy and Paste only store what you copy. Screenshot tools like CleanShot X capture your screen but do not keep a clipboard history. The macOS 26 Spotlight clipboard does neither beyond a few days of recent text and images.
+      </p>
+      <p class="text-text-secondary leading-relaxed">
+        Drobu is the only one that does both: a full clipboard history and screen recording, in a single tool, so a GIF you just captured sits right next to the link you copied this morning, ready to paste.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-6">How it works</h2>
+      <ol class="space-y-5">
+        {steps.map((s, i) => (
+          <li class="flex gap-4">
+            <span class="shrink-0 w-7 h-7 rounded-full bg-accent/15 text-accent font-semibold text-sm flex items-center justify-center">{i + 1}</span>
+            <div>
+              <p class="text-text-primary font-medium">{s.h}</p>
+              <p class="text-text-secondary text-sm leading-relaxed mt-1">{s.p}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">One searchable history for everything</h2>
+      <p class="text-text-secondary leading-relaxed">
+        Text, links, images, screenshots, GIFs, and recordings all land in the same place. Full-text search finds any of them as you type, each clip shows the app it came from, and your history is kept for up to a year. Everything stays on your Mac, with no cloud and no account.
+      </p>
+    </section>
+
+    <section class="text-center border-t border-white/5 pt-12">
+      <h2 class="text-2xl md:text-3xl font-bold text-text-primary mb-4">Capture, edit, paste. Done.</h2>
+      <p class="text-text-secondary mb-8">$14.99 once, then it's yours. No subscription, no account, no cloud.</p>
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      >
+        <span class="download-label">Download Free Trial</span>
+      </a>
+      <p class="mt-10 text-sm text-text-muted">
+        See how Drobu compares:
+        <a href="/compare/drobu-vs-cleanshot-x" class="text-accent hover:underline">vs CleanShot X</a>,
+        <a href="/compare/drobu-vs-spotlight" class="text-accent hover:underline">vs the macOS Spotlight clipboard</a>
+        &middot;
+        <a href="/how-to-see-clipboard-history-on-mac" class="text-accent hover:underline">How to see clipboard history on a Mac</a>
+        &middot;
+        <a href="/faq" class="text-accent hover:underline">FAQ</a>
+      </p>
+    </section>
+  </main>
+</Landing>
