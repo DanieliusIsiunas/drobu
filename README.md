@@ -21,7 +21,7 @@
 
 Drobu lives in the menu bar and takes care of everything between "I copied this" and "I pasted this":
 
-Everything stays on your machine. No accounts, no servers, no telemetry. See the [privacy page](https://danieliusisiunas.github.io/drobu/privacy/) for the full statement.
+Your clipboard stays on your machine. No account, no tracking, no ads. (A paid license activates online to enforce a 3-device limit; see the [privacy page](https://danieliusisiunas.github.io/drobu/privacy/) for the full statement.)
 
 ## Architecture
 

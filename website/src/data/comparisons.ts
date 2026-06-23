@@ -69,7 +69,7 @@ const maccy: Comparison = {
     { dimension: "Multi-select paste", drobu: "Yes", rival: "No", advantage: "drobu" },
     { dimension: "System slash commands", drobu: "/sleep, keep-awake, closed-lid", rival: "None", advantage: "drobu" },
     { dimension: "Open source", drobu: "No", rival: "Yes (MIT)", advantage: "rival" },
-    { dimension: "Storage", drobu: "Fully local, no account", rival: "Fully local, no account", advantage: "even" },
+    { dimension: "Storage", drobu: "Local storage, no account", rival: "Fully local, no account", advantage: "even" },
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS 14+", advantage: "even" },
   ],
   drobuWins: [
@@ -110,7 +110,7 @@ const paste: Comparison = {
     { dimension: "Cross-device sync", drobu: "No, Mac only", rival: "iCloud across Mac, iPhone, iPad", advantage: "rival" },
     { dimension: "iPhone / iPad app", drobu: "No", rival: "Yes, with a keyboard extension", advantage: "rival" },
     { dimension: "Shared pinboards", drobu: "No", rival: "Yes, shareable collections", advantage: "rival" },
-    { dimension: "Local-first storage", drobu: "Fully local, no cloud", rival: "Local-first, optional iCloud sync", advantage: "even" },
+    { dimension: "Local-first storage", drobu: "Fully local storage", rival: "Local-first, optional iCloud sync", advantage: "even" },
     { dimension: "System slash commands", drobu: "/sleep, keep-awake, closed-lid", rival: "None", advantage: "drobu" },
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS, iOS, iPadOS, visionOS", advantage: "rival" },
   ],
