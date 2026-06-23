@@ -72,7 +72,10 @@ public struct SystemDeviceIdentity: DeviceIdentifying {
     }
 
     public var deviceName: String {
-        drobuDeviceLabel(model: Self.readModelIdentifier() ?? "Mac", deviceHash: deviceHash)
+        // Resolve the hash once: it drives an IOKit + Keychain read, and callers
+        // (LicenseManager) read deviceHash and deviceName back to back.
+        let hash = deviceHash
+        return drobuDeviceLabel(model: Self.readModelIdentifier() ?? "Mac", deviceHash: hash)
     }
 
     /// The hardware model identifier (e.g. "MacBookPro18,3"), or nil if the

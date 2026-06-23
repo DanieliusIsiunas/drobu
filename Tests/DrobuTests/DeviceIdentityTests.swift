@@ -80,4 +80,8 @@ import Testing
     @Test func shortHashIsUsedWholeWhenUnderSixChars() {
         #expect(drobuDeviceLabel(model: "Mac15,3", deviceHash: "abc") == "Mac15,3 · abc")
     }
+
+    @Test func emptyHashReturnsModelOnlyWithoutTrailingSeparator() {
+        #expect(drobuDeviceLabel(model: "MacBookPro18,3", deviceHash: "") == "MacBookPro18,3")
+    }
 }

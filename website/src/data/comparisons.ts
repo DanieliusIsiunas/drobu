@@ -69,7 +69,7 @@ const maccy: Comparison = {
     { dimension: "Multi-select paste", drobu: "Yes", rival: "No", advantage: "drobu" },
     { dimension: "System slash commands", drobu: "/sleep, keep-awake, closed-lid", rival: "None", advantage: "drobu" },
     { dimension: "Open source", drobu: "No", rival: "Yes (MIT)", advantage: "rival" },
-    { dimension: "Storage", drobu: "Fully local, no account", rival: "Fully local, no account", advantage: "even" },
+    { dimension: "Storage", drobu: "Local storage, no account", rival: "Fully local, no account", advantage: "even" },
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS 14+", advantage: "even" },
   ],
   drobuWins: [
