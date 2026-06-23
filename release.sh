@@ -245,6 +245,18 @@ xcrun stapler staple "$DMG"
 # sign_update below — see that script for the full check set and the
 # standing "never spctl --assess the DMG" prohibition.
 
+# Sparkle update asset: the SAME stapled bytes uploaded under a second name.
+# Humans (website button + latest/download alias) keep Drobu.dmg; the appcast
+# enclosure points at Drobu-update.dmg. Identical bytes => identical EdDSA
+# signature + length, so sign_update runs ONCE over $DMG below and its output is
+# valid for both. This is what lets GitHub's per-asset download_count separate
+# human downloads (Drobu.dmg) from Sparkle auto-update fetches (Drobu-update.dmg).
+# MUST be after staple (bytes are frozen here) — a pre-staple copy would carry
+# different bytes and an invalid signature.
+DMG_UPDATE="Drobu-update.dmg"
+rm -f "$DMG_UPDATE"
+cp "$DMG" "$DMG_UPDATE"
+
 step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout
 SIG_LINE=$("$SIGN_UPDATE" "$DMG")
@@ -310,7 +322,7 @@ fi
 
 step "Creating GitHub release"
 RELEASE_BODY=$(printf "%s\n\n%s\n" "$NOTES_HEADER" "$NOTES")
-gh release create "$TAG" "$DMG" \
+gh release create "$TAG" "$DMG" "$DMG_UPDATE" \
     --repo "$REPO" \
     --title "Drobu $VERSION" \
     --notes "$RELEASE_BODY"
@@ -331,7 +343,9 @@ trap 'post_publish_interrupt; exit 130' INT
 trap 'post_publish_interrupt; exit 143' TERM
 
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$DMG"
-echo "  Download URL: $DOWNLOAD_URL"
+UPDATE_URL="https://github.com/$REPO/releases/download/$TAG/$DMG_UPDATE"
+echo "  Human download URL: $DOWNLOAD_URL"
+echo "  Sparkle update URL: $UPDATE_URL (appcast enclosure)"
 
 # --- Appcast update -----------------------------------------------------------
 
@@ -345,7 +359,7 @@ NEW_ITEM=$(cat <<EOF
             <sparkle:version>$BUILD</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="$DOWNLOAD_URL" length="$LENGTH" type="application/x-apple-diskimage" sparkle:edSignature="$ED_SIG"/>
+            <enclosure url="$UPDATE_URL" length="$LENGTH" type="application/x-apple-diskimage" sparkle:edSignature="$ED_SIG"/>
         </item>
 EOF
 )
@@ -396,12 +410,13 @@ tools/verify-release.sh --post \
 
 # --- Cleanup ------------------------------------------------------------------
 
-rm -f "$DMG"
+rm -f "$DMG" "$DMG_UPDATE"
 
 echo
 green "✓ Released $TAG — published AND verified end-to-end"
 echo
 echo "  Download URL: $DOWNLOAD_URL"
+echo "                (Sparkle auto-updates from $DMG_UPDATE; same bytes, different asset name for clean download metrics)"
 echo "  Appcast URL:  https://drobu.app/appcast.xml"
 echo "                (legacy https://danieliusisiunas.github.io/drobu/appcast.xml 301s here)"
 echo "  GH release:   https://github.com/$REPO/releases/tag/$TAG"

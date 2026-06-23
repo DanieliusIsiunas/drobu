@@ -3,6 +3,7 @@ import "../styles/global.css";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
 import { PRODUCT_DESCRIPTION } from "../data/product";
+import { ANALYTICS_ENABLED } from "../config";
 
 interface Props {
   title?: string;
@@ -134,6 +135,29 @@ const productSchema = {
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    {/* Privacy-respecting, cookieless analytics (Plausible). Gated on
+        ANALYTICS_ENABLED so the OFF build emits NOTHING here (and the privacy
+        page's "no tracking scripts" claim stays true). No first-party CNAME
+        proxy: loaded from the vendor domain so a visitor's blocker works.
+        The stub queues custom events fired before the deferred script loads;
+        the delegated click handler records a "Download" goal on any download
+        button without touching the markup. is:inline + plain JS only. */}
+    {
+      ANALYTICS_ENABLED && (
+        <Fragment>
+          <script is:inline>
+            {`window.plausible = window.plausible || function () { (window.plausible.q = window.plausible.q || []).push(arguments) };
+            document.addEventListener("click", function (e) {
+              var t = e.target;
+              var el = t && t.closest && t.closest(".js-app-download");
+              if (el && window.plausible) window.plausible("Download");
+            });`}
+          </script>
+          <script is:inline defer data-domain="drobu.app" src="https://plausible.io/js/script.js" />
+        </Fragment>
+      )
+    }
 
     <!-- Structured data: product schema only on indexable pages -->
     {

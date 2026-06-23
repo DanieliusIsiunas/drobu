@@ -87,7 +87,10 @@ public struct SystemDeviceIdentity: DeviceIdentifying {
         guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return nil }
         var bytes = [CChar](repeating: 0, count: size)
         guard sysctlbyname("hw.model", &bytes, &size, nil, 0) == 0 else { return nil }
-        let model = String(cString: bytes)
+        // hw.model is a NUL-terminated C string. Decode the bytes up to the
+        // terminator as UTF-8 (String(cString:) is deprecated). CChar is Int8,
+        // so reinterpret each byte's bit pattern as UInt8 for the decoder.
+        let model = String(decoding: bytes.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return model.isEmpty ? nil : model
     }
 

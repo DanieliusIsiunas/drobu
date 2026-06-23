@@ -14,3 +14,13 @@
 export const DOWNLOAD_URL =
   "https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg";
 
+/** Whether to load privacy-respecting, cookieless analytics (Plausible).
+ *  OFF by default so the site ships zero analytics and the privacy copy stays
+ *  "no analytics" — the script's presence and the privacy wording are BOTH
+ *  gated on this one flag, so they can never drift out of sync. To turn it on:
+ *  create the drobu.app site in Plausible, then set the repo Actions variable
+ *  PUBLIC_ANALYTICS_ENABLED=true (wired into the deploy workflow) and redeploy.
+ *  Read at build time; an unset/empty var is OFF. */
+export const ANALYTICS_ENABLED =
+  import.meta.env.PUBLIC_ANALYTICS_ENABLED === "true";
+
