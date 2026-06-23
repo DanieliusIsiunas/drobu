@@ -33,8 +33,12 @@ warn()  { printf '\033[33m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 
 # Load credentials if present (never printed). Missing file is fine — GitHub-only.
+# Source as plain shell vars — do NOT `set -a`/export them. Exporting would leak
+# the Supabase service-role + Stripe keys into every child process's environment
+# (gh, curl, jq), readable on shared hosts, defeating the -K config-file handling
+# below. They are only ever read in THIS shell (to write the curl config files).
 # shellcheck disable=SC1090
-[[ -f $ENV_FILE ]] && set -a && source "$ENV_FILE" && set +a
+[[ -f $ENV_FILE ]] && source "$ENV_FILE"
 
 command -v gh >/dev/null || { warn "gh CLI not found — install it for the downloads section."; }
 command -v jq >/dev/null || { warn "jq not found (brew install jq) — required."; exit 1; }
@@ -188,13 +192,17 @@ printf '{"date":"%s","human_downloads":%s,"sales":%s,"active_devices":%s}\n' \
 if [[ -n $PREV ]]; then
     PD=$(jq -r '.human_downloads // empty' "$PREV"); PS=$(jq -r '.sales // empty' "$PREV")
     PDATE=$(jq -r '.date // "?"' "$PREV")
-    # Guard the arithmetic: a null/non-integer in an old or hand-edited snapshot
-    # would otherwise abort the whole readout under set -u.
-    if [[ $PD =~ ^[0-9]+$ && $PS =~ ^[0-9]+$ ]]; then
-        printf '  vs %s:  downloads %+d   sales %+d\n' \
-            "$PDATE" "$(( ${HUMAN_TOTAL:-0} - PD ))" "$(( ${SALES_COUNT:-0} - PS ))"
+    # Show a per-metric delta only when BOTH this run and the previous snapshot
+    # have an integer for that metric. Either side missing (a source was
+    # unavailable, or an old/hand-edited snapshot stored null) skips that metric
+    # rather than printing a bogus +/- against a substituted 0.
+    DELTA=""
+    [[ ${HUMAN_TOTAL:-} =~ ^[0-9]+$ && $PD =~ ^[0-9]+$ ]] && DELTA+=$(printf '  downloads %+d' "$(( HUMAN_TOTAL - PD ))")
+    [[ ${SALES_COUNT:-} =~ ^[0-9]+$ && $PS =~ ^[0-9]+$ ]] && DELTA+=$(printf '  sales %+d' "$(( SALES_COUNT - PS ))")
+    if [[ -n $DELTA ]]; then
+        printf '  vs %s:%s\n' "$PDATE" "$DELTA"
     else
-        dim "  previous snapshot ($PDATE) has no comparable counts — skipping delta."
+        dim "  no comparable counts vs $PDATE (a source was unavailable) — skipping delta."
     fi
 else
     dim "  first snapshot saved — run again next week to see deltas."
