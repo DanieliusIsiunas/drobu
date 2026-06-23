@@ -155,7 +155,10 @@ if [[ -n ${STRIPE_KEY:-} ]]; then
     # Auth via -K config file, not argv: -H "...$KEY..." is visible in `ps`.
     ST_CFG="$CURL_CFG_DIR/st"
     printf 'header = "Authorization: Bearer %s"\n' "$STRIPE_KEY" > "$ST_CFG"
-    if SESS=$(curl -fsS --max-time 25 --connect-timeout 8 -K "$ST_CFG" "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" 2>/dev/null); then
+    # -g/--globoff: the created[gte] filter has literal [] which curl would
+    # otherwise read as glob/range syntax and refuse the URL ("bad range"),
+    # making this query fail 100% of the time even with a valid key.
+    if SESS=$(curl -fsS -g --max-time 25 --connect-timeout 8 -K "$ST_CFG" "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" 2>/dev/null); then
         TOTAL_SESS=$(echo "$SESS" | jq '.data | length')
         PAID_SESS=$(echo "$SESS" | jq '[.data[] | select(.payment_status == "paid")] | length')
         printf '  checkout sessions (30d): %s started, %s paid\n' "$TOTAL_SESS" "$PAID_SESS"
