@@ -256,6 +256,10 @@ xcrun stapler staple "$DMG"
 DMG_UPDATE="Drobu-update.dmg"
 rm -f "$DMG_UPDATE"
 cp "$DMG" "$DMG_UPDATE"
+# The appcast reuses $DMG's signature + length for $DMG_UPDATE, so the two MUST
+# be byte-identical. Catch a truncated/corrupt copy HERE — before notarization
+# and upload — rather than only at the post-publish gate on a live release.
+cmp -s "$DMG" "$DMG_UPDATE" || { red "$DMG_UPDATE differs from $DMG after copy — aborting."; exit 1; }
 
 step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout
@@ -294,11 +298,15 @@ git push origin "$TAG"
 # pushed tag with no release attached. Print recovery on exit; clear the trap
 # once the release exists.
 cleanup_pushed_tag() {
+    rm -f "$DMG_UPDATE"
     red ""
     red "✗ Release aborted after tag was pushed."
-    red "  Clean up before re-running:"
-    red "    git push --delete origin $TAG"
-    red "    git tag -d $TAG"
+    red "  A GitHub release may have been partially created — check which assets landed:"
+    red "    gh release view $TAG --json assets --jq '.assets[].name'   # expect $DMG and $DMG_UPDATE"
+    red "  If a release exists, delete it AND the tag, then re-run:"
+    red "    gh release delete $TAG --cleanup-tag --yes"
+    red "  If no release exists yet, just drop the tag:"
+    red "    git push --delete origin $TAG && git tag -d $TAG"
 }
 # ERR: under `set -e` the shell exits after the trap runs. INT/TERM: a signal
 # trap that RETURNS does not abort in Bash — so the signal handlers must exit
@@ -336,7 +344,7 @@ trap - ERR
 post_publish_interrupt() {
     yellow ""
     yellow "! Interrupted after publish. Release $TAG is PUBLIC; verification is incomplete."
-    yellow "  Finish verifying when ready:"
+    yellow "  Finish verifying when ready (the appcast enclosure is $DMG_UPDATE, same bytes as $DMG):"
     yellow "    tools/verify-release.sh --post --version $VERSION --build $BUILD --local-dmg $DMG"
 }
 trap 'post_publish_interrupt; exit 130' INT

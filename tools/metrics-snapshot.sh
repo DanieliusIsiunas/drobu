@@ -22,7 +22,7 @@ cd "$(dirname "$0")/.."
 
 REPO="DanieliusIsiunas/drobu"
 HUMAN_ASSET="Drobu.dmg"            # website download button counts here
-UPDATE_ASSET="Drobu-update.dmg"    # Sparkle auto-update counts here (post asset-split)
+UPDATE_ASSET="Drobu-update.dmg"    # Sparkle auto-update counts here (must match DMG_UPDATE in release.sh)
 ENV_FILE="tools/.metrics-env"
 HIST_DIR="tools/.metrics-history"
 
@@ -87,7 +87,7 @@ cyan "Sales & activations (Supabase)"
 SALES_COUNT="" ; REVENUE="" ; ACTIVE_DEVICES=""
 if [[ -n ${SUPABASE_URL:-} && -n ${SUPABASE_KEY:-} ]]; then
     sb() { # sb <path-and-query> [extra header]   -> body on stdout, count via -D
-        curl -fsS "$SUPABASE_URL/rest/v1/$1" \
+        curl -fsS --max-time 25 --connect-timeout 8 "$SUPABASE_URL/rest/v1/$1" \
             -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" "${@:2}"
     }
     # Claimed keys = paid sales. Pull the few columns we need and aggregate in jq.
@@ -120,8 +120,11 @@ echo
 cyan "Checkout funnel (Stripe, optional)"
 if [[ -n ${STRIPE_KEY:-} ]]; then
     # Restricted read key. Count completed checkout sessions in the last 30 days.
-    SINCE=$(date -u -v-30d +%s 2>/dev/null || date -u -d '30 days ago' +%s)
-    if SESS=$(curl -fsS "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" -u "$STRIPE_KEY:" 2>/dev/null); then
+    # Assignment-fallback, NOT `cmd || cmd2` inside $(...): a partial first
+    # output plus a nonzero exit would concatenate (payment-infra.md trap).
+    SINCE=$(date -u -v-30d +%s 2>/dev/null) || SINCE=$(date -u -d '30 days ago' +%s)
+    # -H Authorization (not -u): keeps the key out of the process list (ps aux).
+    if SESS=$(curl -fsS --max-time 25 --connect-timeout 8 "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" -H "Authorization: Bearer $STRIPE_KEY" 2>/dev/null); then
         TOTAL_SESS=$(echo "$SESS" | jq '.data | length')
         PAID_SESS=$(echo "$SESS" | jq '[.data[] | select(.payment_status == "paid")] | length')
         printf '  checkout sessions (30d): %s started, %s paid\n' "$TOTAL_SESS" "$PAID_SESS"
@@ -150,13 +153,21 @@ echo
 cyan "Since last snapshot"
 SNAP="$HIST_DIR/$TODAY.json"
 PREV=$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | grep -v "/$TODAY.json$" | tail -1 || true)
+# Write the true active-devices count, or null when it could not be parsed —
+# never a spurious 0 that a later delta would misread as a mass deactivation.
 printf '{"date":"%s","human_downloads":%s,"sales":%s,"active_devices":%s}\n' \
-    "$TODAY" "${HUMAN_TOTAL:-0}" "${SALES_COUNT:-0}" "${ACTIVE_DEVICES:-0}" > "$SNAP"
+    "$TODAY" "${HUMAN_TOTAL:-0}" "${SALES_COUNT:-0}" "${ACTIVE_DEVICES:-null}" > "$SNAP"
 if [[ -n $PREV ]]; then
-    PD=$(jq -r .human_downloads "$PREV"); PS=$(jq -r .sales "$PREV")
-    PDATE=$(jq -r .date "$PREV")
-    printf '  vs %s:  downloads %+d   sales %+d\n' \
-        "$PDATE" "$(( ${HUMAN_TOTAL:-0} - PD ))" "$(( ${SALES_COUNT:-0} - PS ))"
+    PD=$(jq -r '.human_downloads // empty' "$PREV"); PS=$(jq -r '.sales // empty' "$PREV")
+    PDATE=$(jq -r '.date // "?"' "$PREV")
+    # Guard the arithmetic: a null/non-integer in an old or hand-edited snapshot
+    # would otherwise abort the whole readout under set -u.
+    if [[ $PD =~ ^[0-9]+$ && $PS =~ ^[0-9]+$ ]]; then
+        printf '  vs %s:  downloads %+d   sales %+d\n' \
+            "$PDATE" "$(( ${HUMAN_TOTAL:-0} - PD ))" "$(( ${SALES_COUNT:-0} - PS ))"
+    else
+        dim "  previous snapshot ($PDATE) has no comparable counts — skipping delta."
+    fi
 else
     dim "  first snapshot saved — run again next week to see deltas."
 fi
