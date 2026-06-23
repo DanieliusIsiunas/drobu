@@ -7,9 +7,11 @@ import IOKit
 /// and the host name stay out of unit-test scope — tests inject a fixed hash.
 public protocol DeviceIdentifying: Sendable {
     /// `SHA256(IOPlatformUUID + salt)` as lowercase hex. Never the raw UUID:
-    /// only this hash + the device name ever leave the Mac.
+    /// only this hash + the device label ever leave the Mac.
     var deviceHash: String { get }
-    /// Human-readable ("Daniel's MacBook") for the in-app activated-device list.
+    /// Non-personal device label (hardware model + a short hash suffix) for the
+    /// in-app activated-device list. Never the user's computer name, which macOS
+    /// seeds from their real name.
     var deviceName: String { get }
 }
 
@@ -20,6 +22,19 @@ public protocol DeviceIdentifying: Sendable {
 public func drobuDeviceHash(fromPlatformUUID uuid: String, salt: String) -> String {
     let digest = SHA256.hash(data: Data((uuid + salt).utf8))
     return digest.map { String(format: "%02x", $0) }.joined()
+}
+
+/// Non-personal, device-distinguishing label for the activated-device list.
+/// Combines the hardware model identifier (e.g. "MacBookPro18,3") with a short
+/// prefix of the device hash, so two same-model Macs stay distinguishable in the
+/// over-cap remediation screen WITHOUT transmitting the user's computer name
+/// (macOS seeds `Host.current().localizedName` from their real name). Pure over
+/// its inputs — unit-tested without the `hw.model` syscall.
+public func drobuDeviceLabel(model: String, deviceHash: String) -> String {
+    let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    let modelPart = trimmed.isEmpty ? "Mac" : trimmed
+    let suffix = deviceHash.prefix(6)
+    return suffix.isEmpty ? modelPart : "\(modelPart) · \(suffix)"
 }
 
 /// Resolve the device's stable UUID: the hardware `IOPlatformUUID` when
@@ -57,7 +72,20 @@ public struct SystemDeviceIdentity: DeviceIdentifying {
     }
 
     public var deviceName: String {
-        Host.current().localizedName ?? "Mac"
+        drobuDeviceLabel(model: Self.readModelIdentifier() ?? "Mac", deviceHash: deviceHash)
+    }
+
+    /// The hardware model identifier (e.g. "MacBookPro18,3"), or nil if the
+    /// sysctl read fails. Non-personal — kept out of the pure label function so
+    /// `drobuDeviceLabel` stays unit-testable without the syscall (mirrors
+    /// `readPlatformUUID`).
+    private static func readModelIdentifier() -> String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &bytes, &size, nil, 0) == 0 else { return nil }
+        let model = String(cString: bytes)
+        return model.isEmpty ? nil : model
     }
 
     /// The hardware UUID, or nil if the registry entry/property is missing.

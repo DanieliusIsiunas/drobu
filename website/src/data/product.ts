@@ -8,4 +8,4 @@
  * edited together with this constant.
  */
 export const PRODUCT_DESCRIPTION =
-  "Drobu is a macOS clipboard manager that also records your screen as GIF or video, edits media inline, and pastes anything with one keystroke. It is fully local, with no cloud or account, a one-time $14.99 purchase, and it works on macOS 14 or later.";
+  "Drobu is a macOS clipboard manager that also records your screen as GIF or video, edits media inline, and pastes anything with one keystroke. Your clipboard stays on your Mac with no account to create, it is a one-time $14.99 purchase, and it works on macOS 14 or later.";

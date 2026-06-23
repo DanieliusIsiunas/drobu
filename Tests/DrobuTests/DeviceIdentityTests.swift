@@ -49,4 +49,35 @@ import Testing
         #expect(!uuid.isEmpty)
         #expect(store.get("device-uuid-fallback") == uuid)
     }
+
+    // MARK: - Non-personal device label
+
+    @Test func labelCombinesModelWithSixHexHashSuffix() {
+        let label = drobuDeviceLabel(model: "MacBookPro18,3", deviceHash: "a3f9c1d2deadbeef")
+        #expect(label == "MacBookPro18,3 · a3f9c1") // model preserved, 6-hex suffix
+    }
+
+    @Test func blankModelFallsBackToMacWithoutLeadingSeparator() {
+        #expect(drobuDeviceLabel(model: "", deviceHash: "a3f9c1d2") == "Mac · a3f9c1")
+        #expect(drobuDeviceLabel(model: "   ", deviceHash: "a3f9c1d2") == "Mac · a3f9c1")
+    }
+
+    @Test func sameModelDifferentHashesProduceDistinctLabels() {
+        // The over-cap remediation list must keep two same-model Macs apart.
+        let a = drobuDeviceLabel(model: "Macmini9,1", deviceHash: "aaaaaa11")
+        let b = drobuDeviceLabel(model: "Macmini9,1", deviceHash: "bbbbbb22")
+        #expect(a != b)
+    }
+
+    @Test func labelDerivesOnlyFromModelAndHashAndStaysShort() {
+        // Structural guarantee: the label is a pure function of (model, hash) —
+        // it can carry no personal computer name because it never receives one.
+        let label = drobuDeviceLabel(model: "MacBookAir10,1", deviceHash: "0123456789abcdef")
+        #expect(label == "MacBookAir10,1 · 012345")
+        #expect(label.count < 60) // never approaches the backend's 200-char cap
+    }
+
+    @Test func shortHashIsUsedWholeWhenUnderSixChars() {
+        #expect(drobuDeviceLabel(model: "Mac15,3", deviceHash: "abc") == "Mac15,3 · abc")
+    }
 }
