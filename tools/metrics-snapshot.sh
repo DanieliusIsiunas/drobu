@@ -109,12 +109,15 @@ if [[ -n ${SUPABASE_URL:-} && -n ${SUPABASE_KEY:-} ]]; then
     if CLAIMED=$(sb "license_keys?select=amount_total,currency,refunded_at&claimed_at=not.is.null" 2>/dev/null); then
         SALES_COUNT=$(echo "$CLAIMED" | jq 'length')
         REFUNDS=$(echo "$CLAIMED" | jq '[.[] | select(.refunded_at != null)] | length')
-        # amount_total is in minor units; group by currency for an honest sum.
+        # amount_total is in minor units; sum only rows with a KNOWN amount,
+        # grouped by currency. Manually-issued keys (issue-license-key.sh) can be
+        # claimed with null amount_total/currency — they still count as sales
+        # above, but null/100 would error and abort the whole readout under set -e.
         REVENUE=$(echo "$CLAIMED" | jq -r '
-            [.[] | select(.refunded_at == null)]
+            [.[] | select(.refunded_at == null and .amount_total != null)]
             | group_by(.currency)
             | map("\((map(.amount_total) | add) / 100 | floor) \(.[0].currency // "?" | ascii_upcase)")
-            | join(", ") // "0"')
+            | join(", ")' 2>/dev/null) || REVENUE=""
         printf '  sales (claimed keys): %s\n' "$SALES_COUNT"
         printf '  net revenue: %s   (refunds: %s)\n' "${REVENUE:-0}" "${REFUNDS:-0}"
     else
