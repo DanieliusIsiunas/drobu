@@ -42,6 +42,12 @@ command -v jq >/dev/null || { warn "jq not found (brew install jq) — required.
 TODAY=$(date -u +%Y-%m-%d)
 mkdir -p "$HIST_DIR"
 
+# Credentials (Supabase / Stripe keys) go into curl -K config files, never argv.
+# `-H "...$KEY..."` still exposes the key to anyone running `ps` during the
+# request; a config file does not. mktemp -d is 0700, removed on exit.
+CURL_CFG_DIR=$(mktemp -d)
+trap 'rm -rf "$CURL_CFG_DIR"' EXIT
+
 # ── DMG downloads (GitHub) ────────────────────────────────────────────────────
 bold "DROBU METRICS — $TODAY"
 echo
@@ -49,7 +55,12 @@ cyan "Downloads (GitHub release assets)"
 
 RELEASES_JSON=""
 if command -v gh >/dev/null; then
-    RELEASES_JSON=$(gh api "repos/$REPO/releases" --paginate 2>/dev/null || echo '[]')
+    # --paginate emits one JSON array PER page; --jq '.[]' streams the release
+    # objects across all pages and `jq -s` re-collects them into ONE array, so
+    # the totals below are lifetime, not per-page (which would break past 30
+    # releases).
+    RELEASES_JSON=$(gh api "repos/$REPO/releases" --paginate --jq '.[]' 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
+    [[ -n $RELEASES_JSON ]] || RELEASES_JSON='[]'
 fi
 
 if [[ -n $RELEASES_JSON && $RELEASES_JSON != "[]" ]]; then
@@ -86,9 +97,13 @@ echo
 cyan "Sales & activations (Supabase)"
 SALES_COUNT="" ; REVENUE="" ; ACTIVE_DEVICES=""
 if [[ -n ${SUPABASE_URL:-} && -n ${SUPABASE_KEY:-} ]]; then
+    # Auth headers in a -K config file (not -H argv). Non-secret headers
+    # (Prefer/Range) stay as args. File lives in the 0700 temp dir.
+    SB_CFG="$CURL_CFG_DIR/sb"
+    printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' \
+        "$SUPABASE_KEY" "$SUPABASE_KEY" > "$SB_CFG"
     sb() { # sb <path-and-query> [extra header]   -> body on stdout, count via -D
-        curl -fsS --max-time 25 --connect-timeout 8 "$SUPABASE_URL/rest/v1/$1" \
-            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" "${@:2}"
+        curl -fsS --max-time 25 --connect-timeout 8 -K "$SB_CFG" "$SUPABASE_URL/rest/v1/$1" "${@:2}"
     }
     # Claimed keys = paid sales. Pull the few columns we need and aggregate in jq.
     if CLAIMED=$(sb "license_keys?select=amount_total,currency,refunded_at&claimed_at=not.is.null" 2>/dev/null); then
@@ -123,8 +138,10 @@ if [[ -n ${STRIPE_KEY:-} ]]; then
     # Assignment-fallback, NOT `cmd || cmd2` inside $(...): a partial first
     # output plus a nonzero exit would concatenate (payment-infra.md trap).
     SINCE=$(date -u -v-30d +%s 2>/dev/null) || SINCE=$(date -u -d '30 days ago' +%s)
-    # -H Authorization (not -u): keeps the key out of the process list (ps aux).
-    if SESS=$(curl -fsS --max-time 25 --connect-timeout 8 "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" -H "Authorization: Bearer $STRIPE_KEY" 2>/dev/null); then
+    # Auth via -K config file, not argv: -H "...$KEY..." is visible in `ps`.
+    ST_CFG="$CURL_CFG_DIR/st"
+    printf 'header = "Authorization: Bearer %s"\n' "$STRIPE_KEY" > "$ST_CFG"
+    if SESS=$(curl -fsS --max-time 25 --connect-timeout 8 -K "$ST_CFG" "https://api.stripe.com/v1/checkout/sessions?limit=100&created[gte]=$SINCE" 2>/dev/null); then
         TOTAL_SESS=$(echo "$SESS" | jq '.data | length')
         PAID_SESS=$(echo "$SESS" | jq '[.data[] | select(.payment_status == "paid")] | length')
         printf '  checkout sessions (30d): %s started, %s paid\n' "$TOTAL_SESS" "$PAID_SESS"
