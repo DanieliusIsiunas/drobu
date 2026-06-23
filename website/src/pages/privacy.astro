@@ -11,7 +11,7 @@ import Landing from "../layouts/Landing.astro";
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">The short version</h2>
       <p>
-        Drobu stores everything locally on your Mac. Your clipboard history never leaves your device, and we never see your clipboard or what you do in the app. There is no account to create and no usage tracking. The only things we ever hold are your purchase record and, once you activate a paid license, a device fingerprint and a basic device label used to enforce the 3-device limit. Both are explained below.
+        Drobu stores everything locally on your Mac. Your clipboard history never leaves your device, and we never see your clipboard or what you do in the app. There is no account to create and no usage tracking. The only things we ever hold are your purchase record and, once you activate a paid license, a device fingerprint and a device label used to enforce the 3-device limit. Both are explained below.
       </p>
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">What Stripe collects</h2>
@@ -26,7 +26,7 @@ import Landing from "../layouts/Landing.astro";
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">Device activation</h2>
       <p>
-        When you activate a paid license, Drobu sends a device fingerprint (a one-way hash that cannot be reversed to your hardware) and a basic device label to our license database on <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Supabase</a>, and re-checks roughly every two weeks. As with any network connection, this reveals your IP address to the server, and we record when each device first activated and last checked in so the limit can be enforced. This exists only to enforce the 3-device limit and to let you see and remove your own devices. It never includes your clipboard, your history, or anything you do in the app. The 14-day trial makes no activation call at all (Drobu still checks for updates, see below).
+        When you activate a paid license, Drobu sends a device fingerprint (a one-way hash that cannot be reversed to your hardware) and a device label to our license database on <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Supabase</a>, and re-checks roughly every two weeks. The label is a short name so you can recognize your devices when managing the limit; on current versions it is your Mac's name, and we are switching it to a non-identifying model label, so older activations stored before that change may still show your Mac's name until the device re-activates. As with any network connection, this reveals your IP address to the server, and we record when each device first activated and last checked in so the limit can be enforced. This exists only to enforce the 3-device limit and to let you see and remove your own devices. It never includes your clipboard, your history, or anything you do in the app. The 14-day trial makes no activation call at all (Drobu still checks for updates, see below).
       </p>
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">Update checks</h2>

@@ -8,7 +8,7 @@ Drobu keeps a searchable history of everything you copy (text, links, images, sc
 - Category: macOS clipboard manager and screen recorder
 - Price: $14.99 one-time, no subscription. 14-day free trial, no card required
 - Platform: macOS 14 (Sonoma) and later
-- Privacy: clipboard stored 100% locally, no account, no tracking; ignores password-manager items. A paid license activates online (device fingerprint + basic label) to enforce a 3-device limit; the trial makes no activation call
+- Privacy: clipboard stored 100% locally, no account, no tracking; ignores password-manager items. A paid license activates online (device fingerprint + device label) to enforce a 3-device limit; the trial makes no activation call
 - Capture: record any screen region to GIF or video, with inline crop and trim
 - Differentiator: the only clipboard manager that also records your screen
 
