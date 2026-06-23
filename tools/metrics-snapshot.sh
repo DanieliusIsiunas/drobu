@@ -89,7 +89,7 @@ if [[ -n $RELEASES_JSON && $RELEASES_JSON != "[]" ]]; then
     fi
 else
     warn "  (no GitHub data — is gh authed? \`gh auth status\`)"
-    HUMAN_TOTAL=0
+    HUMAN_TOTAL=""   # unavailable, NOT a real 0 -> recorded as null in the snapshot
 fi
 
 # ── Sales + revenue + active devices (Supabase) ───────────────────────────────
@@ -105,9 +105,16 @@ if [[ -n ${SUPABASE_URL:-} && -n ${SUPABASE_KEY:-} ]]; then
     sb() { # sb <path-and-query> [extra header]   -> body on stdout, count via -D
         curl -fsS --max-time 25 --connect-timeout 8 -K "$SB_CFG" "$SUPABASE_URL/rest/v1/$1" "${@:2}"
     }
-    # Claimed keys = paid sales. Pull the few columns we need and aggregate in jq.
-    if CLAIMED=$(sb "license_keys?select=amount_total,currency,refunded_at&claimed_at=not.is.null" 2>/dev/null); then
+    # Claimed keys = paid sales. count=exact returns the true total in
+    # Content-Range so we can detect PostgREST row-cap truncation (a silent
+    # undercount as the pool grows) — mirrors tools/export-license-claims.sh.
+    LK_HDR="$CURL_CFG_DIR/lk-hdr"
+    if CLAIMED=$(sb "license_keys?select=amount_total,currency,refunded_at&claimed_at=not.is.null" -H "Prefer: count=exact" -D "$LK_HDR" 2>/dev/null); then
         SALES_COUNT=$(echo "$CLAIMED" | jq 'length')
+        TOTAL_CLAIMED=$(sed -nE 's#^[Cc]ontent-[Rr]ange: .*/([0-9]+).*#\1#p' "$LK_HDR" | tr -d '\r')
+        if [[ -n ${TOTAL_CLAIMED:-} && ${TOTAL_CLAIMED:-0} -gt ${SALES_COUNT:-0} ]]; then
+            warn "  WARNING: only $SALES_COUNT of $TOTAL_CLAIMED claimed keys returned (PostgREST row cap) — sales/revenue undercount. Add Range pagination."
+        fi
         REFUNDS=$(echo "$CLAIMED" | jq '[.[] | select(.refunded_at != null)] | length')
         # amount_total is in minor units; sum only rows with a KNOWN amount,
         # grouped by currency. Manually-issued keys (issue-license-key.sh) can be
@@ -173,10 +180,11 @@ echo
 cyan "Since last snapshot"
 SNAP="$HIST_DIR/$TODAY.json"
 PREV=$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | grep -v "/$TODAY.json$" | tail -1 || true)
-# Write the true active-devices count, or null when it could not be parsed —
-# never a spurious 0 that a later delta would misread as a mass deactivation.
+# Record an unavailable source (GitHub unauthed, Supabase unconfigured/failed)
+# as null, never a spurious 0 — a later successful run would otherwise show a
+# fake delta and the history would claim downloads/sales dropped to zero.
 printf '{"date":"%s","human_downloads":%s,"sales":%s,"active_devices":%s}\n' \
-    "$TODAY" "${HUMAN_TOTAL:-0}" "${SALES_COUNT:-0}" "${ACTIVE_DEVICES:-null}" > "$SNAP"
+    "$TODAY" "${HUMAN_TOTAL:-null}" "${SALES_COUNT:-null}" "${ACTIVE_DEVICES:-null}" > "$SNAP"
 if [[ -n $PREV ]]; then
     PD=$(jq -r '.human_downloads // empty' "$PREV"); PS=$(jq -r '.sales // empty' "$PREV")
     PDATE=$(jq -r '.date // "?"' "$PREV")
