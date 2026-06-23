@@ -245,6 +245,22 @@ xcrun stapler staple "$DMG"
 # sign_update below — see that script for the full check set and the
 # standing "never spctl --assess the DMG" prohibition.
 
+# Sparkle update asset: the SAME stapled bytes uploaded under a second name.
+# Humans (website button + latest/download alias) keep Drobu.dmg; the appcast
+# enclosure points at Drobu-update.dmg. Identical bytes => identical EdDSA
+# signature + length, so sign_update runs ONCE over $DMG below and its output is
+# valid for both. This is what lets GitHub's per-asset download_count separate
+# human downloads (Drobu.dmg) from Sparkle auto-update fetches (Drobu-update.dmg).
+# MUST be after staple (bytes are frozen here) — a pre-staple copy would carry
+# different bytes and an invalid signature.
+DMG_UPDATE="Drobu-update.dmg"
+rm -f "$DMG_UPDATE"
+cp "$DMG" "$DMG_UPDATE"
+# The appcast reuses $DMG's signature + length for $DMG_UPDATE, so the two MUST
+# be byte-identical. Catch a truncated/corrupt copy HERE — before notarization
+# and upload — rather than only at the post-publish gate on a live release.
+cmp -s "$DMG" "$DMG_UPDATE" || { red "$DMG_UPDATE differs from $DMG after copy — aborting."; exit 1; }
+
 step "Signing DMG with Sparkle (Keychain prompt may appear)"
 # sign_update prints `sparkle:edSignature="..." length="..."` on stdout
 SIG_LINE=$("$SIGN_UPDATE" "$DMG")
@@ -282,11 +298,15 @@ git push origin "$TAG"
 # pushed tag with no release attached. Print recovery on exit; clear the trap
 # once the release exists.
 cleanup_pushed_tag() {
+    rm -f "$DMG_UPDATE"
     red ""
     red "✗ Release aborted after tag was pushed."
-    red "  Clean up before re-running:"
-    red "    git push --delete origin $TAG"
-    red "    git tag -d $TAG"
+    red "  A GitHub release may have been partially created — check which assets landed:"
+    red "    gh release view $TAG --json assets --jq '.assets[].name'   # expect $DMG and $DMG_UPDATE"
+    red "  If a release exists, delete it AND the tag, then re-run:"
+    red "    gh release delete $TAG --cleanup-tag --yes"
+    red "  If no release exists yet, just drop the tag:"
+    red "    git push --delete origin $TAG && git tag -d $TAG"
 }
 # ERR: under `set -e` the shell exits after the trap runs. INT/TERM: a signal
 # trap that RETURNS does not abort in Bash — so the signal handlers must exit
@@ -310,7 +330,7 @@ fi
 
 step "Creating GitHub release"
 RELEASE_BODY=$(printf "%s\n\n%s\n" "$NOTES_HEADER" "$NOTES")
-gh release create "$TAG" "$DMG" \
+gh release create "$TAG" "$DMG" "$DMG_UPDATE" \
     --repo "$REPO" \
     --title "Drobu $VERSION" \
     --notes "$RELEASE_BODY"
@@ -324,14 +344,16 @@ trap - ERR
 post_publish_interrupt() {
     yellow ""
     yellow "! Interrupted after publish. Release $TAG is PUBLIC; verification is incomplete."
-    yellow "  Finish verifying when ready:"
+    yellow "  Finish verifying when ready (the appcast enclosure is $DMG_UPDATE, same bytes as $DMG):"
     yellow "    tools/verify-release.sh --post --version $VERSION --build $BUILD --local-dmg $DMG"
 }
 trap 'post_publish_interrupt; exit 130' INT
 trap 'post_publish_interrupt; exit 143' TERM
 
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$DMG"
-echo "  Download URL: $DOWNLOAD_URL"
+UPDATE_URL="https://github.com/$REPO/releases/download/$TAG/$DMG_UPDATE"
+echo "  Human download URL: $DOWNLOAD_URL"
+echo "  Sparkle update URL: $UPDATE_URL (appcast enclosure)"
 
 # --- Appcast update -----------------------------------------------------------
 
@@ -345,7 +367,7 @@ NEW_ITEM=$(cat <<EOF
             <sparkle:version>$BUILD</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="$DOWNLOAD_URL" length="$LENGTH" type="application/x-apple-diskimage" sparkle:edSignature="$ED_SIG"/>
+            <enclosure url="$UPDATE_URL" length="$LENGTH" type="application/x-apple-diskimage" sparkle:edSignature="$ED_SIG"/>
         </item>
 EOF
 )
@@ -396,12 +418,13 @@ tools/verify-release.sh --post \
 
 # --- Cleanup ------------------------------------------------------------------
 
-rm -f "$DMG"
+rm -f "$DMG" "$DMG_UPDATE"
 
 echo
 green "✓ Released $TAG — published AND verified end-to-end"
 echo
 echo "  Download URL: $DOWNLOAD_URL"
+echo "                (Sparkle auto-updates from $DMG_UPDATE; same bytes, different asset name for clean download metrics)"
 echo "  Appcast URL:  https://drobu.app/appcast.xml"
 echo "                (legacy https://danieliusisiunas.github.io/drobu/appcast.xml 301s here)"
 echo "  GH release:   https://github.com/$REPO/releases/tag/$TAG"

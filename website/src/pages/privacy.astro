@@ -1,5 +1,6 @@
 ---
 import Landing from "../layouts/Landing.astro";
+import { ANALYTICS_ENABLED } from "../config";
 ---
 
 <Landing title="Privacy Policy | Drobu" description="Privacy Policy for Drobu clipboard manager for macOS.">
@@ -41,7 +42,9 @@ import Landing from "../layouts/Landing.astro";
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">No tracking</h2>
       <p>
-        This website has no analytics, no cookies, and no tracking scripts.
+        {ANALYTICS_ENABLED
+          ? "This website uses privacy-respecting, cookieless analytics (Plausible). It records only aggregate counts, such as page views and download-button clicks. It sets no cookies, builds no personal profiles, and does not track you across other sites. You are free to block it, and we do not try to get around that."
+          : "This website has no analytics, no cookies, and no tracking scripts."}
       </p>
 
       <h2 class="text-lg font-semibold text-text-primary mt-8">Contact</h2>

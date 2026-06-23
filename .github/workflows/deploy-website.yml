@@ -27,6 +27,12 @@ jobs:
         uses: withastro/action@v5
         with:
           path: ./website
+        env:
+          # Activates privacy-respecting Plausible analytics + flips the privacy
+          # page copy in lockstep. Unset by default => OFF (site ships no
+          # analytics). To enable: create the drobu.app site in Plausible, then
+          # set repo Actions variable PUBLIC_ANALYTICS_ENABLED=true and redeploy.
+          PUBLIC_ANALYTICS_ENABLED: ${{ vars.PUBLIC_ANALYTICS_ENABLED }}
 
   deploy:
     needs: build

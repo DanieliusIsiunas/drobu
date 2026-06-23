@@ -1,0 +1,15 @@
+# Drobu metrics-snapshot credentials. Copy to tools/.metrics-env (gitignored) and fill in.
+# GitHub needs nothing here (uses your authed `gh`). Leave any block blank to skip it.
+
+# ── Supabase (the core funnel: sales, revenue, refunds, active devices) ───────
+# Project URL: Supabase dashboard -> Project Settings -> Data API -> Project URL
+# Key: Project Settings -> API -> service_role key (read access to license_keys +
+#      activations). Treat it like a password; this file is gitignored.
+# SUPABASE_URL="https://<project-ref>.supabase.co"
+# SUPABASE_KEY="<service-role-key>"
+
+# ── Stripe (optional: pre-fulfillment checkout funnel) ────────────────────────
+# Create a RESTRICTED key: Stripe dashboard -> Developers -> API keys ->
+# Create restricted key -> grant READ on "Checkout Sessions" only, everything
+# else None. Use the rk_live_... value.
+# STRIPE_KEY="rk_live_..."
