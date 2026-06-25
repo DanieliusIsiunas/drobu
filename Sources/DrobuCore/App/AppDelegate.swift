@@ -917,18 +917,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     /// `PermissionsService` so the restart-pending status stays accurate.
     /// Remove the privileged Closed-Lid helper, owned end-to-end here because this
     /// object owns both the daemon registration and the live `ClosedLidService`.
-    /// Reverse an active session via the owning service FIRST — `stop()` confirms the
-    /// reversal and tears down its own local state (menu dot, clamshell poll,
-    /// caffeinate) before the daemon goes away — then unregister. A `.requiresApproval`
-    /// helper has a registration but no running daemon, so there's nothing to reverse:
-    /// skip straight to unregister. Returns false (helper kept) when an active
-    /// session's reversal couldn't be confirmed — unregistering then would kill the
-    /// only owner that can retry it.
+    /// Reverse an active session via the owning service FIRST — `stopBounded` confirms
+    /// the reversal and tears down its own local state (menu dot, clamshell poll,
+    /// caffeinate) before the daemon goes away — then unregister. The wait is
+    /// **bounded**: a wedged-but-connected daemon must not hang the Remove action
+    /// forever (it would never reach the unregister/keep decision). A
+    /// `.requiresApproval` helper has a registration but no running daemon, so there's
+    /// nothing to reverse — skip straight to unregister. Returns false (helper kept)
+    /// when an active session's reversal couldn't be confirmed: unregistering then
+    /// would kill the only owner that can retry it.
     @MainActor
     func removeClosedLidHelper() async -> Bool {
         if DaemonRegistrar().status == .enabled {
-            await closedLidService.stop()
-            if closedLidService.isActive { return false }
+            guard await closedLidService.stopBounded(timeout: 3.0) else { return false }
         }
         _ = DaemonRegistrar().unregister()
         return true
