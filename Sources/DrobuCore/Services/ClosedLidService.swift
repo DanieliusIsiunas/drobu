@@ -263,6 +263,27 @@ final class ClosedLidService {
         }
     }
 
+    /// Like `stop()` but with a **bounded** daemon wait, for teardown paths (helper
+    /// removal) that must not suspend forever on a wedged-but-connected daemon:
+    /// `disable()`'s continuation only resumes on a reply or connection loss, so a
+    /// live-but-wedged daemon would hang the caller (the bounded `DaemonClient`
+    /// helpers exist for exactly this). Returns true iff the reversal is confirmed
+    /// (local state torn down, idled); false leaves the session pending with
+    /// reconciliation running. No active session → nothing to reverse → true. The
+    /// blocking `disableBounded` runs off the main actor.
+    func stopBounded(timeout: TimeInterval) async -> Bool {
+        guard isActive else { return true }
+        let confirmed = await Task.detached { [daemon] in daemon.disableBounded(timeout: timeout) }.value
+        if confirmed {
+            teardownClientState()
+            state = .idle
+            return true
+        }
+        Log.error("ClosedLidService: stopBounded() reversal not confirmed — pending; reconciliation will resolve")
+        if reconciliationTimer == nil { startReconciliationTimer() }
+        return false
+    }
+
     /// Launch-time rehydration (R14): adopt a live daemon session without a new
     /// auth prompt or a second `enable`. A true orphan is the daemon's own
     /// concern (it reverses on its boot reconciliation), so there is nothing to

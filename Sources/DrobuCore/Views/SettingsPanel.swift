@@ -17,7 +17,9 @@ final class SettingsPanel: NSWindow {
     private var activeObserver: Any?
     private var onClose: (() -> Void)?
 
-    init(permissions: PermissionsService, gate: OnboardingGate, firstRun: Bool, onClose: @escaping () -> Void) {
+    init(permissions: PermissionsService, gate: OnboardingGate, firstRun: Bool,
+         onRemoveClosedLidHelper: @escaping @MainActor () async -> Bool,
+         onClose: @escaping () -> Void) {
         self.nav = SettingsNavigationModel(firstRun: firstRun)
         self.onboardingModel = OnboardingViewModel(permissions: permissions)
         self.gate = gate
@@ -66,6 +68,7 @@ final class SettingsPanel: NSWindow {
                     // return-from-System-Settings case for deep-link actions.
                     self.onboardingModel.refresh()
                 },
+                onRemoveClosedLidHelper: onRemoveClosedLidHelper,
                 onFinish: { [weak self] in self?.close() }
             )
             .ignoresSafeArea()

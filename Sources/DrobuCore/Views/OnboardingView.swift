@@ -132,11 +132,10 @@ struct OnboardingView: View {
             .toggleStyle(.switch)
             .accessibilityLabel("Launch at login")
         } else if let action = row.primaryAction {
+            // Neutral grey pill for setup actions; the pending "Restart to
+            // activate" keeps its attention-orange (semantic .warning).
             Text(actionLabel(for: action))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(action == .restart ? Color.orange : Color.accentColor)
-                .hoverHighlight()
-                .contentShape(Rectangle())
+                .actionPill(action == .restart ? .warning : .neutral)
                 .onTapGesture { onAction(action) }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(actionLabel(for: action))

@@ -129,6 +129,42 @@ struct ClosedLidServiceTests {
         #expect((service.remainingTime ?? 0) == 3600)    // seeded from daemon remaining
     }
 
+    @Test("stopBounded: confirmed reversal idles the session and returns true")
+    func stopBoundedConfirmed() async throws {
+        let daemon = MockDaemonControl()
+        daemon.enableOutcome = EnableOutcome(result: .ok, remaining: 3600)
+        daemon.disableResult = true
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        #expect(service.isActive)
+        let ok = await service.stopBounded(timeout: 1.0)
+        #expect(ok)
+        #expect(!service.isActive)
+    }
+
+    @Test("stopBounded: unconfirmed reversal keeps the session active and returns false")
+    func stopBoundedUnconfirmed() async throws {
+        let daemon = MockDaemonControl()
+        daemon.enableOutcome = EnableOutcome(result: .ok, remaining: 3600)
+        daemon.disableResult = false        // daemon couldn't confirm the reversal
+        let service = makeService(daemon: daemon)
+        try await service.start(duration: 3600)
+        #expect(service.isActive)
+        let ok = await service.stopBounded(timeout: 1.0)
+        #expect(!ok)
+        #expect(service.isActive)           // kept for retry — caller must NOT unregister
+    }
+
+    @Test("stopBounded: no active session → true without calling the daemon")
+    func stopBoundedNoSession() async {
+        let daemon = MockDaemonControl()
+        let service = makeService(daemon: daemon)
+        #expect(!service.isActive)
+        let ok = await service.stopBounded(timeout: 1.0)
+        #expect(ok)
+        #expect(daemon.disableCallCount == 0)
+    }
+
     @Test("auth success is the password-fallback success path → proceeds to enable")
     func authSuccessProceeds() async throws {
         let daemon = MockDaemonControl()
