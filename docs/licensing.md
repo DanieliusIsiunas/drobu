@@ -112,7 +112,7 @@ Operational procedures (secrets, failure playbooks, reconciliation cadence, key-
 
 **A customer says their key doesn't work**: ask them to copy the entire key including the `DROBU-` prefix and paste it without trailing spaces. If activation still fails, the most likely cause is line-wrapping in their email — re-send the key with `<pre>` formatting or in a code block.
 
-**A customer wants a refund**: handle the payment side in the Stripe dashboard; note their email in `tools/license-log.csv`. The revocation posture is documented in the private support runbook.
+**A customer wants a refund**: the public policy is **all sales are final** — the 14-day full-functionality trial is the evaluation period (see `website/src/pages/terms.astro` and the FAQ). There is no advertised money-back guarantee, so this is now a discretionary, case-by-case decision (genuine breakage, duplicate charge, or an EU/UK statutory withdrawal request), not a routine one. If you do choose to refund: process the payment side in the Stripe dashboard (note that Stripe's fee is not returned), note the email in `tools/license-log.csv`, and revoke the key so it can't keep activating — the revocation posture is documented in the private support runbook.
 
 **I lost my private key**: the Sparkle pattern applies — back up via Keychain Access → File → Export *before* you have a crisis. If lost without backup, you'll need to generate a new keypair (see [The keypair](#the-keypair)), ship a new Drobu version with the new public key, re-issue keys to every existing customer. Painful but tractable.
 
