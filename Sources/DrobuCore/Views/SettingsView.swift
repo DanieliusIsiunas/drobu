@@ -20,6 +20,11 @@ public struct SettingsView: View {
     /// different window if focus moved before the user taps Delete/Uninstall).
     var windowProvider: () -> NSWindow?
     var onPermissionAction: (OnboardingAction) -> Void
+    /// Removes the privileged Closed-Lid helper via the owning `ClosedLidService`
+    /// (AppDelegate). Returns false when an active session's reversal couldn't be
+    /// confirmed — the helper is kept. Injected like `windowProvider` so the view
+    /// never reaches the service or the daemon directly.
+    var onRemoveClosedLidHelper: @MainActor () async -> Bool
     var onFinish: () -> Void
 
     // Shortcuts
@@ -50,12 +55,14 @@ public struct SettingsView: View {
          firstRun: Bool,
          windowProvider: @escaping () -> NSWindow?,
          onPermissionAction: @escaping (OnboardingAction) -> Void,
+         onRemoveClosedLidHelper: @escaping @MainActor () async -> Bool,
          onFinish: @escaping () -> Void) {
         self.nav = nav
         self.onboardingModel = onboardingModel
         self.firstRun = firstRun
         self.windowProvider = windowProvider
         self.onPermissionAction = onPermissionAction
+        self.onRemoveClosedLidHelper = onRemoveClosedLidHelper
         self.onFinish = onFinish
     }
 
@@ -476,7 +483,7 @@ public struct SettingsView: View {
         // The one Drobu-installed helper that can be removed lives here, next to
         // Uninstall — the Set Up checklist shows it as a plain status row ("Ready"),
         // like every other permission. Shown only while the helper is registered.
-        if daemonStatus == .enabled {
+        if daemonStatus == .enabled || daemonStatus == .requiresApproval {
             settingsRow("Remove Closed-Lid Helper",
                         description: "Unregisters the background helper from Login Items. Closed Lid mode stops working until you re-enable it in Set Up.") {
                 actionLink("Remove", destructive: true,
@@ -505,25 +512,20 @@ public struct SettingsView: View {
         daemonStatus = DaemonRegistrar().status
     }
 
-    /// Remove the privileged Closed-Lid helper. Mirrors `UninstallService`'s R14
-    /// ordering: reverse an active session FIRST so `pmset disablesleep` isn't left
-    /// applied once the daemon (its only reversal owner) is unregistered. Daemon calls
-    /// run off the main actor. **If the reversal can't be confirmed** (timeout /
-    /// failure — `disableBounded` returns `false`; the benign no-active-session case
-    /// returns `true`), we do NOT unregister: doing so would kill the daemon while it
-    /// is still the owner that retries the reversal, potentially stranding the Mac
-    /// unable to sleep. Instead keep it and surface the recovery path. On success the
-    /// updated status hides the row.
+    /// Remove the privileged Closed-Lid helper. Delegated to the owning
+    /// `ClosedLidService` (AppDelegate) via `onRemoveClosedLidHelper`: it reverses an
+    /// active session AND tears down its own local state (menu dot, clamshell poll,
+    /// caffeinate) BEFORE the registration is removed, and skips the daemon step for a
+    /// `.requiresApproval` helper (registered but not running). Returns false when an
+    /// active session's reversal couldn't be confirmed — the helper is kept (the only
+    /// owner that can retry), so surface the manual recovery path instead.
     private func removeClosedLidHelper() {
         Task { @MainActor in
-            let client = DaemonClient()
-            let reversed = await Task.detached { client.disableBounded(timeout: 3.0) }.value
-            client.resetConnection()
-            guard reversed else {
+            if await onRemoveClosedLidHelper() {
+                refreshDaemonStatus()
+            } else {
                 presentClosedLidReversalFailure()
-                return
             }
-            daemonStatus = DaemonRegistrar().unregister()
         }
     }
 
