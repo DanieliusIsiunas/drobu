@@ -35,8 +35,8 @@ public struct SettingsView: View {
     @State private var licenseErrorMessage: String?
     @State private var licenseSuccessVisible: Bool = false
     @State private var isActivatingLicense: Bool = false
-    // Closed-lid teardown (the only daemon action not covered by the Set Up
-    // checklist's Enable→remediate path)
+    // Gates the About → Danger Zone "Remove Closed-Lid Helper" row (shown only
+    // while the helper is registered). Refreshed on appear + app re-activation.
     @State private var daemonStatus: DaemonStatus = .notRegistered
     @State private var isUninstalling = false
     // Sidebar hover highlight (indicates the clickable row under the cursor).
@@ -90,8 +90,8 @@ public struct SettingsView: View {
                 keyboardNavFocused = true
             }
         }
-        // Re-read daemon status when the app regains focus — picks up an approval
-        // the user just toggled in System Settings.
+        // Re-read daemon status when the app regains focus — picks up a Login Items
+        // change made in System Settings (gates the About "Remove Closed-Lid Helper" row).
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshDaemonStatus()
         }
@@ -273,11 +273,13 @@ public struct SettingsView: View {
         }
     }
 
-    /// Inline text button for a `settingsRow` trailing slot. Bundles the clickable
-    /// affordance (accent tint, or `.red` when destructive, + `hoverHighlight()`)
-    /// with the VoiceOver traits, so every action reads as clickable and is
-    /// reachable without each call site re-deriving the `.isButton` trait. Append
-    /// `.accessibilityHint(_:)` at the call site for the few actions that need one.
+    /// Inline action for a `settingsRow` trailing slot, rendered as an always-on
+    /// tinted **pill** (v1.9.5 polish): `.neutral` calm-grey for safe actions,
+    /// `.destructive` red — red is reserved for Delete/Uninstall and nothing else.
+    /// The tinted capsule carries its own contrast, so the action stays legible on
+    /// any wallpaper (the panel is translucent). Bundles the VoiceOver traits so
+    /// every action reads as a button without each call site re-deriving them;
+    /// append `.accessibilityHint(_:)` at the call site where one is needed.
     private func actionLink(
         _ title: String,
         destructive: Bool = false,
@@ -285,13 +287,26 @@ public struct SettingsView: View {
         action: @escaping () -> Void
     ) -> some View {
         Text(title)
-            .foregroundStyle(destructive ? Color.red : Color.accentColor)
-            .hoverHighlight()
-            .contentShape(Rectangle())
+            .actionPill(destructive ? .destructive : .neutral)
             .onTapGesture(perform: action)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(a11yLabel)
             .accessibilityAddTraits(.isButton)
+    }
+
+    /// Non-interactive status chip for `licenseStatusRow` — the same pill shape as
+    /// the actions but no hover/tap. `dot` adds a leading filled circle (used for
+    /// the positive "Activated" state).
+    private func statusPill(_ text: String, role: SettingsPillRole, dot: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            if dot { Circle().fill(role.foreground).frame(width: 6, height: 6) }
+            Text(text)
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(role.foreground)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(role.fill(hovering: false)))
     }
 
     // MARK: - Set Up pane (embeds the onboarding checklist)
@@ -300,34 +315,13 @@ public struct SettingsView: View {
     private var setUpPane: some View {
         let presentation: OnboardingView.Presentation =
             showsWelcomeChrome(in: .setUp, firstRun: firstRun) ? .onboarding : .settingsSection
-        VStack(spacing: 0) {
-            OnboardingView(model: onboardingModel,
-                           presentation: presentation,
-                           onAction: onPermissionAction,
-                           onFinish: onFinish)
-            // Closed-lid teardown: the checklist's row covers Enable/Approve via
-            // remediate and shows "Ready" once enabled, but not removal. Surface
-            // "Remove Helper" here only when the helper is enabled, and only in
-            // the revisitable (non-first-run) Set Up — first run is pure setup.
-            if presentation == .settingsSection, daemonStatus == .enabled {
-                Divider()
-                HStack {
-                    Text("Remove Closed-Lid Helper")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.red)
-                        .hoverHighlight()
-                        .contentShape(Rectangle())
-                        .onTapGesture { daemonStatus = DaemonRegistrar().unregister() }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Remove Closed-Lid helper")
-                        .accessibilityHint("Unregisters the background helper. Closed Lid mode stops working until you re-enable it.")
-                        .accessibilityAddTraits(.isButton)
-                    Spacer()
-                }
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
-            }
-        }
+        // The closed-lid teardown used to live here as an orphaned bottom-of-pane
+        // button; it now belongs to the "Closed-lid keep-awake" row itself (a
+        // trailing "Remove" action in OnboardingView), so this is just the checklist.
+        OnboardingView(model: onboardingModel,
+                       presentation: presentation,
+                       onAction: onPermissionAction,
+                       onFinish: onFinish)
     }
 
     // MARK: - Shortcuts pane
@@ -393,7 +387,7 @@ public struct SettingsView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-        Divider().padding(.top, 6)
+        Divider()
         settingsRow("Delete all data") {
             actionLink("Delete", destructive: true,
                        a11yLabel: "Delete all clipboard history") { confirmAndDeleteAll() }
@@ -408,11 +402,12 @@ public struct SettingsView: View {
         licenseStatusRow
 
         if !isActivated {
+            Divider()
             HStack {
                 Text("Buy Drobu — $14.99")
-                    .foregroundStyle(Color.accentColor)
-                    .hoverHighlight()
+                    .actionPill(.neutral)
                     .onTapGesture { NSWorkspace.shared.open(PurchaseLinks.buy) }
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Buy Drobu for $14.99")
                     .accessibilityAddTraits(.isButton)
                 Spacer()
@@ -433,6 +428,8 @@ public struct SettingsView: View {
             Text("Your license works on up to 3 Macs.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Divider()
 
             // Frees THIS Mac's seat on the server AND clears the local key — the
             // single deactivation action a user needs. The local-only
@@ -476,6 +473,17 @@ public struct SettingsView: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(.secondary)
             .accessibilityHidden(true)
+        // The one Drobu-installed helper that can be removed lives here, next to
+        // Uninstall — the Set Up checklist shows it as a plain status row ("Ready"),
+        // like every other permission. Shown only while the helper is registered.
+        if daemonStatus == .enabled {
+            settingsRow("Remove Closed-Lid Helper",
+                        description: "Unregisters the background helper from Login Items. Closed Lid mode stops working until you re-enable it in Set Up.") {
+                actionLink("Remove", destructive: true,
+                           a11yLabel: "Remove Closed-Lid helper") { removeClosedLidHelper() }
+            }
+            Divider()
+        }
         settingsRow("Uninstall Drobu…",
                     description: "Removes Drobu's helper and login item — which dragging to the Trash cannot — then moves the app to the Trash. Your clipboard history and license are kept unless you choose to delete them.") {
             actionLink("Uninstall…", destructive: true,
@@ -495,6 +503,20 @@ public struct SettingsView: View {
 
     private func refreshDaemonStatus() {
         daemonStatus = DaemonRegistrar().status
+    }
+
+    /// Remove the privileged Closed-Lid helper. Mirrors `UninstallService`'s R14
+    /// ordering: reverse an active session FIRST — so `pmset disablesleep` isn't left
+    /// applied once the daemon (its only reversal owner) is unregistered — then drop
+    /// the cached XPC connection and unregister. Daemon calls run off the main actor;
+    /// the resulting status hides the row.
+    private func removeClosedLidHelper() {
+        Task { @MainActor in
+            let client = DaemonClient()
+            _ = await Task.detached { client.disableBounded(timeout: 3.0) }.value
+            client.resetConnection()
+            daemonStatus = DaemonRegistrar().unregister()
+        }
     }
 
     // MARK: - License section helpers
@@ -518,25 +540,25 @@ public struct SettingsView: View {
             HStack {
                 Text("Free trial")
                 Spacer()
-                Text("Expired").foregroundStyle(.red)
+                statusPill("Expired", role: .destructive)
             }
         case .activated:
             HStack {
                 Text("Status")
                 Spacer()
-                Text("Activated ✓").foregroundStyle(.green)
+                statusPill("Activated", role: .success, dot: true)
             }
         case .activationLimitReached:
             HStack {
                 Text("Status")
                 Spacer()
-                Text("Device limit reached").foregroundStyle(.orange)
+                statusPill("Device limit reached", role: .warning)
             }
         case .licenseRevoked:
             HStack {
                 Text("Status")
                 Spacer()
-                Text("Refunded").foregroundStyle(.red)
+                statusPill("Refunded", role: .destructive)
             }
         }
     }
@@ -567,21 +589,19 @@ public struct SettingsView: View {
 
             HStack {
                 Text("Paste from clipboard")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-                    .hoverHighlight()
+                    .actionPill(.neutral)
                     .onTapGesture { pasteFromClipboard() }
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Paste license key from clipboard and activate")
                     .accessibilityAddTraits(.isButton)
                 Spacer()
                 Text("Activate")
-                    .font(.caption)
-                    .foregroundStyle(licenseKeyInput.isEmpty ? Color.secondary : Color.accentColor)
-                    .hoverHighlight()
+                    .actionPill(.neutral, enabled: !licenseKeyInput.isEmpty)
                     .onTapGesture {
                         guard !licenseKeyInput.isEmpty else { return }
                         tryActivate()
                     }
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Activate license key")
                     .accessibilityAddTraits(.isButton)
             }
