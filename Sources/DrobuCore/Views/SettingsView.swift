@@ -506,17 +506,38 @@ public struct SettingsView: View {
     }
 
     /// Remove the privileged Closed-Lid helper. Mirrors `UninstallService`'s R14
-    /// ordering: reverse an active session FIRST — so `pmset disablesleep` isn't left
-    /// applied once the daemon (its only reversal owner) is unregistered — then drop
-    /// the cached XPC connection and unregister. Daemon calls run off the main actor;
-    /// the resulting status hides the row.
+    /// ordering: reverse an active session FIRST so `pmset disablesleep` isn't left
+    /// applied once the daemon (its only reversal owner) is unregistered. Daemon calls
+    /// run off the main actor. **If the reversal can't be confirmed** (timeout /
+    /// failure — `disableBounded` returns `false`; the benign no-active-session case
+    /// returns `true`), we do NOT unregister: doing so would kill the daemon while it
+    /// is still the owner that retries the reversal, potentially stranding the Mac
+    /// unable to sleep. Instead keep it and surface the recovery path. On success the
+    /// updated status hides the row.
     private func removeClosedLidHelper() {
         Task { @MainActor in
             let client = DaemonClient()
-            _ = await Task.detached { client.disableBounded(timeout: 3.0) }.value
+            let reversed = await Task.detached { client.disableBounded(timeout: 3.0) }.value
             client.resetConnection()
+            guard reversed else {
+                presentClosedLidReversalFailure()
+                return
+            }
             daemonStatus = DaemonRegistrar().unregister()
         }
+    }
+
+    /// Reversal of an active Closed-Lid session couldn't be confirmed, so the helper
+    /// was kept (it retries `pmset disablesleep 0` daemon-side). Surface the manual
+    /// recovery path, mirroring `UninstallService`'s failure-surfacing copy.
+    private func presentClosedLidReversalFailure() {
+        guard let window = windowProvider() ?? NSApp.keyWindow else { return }
+        let alert = NSAlert()
+        alert.messageText = "Couldn't confirm your Mac's sleep setting was restored"
+        alert.informativeText = "The Closed-Lid helper was kept so it can finish restoring your sleep setting — try Remove again in a moment. If your Mac still won't sleep, open Terminal and run:\n\nsudo pmset -a disablesleep 0"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window) { _ in }
     }
 
     // MARK: - License section helpers
