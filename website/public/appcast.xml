@@ -3,6 +3,14 @@
     <channel>
         <title>Drobu Updates</title>
         <item>
+            <title>Version 1.9.5</title>
+            <pubDate>Fri, 26 Jun 2026 13:38:35 +0000</pubDate>
+            <sparkle:version>19</sparkle:version>
+            <sparkle:shortVersionString>1.9.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/DanieliusIsiunas/drobu/releases/download/v1.9.5/Drobu-update.dmg" length="4673468" type="application/x-apple-diskimage" sparkle:edSignature="wz1Zd4PA46fNKVvFKZJulXBlNRGvyqWga2S3lzE6I2ht24xNMo7bZj83xSzyKnuDEd66g0VFX4YiB69TixfQCA=="/>
+        </item>
+        <item>
             <title>Version 1.9.4</title>
             <pubDate>Tue, 23 Jun 2026 11:41:52 +0000</pubDate>
             <sparkle:version>18</sparkle:version>
