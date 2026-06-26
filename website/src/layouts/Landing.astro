@@ -144,18 +144,25 @@ const productSchema = {
         handler records the event — it preventDefaults the link, sends the beacon,
         then proceeds to the download, which a manual track() call on a navigating
         link does not reliably do. The tag is applied on DOMContentLoaded so it
-        covers every .js-app-download button without editing each one. */}
+        covers every .js-app-download button without editing each one.
+
+        The body MUST go through set:html: a {`...`} expression as a child of a
+        <script is:inline> is emitted VERBATIM (braces + backticks and all), so
+        the browser runs a bare block containing a discarded string and the
+        addEventListener never fires. set:html injects the evaluated string as the
+        raw script body. */}
     {
       ANALYTICS_ENABLED && (
         <Fragment>
           <script is:inline defer src="https://cloud.umami.is/script.js" data-website-id="26adbb73-1a3c-410f-a601-6b208a71ad42" />
-          <script is:inline>
-            {`document.addEventListener("DOMContentLoaded", function () {
-              document.querySelectorAll(".js-app-download").forEach(function (el) {
-                el.setAttribute("data-umami-event", "Download");
-              });
-            });`}
-          </script>
+          <script
+            is:inline
+            set:html={`document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll(".js-app-download").forEach(function (el) {
+    el.setAttribute("data-umami-event", "Download");
+  });
+});`}
+          />
         </Fragment>
       )
     }
