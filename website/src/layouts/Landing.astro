@@ -136,25 +136,23 @@ const productSchema = {
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-    {/* Privacy-respecting, cookieless analytics (Plausible). Gated on
-        ANALYTICS_ENABLED so the OFF build emits NOTHING here (and the privacy
-        page's "no tracking scripts" claim stays true). No first-party CNAME
-        proxy: loaded from the vendor domain so a visitor's blocker works.
-        The stub queues custom events fired before the deferred script loads;
-        the delegated click handler records a "Download" goal on any download
-        button without touching the markup. is:inline + plain JS only. */}
+    {/* Privacy-respecting, cookieless analytics (Umami Cloud). Gated on
+        ANALYTICS_ENABLED so dev builds emit NOTHING here (and the privacy page's
+        "no tracking scripts" claim stays true off-prod). No first-party proxy:
+        loaded from the vendor domain so a visitor's blocker works. The delegated
+        click handler records a "Download" event on any download button without
+        touching the markup. is:inline + plain JS only. */}
     {
       ANALYTICS_ENABLED && (
         <Fragment>
+          <script is:inline defer src="https://cloud.umami.is/script.js" data-website-id="26adbb73-1a3c-410f-a601-6b208a71ad42" />
           <script is:inline>
-            {`window.plausible = window.plausible || function () { (window.plausible.q = window.plausible.q || []).push(arguments) };
-            document.addEventListener("click", function (e) {
+            {`document.addEventListener("click", function (e) {
               var t = e.target;
               var el = t && t.closest && t.closest(".js-app-download");
-              if (el && window.plausible) window.plausible("Download");
+              if (el && window.umami) window.umami.track("Download");
             });`}
           </script>
-          <script is:inline defer data-domain="drobu.app" src="https://plausible.io/js/script.js" />
         </Fragment>
       )
     }
