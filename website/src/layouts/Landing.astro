@@ -139,18 +139,21 @@ const productSchema = {
     {/* Privacy-respecting, cookieless analytics (Umami Cloud). Gated on
         ANALYTICS_ENABLED so dev builds emit NOTHING here (and the privacy page's
         "no tracking scripts" claim stays true off-prod). No first-party proxy:
-        loaded from the vendor domain so a visitor's blocker works. The delegated
-        click handler records a "Download" event on any download button without
-        touching the markup. is:inline + plain JS only. */}
+        loaded from the vendor domain so a visitor's blocker works. Download
+        buttons are tagged with data-umami-event="Download" so Umami's OWN click
+        handler records the event — it preventDefaults the link, sends the beacon,
+        then proceeds to the download, which a manual track() call on a navigating
+        link does not reliably do. The tag is applied on DOMContentLoaded so it
+        covers every .js-app-download button without editing each one. */}
     {
       ANALYTICS_ENABLED && (
         <Fragment>
           <script is:inline defer src="https://cloud.umami.is/script.js" data-website-id="26adbb73-1a3c-410f-a601-6b208a71ad42" />
           <script is:inline>
-            {`document.addEventListener("click", function (e) {
-              var t = e.target;
-              var el = t && t.closest && t.closest(".js-app-download");
-              if (el && window.umami) window.umami.track("Download");
+            {`document.addEventListener("DOMContentLoaded", function () {
+              document.querySelectorAll(".js-app-download").forEach(function (el) {
+                el.setAttribute("data-umami-event", "Download");
+              });
             });`}
           </script>
         </Fragment>
