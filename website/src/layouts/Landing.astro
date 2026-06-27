@@ -18,7 +18,7 @@ interface Props {
 
 const {
   title = "Drobu | Mac Clipboard Manager You Can Edit",
-  description = "Drobu is a Mac clipboard manager you can edit. Capture text, images, GIFs, and screen recordings, crop and trim them, then paste with one keystroke. $14.99 once.",
+  description = "Drobu is a Mac clipboard manager: capture text, images, GIFs, and screen recordings, edit and search your clipboard history, then paste with one keystroke. $14.99 once.",
   noindex = false,
   extraSchema,
 } = Astro.props;
@@ -32,7 +32,7 @@ const ogImage = new URL("/og-image.png", Astro.site);
 // PRODUCT_DESCRIPTION (the canonical "what is Drobu" sentence) is shared from
 // ../data/product so the JSON-LD, the FAQ lead, and llms.txt stay in lockstep.
 const OG_IMAGE_ALT =
-  "Drobu: clipboard history and screen capture for macOS";
+  "Drobu: the macOS clipboard manager you can edit";
 
 const ORG_ID = "https://drobu.app/#drobu";
 
@@ -66,15 +66,16 @@ const productSchema = {
       screenshot: ogImage.href,
       featureList: [
         "Clipboard history",
+        "In-place text editing",
+        "Image and GIF cropping",
+        "GIF and video trimming",
         "Full-text search",
         "Screen recording",
         "GIF capture",
-        "Video trimming",
-        "Image and GIF cropping",
         "One-keystroke paste",
+        "Multi-select paste",
         "Slash commands",
         "Source-app tracking",
-        "Multi-select paste",
         "Local-only storage",
       ],
       offers: {
