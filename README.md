@@ -5,8 +5,8 @@
 <h1 align="center">Drobu</h1>
 
 <p align="center">
-  <em>Capture, edit, paste. Done.</em><br/>
-  A macOS clipboard manager with content actions built in.
+  <em>The clipboard you can edit.</em><br/>
+  A macOS clipboard manager you can edit: capture, crop, trim, search, and paste it all back from one panel.
 </p>
 
 <p align="center">
