@@ -53,10 +53,10 @@ const maccy: Comparison = {
   headTerm: "Maccy alternative",
   title: "Drobu vs Maccy: Mac Clipboard Manager Compared",
   description:
-    "Drobu vs Maccy: how a $14.99 clipboard manager with built-in screen-to-GIF capture and full-text search compares to free, open-source Maccy on macOS.",
+    "Drobu vs Maccy: how a $14.99 clipboard manager you can edit (crop, trim, clean) with full-text search and screen capture compares to free, open-source Maccy on macOS.",
   h1: "Drobu vs Maccy",
   subhead:
-    "Maccy is a free, open-source clipboard manager, and it's excellent at exactly that. Drobu costs $14.99 once and adds screen capture, media editing, and full-text search in the same tool.",
+    "Maccy is a free, open-source clipboard manager, and it's excellent at exactly that. Drobu costs $14.99 once and is the clipboard you can edit: crop an image, trim a GIF or recording, clean up text, then paste it back, all in one tool. It also captures your screen and full-text-searches your whole history.",
   priceLine:
     "Drobu is $14.99 one-time. Maccy is free, or $9.99 on the App Store. This isn't a price contest; it's about what you get for paying.",
   rows: [
@@ -64,7 +64,7 @@ const maccy: Comparison = {
     { dimension: "Clipboard history", drobu: "Full history, up to 365 days", rival: "Configurable, with pinning", advantage: "even" },
     { dimension: "Search", drobu: "Full-text search (FTS5)", rival: "Fuzzy and regex matching", advantage: "drobu" },
     { dimension: "Screen capture (GIF/video)", drobu: "Record a region to GIF or video", rival: "None", advantage: "drobu" },
-    { dimension: "Inline media editing", drobu: "Crop and trim images, GIFs, video", rival: "None", advantage: "drobu" },
+    { dimension: "Inline editing", drobu: "Edit and clean text; crop and trim images, GIFs, video", rival: "None", advantage: "drobu" },
     { dimension: "Source app per clip", drobu: "Name on every item", rival: "Optional icons (Maccy 2.2+)", advantage: "even" },
     { dimension: "Multi-select paste", drobu: "Yes", rival: "No", advantage: "drobu" },
     { dimension: "System slash commands", drobu: "/sleep, keep-awake, closed-lid", rival: "None", advantage: "drobu" },
@@ -73,8 +73,8 @@ const maccy: Comparison = {
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS 14+", advantage: "even" },
   ],
   drobuWins: [
+    "Edit clips in place: clean text, crop and trim images, GIFs, and video",
     "Built-in GIF and video screen recording",
-    "Inline crop and trim for images, GIFs, and video",
     "Full-text search across your whole history",
     "Configurable retention up to a year",
     "Multi-select paste and system slash commands",
@@ -95,10 +95,10 @@ const paste: Comparison = {
   headTerm: "Paste app alternative",
   title: "Drobu vs Paste: A Clipboard Manager, Bought Once",
   description:
-    "Drobu vs Paste: a one-time $14.99 Mac clipboard manager with screen capture vs Paste's subscription and iCloud sync. Which one fits your workflow?",
+    "Drobu vs Paste: a one-time $14.99 Mac clipboard manager you can edit, with screen capture, vs Paste's subscription and iCloud sync. Which one fits your workflow?",
   h1: "Drobu vs Paste",
   subhead:
-    "Paste is a polished, cross-device clipboard manager, billed by subscription or a pricier one-time license. Drobu is a one-time $14.99 purchase that adds screen capture and keeps everything local. The trade-off is sync.",
+    "Paste is a polished, cross-device clipboard manager, billed by subscription or a pricier one-time license. Drobu is a one-time $14.99 purchase that lets you edit clips in place (crop, trim, clean) and capture your screen, all kept local. The trade-off is sync.",
   priceLine:
     "Drobu is $14.99 one-time. Paste is $29.99/year, or a $89.99 one-time license. Either way, several times Drobu's price.",
   rows: [
@@ -106,7 +106,7 @@ const paste: Comparison = {
     { dimension: "Clipboard history", drobu: "Full history, up to 365 days", rival: "Unlimited history, pinboards", advantage: "even" },
     { dimension: "Search", drobu: "Full-text search (FTS5)", rival: "Full-text, plus OCR in screenshots", advantage: "rival" },
     { dimension: "Screen capture (GIF/video)", drobu: "Record a region to GIF or video", rival: "None", advantage: "drobu" },
-    { dimension: "Inline media editing", drobu: "Crop and trim images, GIFs, video", rival: "None", advantage: "drobu" },
+    { dimension: "Inline editing", drobu: "Edit and clean text; crop and trim images, GIFs, video", rival: "None", advantage: "drobu" },
     { dimension: "Cross-device sync", drobu: "No, Mac only", rival: "iCloud across Mac, iPhone, iPad", advantage: "rival" },
     { dimension: "iPhone / iPad app", drobu: "No", rival: "Yes, with a keyboard extension", advantage: "rival" },
     { dimension: "Shared pinboards", drobu: "No", rival: "Yes, shareable collections", advantage: "rival" },
@@ -138,14 +138,14 @@ const cleanshot: Comparison = {
   headTerm: "CleanShot X alternative",
   title: "Drobu vs CleanShot X: Clipboard Meets Capture",
   description:
-    "Drobu vs CleanShot X: a searchable clipboard history with screen-to-GIF capture vs a screen-capture and annotation suite. How they differ on macOS.",
+    "Drobu vs CleanShot X: a searchable clipboard history you can edit (crop, trim) with screen capture vs a screen-capture and annotation suite. How they differ on macOS.",
   h1: "Drobu vs CleanShot X",
   subhead:
-    "These solve different problems. CleanShot X is a mature screen-capture and annotation suite. Drobu is a clipboard manager that happens to record your screen. If you mostly need to find and reuse what you copied, here's the comparison.",
+    "These solve different problems. CleanShot X is a mature screen-capture and annotation suite. Drobu is the clipboard you can edit: it captures text, images, GIFs, and screen recordings, lets you crop and trim them in place, and pastes them back. If you mostly need to find, edit, and reuse what you copied, here's the comparison.",
   priceLine:
     "Drobu is $14.99 once, no renewal. CleanShot X is $29 once with a year of updates, then an optional $19/year to stay current.",
   rows: [
-    { dimension: "Core focus", drobu: "Clipboard manager plus light capture", rival: "Screen-capture and annotation suite", advantage: "even" },
+    { dimension: "Core focus", drobu: "Clipboard you can edit: capture, crop/trim, paste back", rival: "Screen-capture and annotation suite", advantage: "even" },
     { dimension: "Clipboard history", drobu: "System-wide and searchable", rival: "No, capture history only", advantage: "drobu" },
     { dimension: "Search of clips", drobu: "Full-text (FTS5)", rival: "None", advantage: "drobu" },
     { dimension: "Source app per clip", drobu: "Yes", rival: "N/A", advantage: "drobu" },
@@ -173,7 +173,7 @@ const cleanshot: Comparison = {
     "The de-facto standard Mac capture suite",
   ],
   verdict:
-    "Pick Drobu if your real need is managing and recalling what you copy, with lightweight GIF and video capture along for the ride. Choose CleanShot X if your work centers on capturing, annotating, and sharing screenshots. They overlap little, so plenty of people run both.",
+    "Pick Drobu if your real need is managing, editing, and recalling what you copy, where cropping an image, trimming a clip, and pasting it back live on the same surface. Choose CleanShot X if your work centers on capturing, annotating, and sharing screenshots. They overlap little, so plenty of people run both.",
 };
 
 const spotlight: Comparison = {
@@ -185,7 +185,7 @@ const spotlight: Comparison = {
     "Drobu vs the macOS 26 Spotlight clipboard: keep clips for up to a year with search, source tracking, and screen capture, on macOS 14 too. $14.99 once.",
   h1: "Drobu vs Spotlight Clipboard",
   subhead:
-    "macOS 26 added a built-in clipboard to Spotlight. It's free and handy, but it forgets your clips within days and only runs on macOS 26. Drobu keeps far more, for longer, on macOS 14 too.",
+    "macOS 26 added a built-in clipboard to Spotlight. It's free and handy, but it forgets your clips within days, can't edit them, and only runs on macOS 26. Drobu keeps far more, for longer, lets you crop and trim what you copied, and runs on macOS 14 too.",
   priceLine:
     "Drobu is $14.99 one-time. Spotlight's clipboard is free, but it's built into macOS 26 only and clears your clips within days.",
   rows: [
@@ -195,7 +195,7 @@ const spotlight: Comparison = {
     { dimension: "Long clips", drobu: "Stored in full", rival: "Capped at ~16,000 characters", advantage: "drobu" },
     { dimension: "Source app per clip", drobu: "Shown on every item", rival: "Not tracked", advantage: "drobu" },
     { dimension: "Screen capture (GIF/video)", drobu: "Yes", rival: "None", advantage: "drobu" },
-    { dimension: "Inline media editing", drobu: "Crop and trim", rival: "None", advantage: "drobu" },
+    { dimension: "Inline editing", drobu: "Edit text; crop and trim media", rival: "None", advantage: "drobu" },
     { dimension: "Platform", drobu: "macOS 14+", rival: "macOS 26 only", advantage: "drobu" },
   ],
   drobuWins: [
@@ -232,7 +232,7 @@ export const masterMatrix: MasterRow[] = [
   { dimension: "Clipboard history", drobu: "Yes, searchable", maccy: "Yes", paste: "Yes (+ pinboards)", cleanshot: "No", spotlight: "Yes, 7-day" },
   { dimension: "Search", drobu: "Full-text (FTS5)", maccy: "Fuzzy / regex", paste: "Full-text + OCR", cleanshot: "None", spotlight: "Recent clips" },
   { dimension: "Screen capture (GIF/video)", drobu: "Yes", maccy: "No", paste: "No", cleanshot: "Yes, advanced", spotlight: "No" },
-  { dimension: "Inline media editing", drobu: "Crop & trim", maccy: "No", paste: "No", cleanshot: "Annotation", spotlight: "No" },
+  { dimension: "Inline editing", drobu: "Crop, trim, clean", maccy: "No", paste: "No", cleanshot: "Annotation", spotlight: "No" },
   { dimension: "Cross-device sync", drobu: "No", maccy: "No", paste: "iCloud (Mac + iOS)", cleanshot: "No", spotlight: "No" },
   { dimension: "Storage / account", drobu: "Local, no account", maccy: "Local, no account", paste: "Local-first, opt. sync", cleanshot: "Local core", spotlight: "Local, on device" },
   { dimension: "Open source", drobu: "No", maccy: "Yes (MIT)", paste: "No", cleanshot: "No", spotlight: "No (built in)" },
