@@ -1,0 +1,135 @@
+---
+/**
+ * Honest media frame for real Drobu captures.
+ *
+ * Drobu's surface is a floating panel, NOT a Mac window, so this deliberately
+ * does NOT wrap media in a Mac-window frame (no traffic-light chrome). It
+ * presents a real screenshot / screen recording as a clean floating "screen":
+ * rounded corners, a hairline border, and a soft shadow so it lifts off the page.
+ *
+ * Video (.mp4/.webm) renders as a muted looping <video> with a poster for instant
+ * first paint; anything else renders as a lazy <img> (a static screenshot).
+ *
+ * Motion accessibility (WCAG 2.2.2): the video carries NO autoplay attribute, so
+ * reduced-motion and no-JS visitors rest on the poster (enforced at markup time).
+ * JS starts playback only when motion is welcome, and an always-visible pause/play
+ * toggle lets anyone stop it.
+ *
+ * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
+ * intrinsic width/height so the browser reserves space (no layout shift).
+ */
+interface Props {
+  /** Path under /media, e.g. "/media/image-crop.mp4" or a screenshot */
+  src: string;
+  /** What the capture shows, for screen readers */
+  alt: string;
+  /** Intrinsic pixel dimensions of the asset (for aspect ratio + no CLS) */
+  width: number;
+  height: number;
+  /** Poster image for video: the LCP frame and the reduced-motion/no-JS still */
+  poster?: string;
+  class?: string;
+}
+
+const { src, alt, width, height, poster, class: className = "" } = Astro.props;
+const isVideo = /\.(mp4|webm)$/.test(src);
+const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
+---
+
+<figure
+  class:list={["relative m-0 rounded-xl overflow-hidden border border-white/10 bg-bg-elevated shadow-2xl", className]}
+  data-showcase={isVideo ? "video" : undefined}
+>
+  {isVideo ? (
+    <video
+      class="block w-full h-auto"
+      width={width}
+      height={height}
+      muted
+      loop
+      playsinline
+      preload="none"
+      poster={poster}
+      aria-label={alt}
+    >
+      <source src={src} type={videoType} />
+    </video>
+  ) : (
+    <img
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      loading="lazy"
+      decoding="async"
+      class="block w-full h-auto"
+    />
+  )}
+
+  {isVideo && (
+    <button
+      type="button"
+      class="showcase-toggle absolute bottom-3 right-3 grid place-items-center w-9 h-9 rounded-full bg-black/55 text-white backdrop-blur transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+      aria-label="Pause the demo"
+      aria-pressed="false"
+    >
+      <svg class="icon-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+      </svg>
+      <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </button>
+  )}
+</figure>
+
+<style>
+  .showcase-toggle .icon-play { display: none; }
+  .showcase-toggle.is-paused .icon-pause { display: none; }
+  .showcase-toggle.is-paused .icon-play { display: block; }
+</style>
+
+<script>
+  // Video showcases: pause/play toggle (WCAG 2.2.2) + viewport gating. No autoplay
+  // attribute, so reduced-motion and no-JS visitors rest on the poster. JS plays a
+  // showcase only when it nears the viewport AND motion is welcome, so the
+  // below-the-fold demos don't decode/loop on load.
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  for (const fig of document.querySelectorAll('[data-showcase="video"]')) {
+    const video = fig.querySelector("video");
+    const btn = fig.querySelector(".showcase-toggle");
+    if (!(video instanceof HTMLVideoElement) || !(btn instanceof HTMLButtonElement)) continue;
+
+    const reflect = (paused: boolean) => {
+      btn.classList.toggle("is-paused", paused);
+      btn.setAttribute("aria-label", paused ? "Play the demo" : "Pause the demo");
+      btn.setAttribute("aria-pressed", String(paused));
+    };
+
+    // The visitor's intent. Default paused under reduced motion; otherwise the
+    // observer starts playback once the showcase nears the viewport.
+    let userPaused = reduceMotion;
+    reflect(userPaused);
+
+    btn.addEventListener("click", () => {
+      userPaused = !userPaused;
+      if (userPaused) video.pause();
+      else video.play().catch(() => reflect(true));
+    });
+    video.addEventListener("play", () => reflect(false));
+    video.addEventListener("pause", () => reflect(true));
+
+    // Only on-screen showcases play; scrolling away pauses them. Honors a manual pause.
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && !userPaused) video.play().catch(() => {});
+          else if (!e.isIntersecting) video.pause();
+        }
+      },
+      { rootMargin: "200px", threshold: 0.1 }
+    );
+    io.observe(fig);
+  }
+</script>
