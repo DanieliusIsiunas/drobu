@@ -48,11 +48,16 @@ convert_one() {
     -c:v libvpx-vp9 -crf 34 -b:v 0 -an \
     "$OUT_DIR/$base.webm"
 
-  # Poster: first frame, WebP. Serves as the LCP image and the reduced-motion still.
-  ffmpeg -y -loglevel error -i "$gif" -frames:v 1 \
-    "$OUT_DIR/$base.webp"
+  # Poster: a representative MID-POINT frame as JPEG, used as the <video> poster
+  # (the LCP frame and the reduced-motion / no-JS still). NOT frame 0 — the first
+  # frame is often a pre-app "before" shot, which was a real review finding. Tune
+  # the fraction per capture if the midpoint isn't the most representative frame.
+  dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$gif")
+  mid=$(awk "BEGIN{printf \"%.2f\", $dur/2}")
+  ffmpeg -y -loglevel error -ss "$mid" -i "$gif" -frames:v 1 -q:v 4 \
+    "$OUT_DIR/$base-poster.jpg"
 
-  echo "    $(cd "$OUT_DIR" && ls -lh "$base".{mp4,webm,webp} | awk '{print $9": "$5}' | tr '\n' '  ')"
+  echo "    $(cd "$OUT_DIR" && ls -lh "$base.mp4" "$base.webm" "$base-poster.jpg" 2>/dev/null | awk '{print $9": "$5}' | tr '\n' '  ')"
 }
 
 if [ "$#" -ge 1 ]; then

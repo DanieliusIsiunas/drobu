@@ -7,50 +7,38 @@
  * presents a real screenshot / screen recording as a clean floating "screen":
  * rounded corners, a hairline border, and a soft shadow so it lifts off the page.
  *
- * Handles both stills/GIFs (rendered as <img>, lazy) and video (.mp4/.webm,
- * rendered as a muted looping <video> with a poster for instant first paint;
- * playback is started by JS only when motion is welcome, so reduced-motion and
- * no-JS visitors rest on the poster, enforced at markup time).
+ * Video (.mp4/.webm) renders as a muted looping <video> with a poster for instant
+ * first paint; anything else renders as a lazy <img> (a static screenshot).
  *
- * Motion accessibility (WCAG 2.2.2: any autoplaying loop longer than a few
- * seconds needs a stop mechanism for ALL visitors, not only reduced-motion ones):
- *  - Video AND GIF showcases get an always-visible pause/play toggle. Video uses
- *    the media API; a GIF (no playback API) is frozen by swapping its <img> to the
- *    static still and back.
- *  - Both default to the still/poster in the markup, so reduced-motion AND no-JS
- *    visitors get no motion at all. JS opts into the animation only when motion is
- *    welcome; the toggle then swaps between still and motion for everyone.
+ * Motion accessibility (WCAG 2.2.2): the video carries NO autoplay attribute, so
+ * reduced-motion and no-JS visitors rest on the poster (enforced at markup time).
+ * JS starts playback only when motion is welcome, and an always-visible pause/play
+ * toggle lets anyone stop it.
  *
  * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
  * intrinsic width/height so the browser reserves space (no layout shift).
  */
 interface Props {
-  /** Path under /media, e.g. "/media/main-interface.mp4" or "/media/image-crop.gif" */
+  /** Path under /media, e.g. "/media/image-crop.mp4" or a screenshot */
   src: string;
   /** What the capture shows, for screen readers */
   alt: string;
   /** Intrinsic pixel dimensions of the asset (for aspect ratio + no CLS) */
   width: number;
   height: number;
-  /** Poster image for video: the LCP frame and the reduced-motion still */
+  /** Poster image for video: the LCP frame and the reduced-motion/no-JS still */
   poster?: string;
-  /** Static still for a GIF: the default frame shipped in the markup (no motion
-   *  without JS) and the paused frame. Required to animate/pause a GIF. */
-  still?: string;
   class?: string;
 }
 
-const { src, alt, width, height, poster, still, class: className = "" } = Astro.props;
+const { src, alt, width, height, poster, class: className = "" } = Astro.props;
 const isVideo = /\.(mp4|webm)$/.test(src);
 const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
-// A GIF can only be paused if we have a still to freeze it on.
-const pausableGif = !isVideo && !!still;
-const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
 ---
 
 <figure
   class:list={["relative m-0 rounded-xl overflow-hidden border border-white/10 bg-bg-elevated shadow-2xl", className]}
-  data-showcase={showcaseKind}
+  data-showcase={isVideo ? "video" : undefined}
 >
   {isVideo ? (
     <video
@@ -68,19 +56,17 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
     </video>
   ) : (
     <img
-      src={pausableGif ? still : src}
+      src={src}
       alt={alt}
       width={width}
       height={height}
       loading="lazy"
       decoding="async"
       class="block w-full h-auto"
-      data-animated={pausableGif ? src : undefined}
-      data-still={pausableGif ? still : undefined}
     />
   )}
 
-  {showcaseKind && (
+  {isVideo && (
     <button
       type="button"
       class="showcase-toggle absolute bottom-3 right-3 grid place-items-center w-9 h-9 rounded-full bg-black/55 text-white backdrop-blur transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
@@ -104,14 +90,15 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
 </style>
 
 <script>
-  // Wire each showcase's pause/play toggle (WCAG 2.2.2). Video uses the media
-  // API; a GIF is frozen by swapping its <img> to the static still and back.
+  // Pause/play toggle for video showcases (WCAG 2.2.2). No autoplay attribute, so
+  // reduced-motion and no-JS visitors rest on the poster; JS starts playback only
+  // when motion is welcome.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  for (const fig of document.querySelectorAll("[data-showcase]")) {
-    const kind = fig.getAttribute("data-showcase");
+  for (const fig of document.querySelectorAll('[data-showcase="video"]')) {
+    const video = fig.querySelector("video");
     const btn = fig.querySelector(".showcase-toggle");
-    if (!(btn instanceof HTMLButtonElement)) continue;
+    if (!(video instanceof HTMLVideoElement) || !(btn instanceof HTMLButtonElement)) continue;
 
     const reflect = (paused: boolean) => {
       btn.classList.toggle("is-paused", paused);
@@ -119,38 +106,14 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       btn.setAttribute("aria-pressed", String(paused));
     };
 
-    if (kind === "video") {
-      const video = fig.querySelector("video");
-      if (!(video instanceof HTMLVideoElement)) continue;
-      btn.addEventListener("click", () => {
-        if (video.paused) video.play();
-        else video.pause();
-      });
-      video.addEventListener("play", () => reflect(false));
-      video.addEventListener("pause", () => reflect(true));
-      // No autoplay attribute: reduced-motion and no-JS visitors rest on the
-      // poster (enforced at markup time). Start playback only when motion is welcome.
-      if (reduceMotion) {
-        reflect(true);
-      } else {
-        video.play().catch(() => reflect(true));
-      }
-    } else if (kind === "gif") {
-      const img = fig.querySelector("img");
-      if (!(img instanceof HTMLImageElement)) continue;
-      const animated = img.dataset.animated;
-      const still = img.dataset.still;
-      if (!animated || !still) continue;
-      // Markup ships the still (no motion without JS). Start animating only when
-      // motion is welcome; the toggle swaps between still and animated for all.
-      let paused = reduceMotion;
-      if (!paused) img.src = animated;
-      reflect(paused);
-      btn.addEventListener("click", () => {
-        paused = !paused;
-        img.src = paused ? still : animated;
-        reflect(paused);
-      });
-    }
+    btn.addEventListener("click", () => {
+      if (video.paused) video.play();
+      else video.pause();
+    });
+    video.addEventListener("play", () => reflect(false));
+    video.addEventListener("pause", () => reflect(true));
+
+    if (reduceMotion) reflect(true);
+    else video.play().catch(() => reflect(true));
   }
 </script>
