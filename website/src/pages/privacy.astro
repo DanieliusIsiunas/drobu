@@ -47,6 +47,21 @@ import { ANALYTICS_ENABLED } from "../config";
           : "This website has no analytics, no cookies, and no tracking scripts."}
       </p>
 
+      <h2 id="verify" class="text-lg font-semibold text-text-primary mt-8">Don't take our word for it, verify it</h2>
+      <p>
+        Drobu is a commercial app, not open source, so you can't read the code. But you don't have to trust the claim that your clipboard never leaves your Mac, you can watch the network yourself. Run a per-app firewall like <a href="https://www.obdev.at/products/littlesnitch/" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Little Snitch</a> or the free, open-source <a href="https://objective-see.org/products/lulu.html" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">LuLu</a> and use Drobu normally.
+      </p>
+      <p>
+        You will see exactly two kinds of connection, and nothing else:
+      </p>
+      <ul class="list-disc pl-5 space-y-2">
+        <li>An <strong class="text-text-primary">update check</strong> to drobu.app (GitHub Pages), which sends only your macOS and app version.</li>
+        <li><strong class="text-text-primary">Only if you have bought and activated a license:</strong> a license check to our server roughly every two weeks, which sends a one-way device fingerprint and a device label to enforce the 3-device limit. During the 14-day trial there is no activation call at all.</li>
+      </ul>
+      <p>
+        What you will <strong class="text-text-primary">never</strong> see is your clipboard going anywhere. The text, images, GIFs, files, and recordings you copy are stored only in a local database on your Mac and are never part of any request. Block the update or license connections if you like, your history keeps working.
+      </p>
+
       <h2 class="text-lg font-semibold text-text-primary mt-8">Contact</h2>
       <p>
         Privacy questions? <a href="mailto:support@drobu.app" class="text-accent hover:underline">support@drobu.app</a>

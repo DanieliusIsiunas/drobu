@@ -1,0 +1,45 @@
+DROBU, PRESS / MEDIA KIT
+=========================
+
+One-liner
+  The clipboard you can edit.
+
+Short description (≈30 words)
+  Drobu is a macOS clipboard manager that captures everything you copy, text,
+  images, GIFs, files, even a screen recording, into one searchable history you
+  can crop, trim, clean, and paste from with a keystroke.
+
+Description (≈150 words)
+  Drobu is a macOS clipboard manager built around one idea: the clipboard should
+  be where the work happens, not just where things sit. Everything you copy lands
+  in one searchable history, text, links, images, GIFs, files, even a region of
+  your screen you record on the spot. You crop a screenshot, trim a clip, or clean
+  up copied text right in the panel, then paste one item or a whole stack with a
+  single keystroke. No app-switching, no exports.
+  Drobu runs entirely on your Mac. There is no account to create, no tracking, and
+  your clipboard never leaves your device; password-manager items are ignored
+  automatically. It is a one-time $14.99 purchase (not a subscription) with a
+  14-day free trial that needs no card, and it runs on macOS 14 and later.
+
+What Drobu is NOT
+  - Not a subscription (one-time $14.99).
+  - Not a cloud or sync service, it is local-only; nothing you copy is uploaded.
+  - Not an account-based app, you can use it without signing up for anything.
+  - Not the Mac App Store build, it ships as a notarized direct download.
+  - Not "Drobu Media", "Drobių Namai", or any canvas-print / insurance company.
+    Drobu is the macOS clipboard manager at https://drobu.app.
+
+Facts
+  Platform   macOS 14 (Sonoma) and later, Intel + Apple Silicon
+  Price      $14.99 one-time, 14-day free trial (no card)
+  Privacy    100% local, no account, no tracking, passwords ignored
+  Maker      Danielius Isiunas (solo indie)
+  Website    https://drobu.app
+  Contact    support@drobu.app
+
+Assets in this kit
+  drobu-icon-1024.png, drobu-icon-512.png  , app icon
+  screenshot-1-interface.jpg               , the clipboard panel
+  screenshot-2-edit.jpg                    , cropping an image in place
+  screenshot-3-multipaste.jpg              , multi-select paste
+  Demo video: https://drobu.app/media/main-interface.mp4

@@ -1,0 +1,85 @@
+---
+import Landing from "../layouts/Landing.astro";
+import { DOWNLOAD_URL } from "../config";
+
+const title = "Is Drobu Right for You? | Mac Clipboard Manager";
+const description =
+  "An honest look at who Drobu, the macOS clipboard manager you can edit, is for and who it is not. Local-only, one-time $14.99, no subscription, no account.";
+
+const goodFit = [
+  "You copy more than text. Screenshots, GIFs, images, and files pile up all day, and you want them in one place you can actually work with.",
+  "You want to edit before you paste. Cropping a screenshot or trimming a clip without a detour through Preview or QuickTime is the whole point.",
+  "You care about privacy. You run Little Snitch or NextDNS, you read privacy policies, and \"local-only, no account, no tracking\" is a requirement, not a nice-to-have.",
+  "You are done with subscriptions. A one-time $14.99 that you own beats another $X/year line item.",
+  "You live on the keyboard. Search your history and paste one item or a whole stack without touching the mouse.",
+];
+
+const notFit = [
+  "You need clipboard sync across iPhone, iPad, and Mac. Drobu is Mac-only and local by design; if iCloud sync is essential, Paste is a better fit.",
+  "You only ever copy plain text and want it free. Maccy is a great free, open-source clipboard manager for exactly that.",
+  "You need source code you can audit yourself. Drobu's source is published for transparency, but it is a commercial product, not an open-source one. (You can still verify it never sends your clipboard, see below.)",
+  "You are on macOS 13 or earlier. Drobu needs macOS 14 (Sonoma) or later.",
+  "You want a full screenshot annotation suite (arrows, blur, markup). That is CleanShot X's job; Drobu records and trims, it does not annotate.",
+];
+---
+
+<Landing title={title} description={description}>
+  <main id="main" class="max-w-3xl mx-auto px-6 pt-28 pb-24">
+    <header class="mb-12">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Honest fit check</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary mb-5 leading-tight">
+        Is Drobu right for you?
+      </h1>
+      <p class="text-lg text-text-secondary leading-relaxed">
+        Drobu is a macOS clipboard manager you can edit: capture text, images, GIFs, files, and screen recordings into one searchable history, then crop, trim, clean, and paste them from a single panel. It is a one-time $14.99 purchase, runs entirely on your Mac, and is not for everyone. Here is the honest version, including where it is the wrong tool.
+      </p>
+    </header>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-6">Drobu is a great fit if</h2>
+      <ul class="space-y-4">
+        {goodFit.map((item) => (
+          <li class="flex items-start gap-3 text-text-secondary leading-relaxed">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-accent shrink-0 mt-1" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-6">Drobu is probably not for you if</h2>
+      <ul class="space-y-4">
+        {notFit.map((item) => (
+          <li class="flex items-start gap-3 text-text-secondary leading-relaxed">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted shrink-0 mt-1" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" />
+            </svg>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">The fairest way to decide</h2>
+      <p class="text-text-secondary leading-relaxed">
+        Try it. The 14-day trial is the full app with no payment method required, so you can find out whether the capture, edit, and paste loop fits how you work before you pay anything. If it does not, you have lost nothing. If you are weighing it against a specific tool, the <a href="/compare" class="text-accent hover:underline">honest side-by-side comparisons</a> show where the others win too.
+      </p>
+    </section>
+
+    <section class="text-center border-t border-white/5 pt-12">
+      <h2 class="text-2xl md:text-3xl font-bold text-text-primary mb-4">Find out in 14 days, free.</h2>
+      <p class="text-text-secondary mb-8">$14.99 once if you keep it. No subscription, no account.</p>
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      >
+        <span class="download-label">Download Free Trial</span>
+      </a>
+    </section>
+  </main>
+</Landing>
