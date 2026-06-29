@@ -68,3 +68,40 @@ click time** (so setting it later via JS is fine), then for an `<a>`:
 `umami.track()` on the same click is unreliable because the link navigates before
 the beacon settles — always prefer the `data-umami-event` attribute for
 download/outbound links.
+
+## Product-demo media: use video, not GIF — and the full web-media checklist
+
+Learned converting homepage demos from CSS mockups → real captures (PR #87). A
+GIF demo drew **eleven** Codex review rounds, almost all rooted in the format;
+converting to MP4 collapsed the class. For any UI/product demo on the site:
+
+- **Use MP4 (H.264), never an animated GIF.** A GIF is an animated `<img>` with no
+  playback API, so you cannot pause/stop it, can't enforce reduced-motion at
+  markup time, and it's ~3x larger. (`image-crop.gif` 973KB → `image-crop.mp4`
+  324KB.) Convert with `tools/web-media.sh` (needs `ffmpeg`).
+- **Frame the capture chrome-free.** Drobu's surface is a floating panel, NOT a
+  Mac window — do not wrap real captures in MacWindow traffic-light chrome. The
+  `Showcase` component is the one frame (rounded + hairline border + shadow).
+- **Motion accessibility (WCAG 2.2.2) — all of these, or Codex will find each
+  one separately:**
+  - NO `autoplay` attribute. Start playback in JS only when motion is welcome, so
+    reduced-motion AND no-JS visitors rest on the `poster` (enforced at markup).
+  - Always-visible pause/play toggle (`<button>`, `aria-label`/`aria-pressed`),
+    because an autoplaying loop >5s needs a stop path for everyone, not just
+    reduced-motion users.
+- **Perf — also flagged one at a time:**
+  - `IntersectionObserver` gates *playback*: only on-screen showcases play; pause
+    on scroll-away; honor the manual-pause intent flag.
+  - `preload="none"` gates the *download* — otherwise the browser fetches every
+    below-the-fold video on load even with playback gated. The observer's `play()`
+    triggers the fetch when near-viewport.
+  - **Faststart (`moov` atom before `mdat`).** `ffmpeg -c copy -movflags
+    +faststart` (lossless remux, no re-encode). Check order with
+    `ffprobe -v trace f.mp4 2>&1 | grep -oE "type:'(moov|mdat)'" | head -2`.
+    Externally-supplied MP4s often are NOT faststart — re-remux them; only assets
+    you ran through the convert script are guaranteed.
+- **Poster = a representative MID-clip frame showing the product, NOT frame 0.**
+  Frame 0 of a workflow capture is usually the "before" desktop with no app UI —
+  shipping that as the reduced-motion/no-JS still drew its own P2. Pick a frame
+  where the app UI is on screen (`ffmpeg -ss <t> -i in -frames:v 1 poster.jpg`);
+  `web-media.sh` now defaults to the midpoint.
