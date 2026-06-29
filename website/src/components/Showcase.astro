@@ -22,10 +22,13 @@ interface Props {
   height: number;
   /** Poster image for video: the LCP frame and the reduced-motion still */
   poster?: string;
+  /** Static still for a GIF: shown instead of the animation when the visitor
+   *  prefers reduced motion (swapped via a <picture> media query, no JS). */
+  still?: string;
   class?: string;
 }
 
-const { src, alt, width, height, poster, class: className = "" } = Astro.props;
+const { src, alt, width, height, poster, still, class: className = "" } = Astro.props;
 const isVideo = /\.(mp4|webm)$/.test(src);
 const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
 ---
@@ -47,15 +50,18 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
       <source src={src} type={videoType} />
     </video>
   ) : (
-    <img
-      src={src}
-      alt={alt}
-      width={width}
-      height={height}
-      loading="lazy"
-      decoding="async"
-      class="block w-full h-auto"
-    />
+    <picture>
+      {still && <source srcset={still} media="(prefers-reduced-motion: reduce)" />}
+      <img
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        loading="lazy"
+        decoding="async"
+        class="block w-full h-auto"
+      />
+    </picture>
   )}
 </figure>
 
