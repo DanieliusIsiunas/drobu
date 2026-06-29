@@ -90,9 +90,10 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
 </style>
 
 <script>
-  // Pause/play toggle for video showcases (WCAG 2.2.2). No autoplay attribute, so
-  // reduced-motion and no-JS visitors rest on the poster; JS starts playback only
-  // when motion is welcome.
+  // Video showcases: pause/play toggle (WCAG 2.2.2) + viewport gating. No autoplay
+  // attribute, so reduced-motion and no-JS visitors rest on the poster. JS plays a
+  // showcase only when it nears the viewport AND motion is welcome, so the
+  // below-the-fold demos don't decode/loop on load.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   for (const fig of document.querySelectorAll('[data-showcase="video"]')) {
@@ -106,14 +107,29 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
       btn.setAttribute("aria-pressed", String(paused));
     };
 
+    // The visitor's intent. Default paused under reduced motion; otherwise the
+    // observer starts playback once the showcase nears the viewport.
+    let userPaused = reduceMotion;
+    reflect(userPaused);
+
     btn.addEventListener("click", () => {
-      if (video.paused) video.play();
-      else video.pause();
+      userPaused = !userPaused;
+      if (userPaused) video.pause();
+      else video.play().catch(() => reflect(true));
     });
     video.addEventListener("play", () => reflect(false));
     video.addEventListener("pause", () => reflect(true));
 
-    if (reduceMotion) reflect(true);
-    else video.play().catch(() => reflect(true));
+    // Only on-screen showcases play; scrolling away pauses them. Honors a manual pause.
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && !userPaused) video.play().catch(() => {});
+          else if (!e.isIntersecting) video.pause();
+        }
+      },
+      { rootMargin: "200px", threshold: 0.1 }
+    );
+    io.observe(fig);
   }
 </script>
