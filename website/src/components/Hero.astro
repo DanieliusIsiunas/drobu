@@ -36,38 +36,55 @@ import { DOWNLOAD_URL } from "../config";
       </p>
     </div>
 
-    <!-- Hero visual: screen recording shown as one input; the differentiator is editing (trim) before paste, all on one surface. See the Capture -> Trim -> Paste label below. -->
+    <!-- Hero visual: the editing climax. A captured screenshot sits in the Drobu
+         panel mid-crop (corner grips, everything outside dimmed), and the toolbar
+         shows Crop active. The loop reads Capture -> Edit -> Paste. -->
     <MacWindow title="Drobu" class="max-w-3xl mx-auto">
       <div class="relative bg-bg-primary overflow-hidden" style="aspect-ratio: 16 / 9;" id="hero-media">
-        <!-- Faux desktop content being recorded -->
-        <div class="absolute inset-0 p-6 opacity-25 select-none" aria-hidden="true">
-          <div class="h-3 w-44 rounded bg-white/15 mb-4"></div>
-          <div class="h-2.5 w-3/4 rounded bg-white/10 mb-2.5"></div>
-          <div class="h-2.5 w-2/3 rounded bg-white/10 mb-2.5"></div>
-          <div class="h-2.5 w-1/2 rounded bg-white/10"></div>
-          <div class="mt-6 grid grid-cols-3 gap-3 max-w-md">
-            <div class="h-16 rounded-lg bg-white/5"></div>
-            <div class="h-16 rounded-lg bg-white/5"></div>
-            <div class="h-16 rounded-lg bg-white/5"></div>
+        <!-- A captured screenshot, now open for editing -->
+        <div class="absolute inset-0 select-none" aria-hidden="true">
+          <div class="absolute inset-0 bg-gradient-to-br from-[#28324c] via-[#1b2236] to-[#11151f]"></div>
+          <div class="absolute inset-0 p-6 opacity-80">
+            <div class="h-3 w-40 rounded bg-white/20 mb-4"></div>
+            <div class="h-2.5 w-3/4 rounded bg-white/12 mb-2.5"></div>
+            <div class="h-2.5 w-2/3 rounded bg-white/12 mb-2.5"></div>
+            <div class="mt-6 grid grid-cols-3 gap-3 max-w-md">
+              <div class="h-16 rounded-lg bg-accent/15"></div>
+              <div class="h-16 rounded-lg bg-white/[0.08]"></div>
+              <div class="h-16 rounded-lg bg-white/[0.08]"></div>
+            </div>
+          </div>
+          <!-- captured-item chip: this is a clip in your history, now being edited -->
+          <div class="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-bg-card/90 border border-white/10">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" />
+            </svg>
+            <span class="text-[10px] text-text-muted font-mono">Screenshot &middot; PNG</span>
           </div>
         </div>
 
-        <!-- Region selection -->
-        <div class="absolute" style="left: 16%; top: 20%; right: 20%; bottom: 26%;" aria-hidden="true">
-          <div class="absolute inset-0 rounded-md border-2 border-dashed border-accent/80 bg-accent/5"></div>
-          <span class="absolute -top-px -left-px w-4 h-4 border-t-2 border-l-2 border-accent"></span>
-          <span class="absolute -top-px -right-px w-4 h-4 border-t-2 border-r-2 border-accent"></span>
-          <span class="absolute -bottom-px -left-px w-4 h-4 border-b-2 border-l-2 border-accent"></span>
-          <span class="absolute -bottom-px -right-px w-4 h-4 border-b-2 border-r-2 border-accent"></span>
+        <!-- Crop overlay: everything outside the crop is dimmed via one box-shadow,
+             with the app's corner-bracket grips -->
+        <div class="hero-crop absolute rounded-[3px]" style="left: 17%; top: 18%; right: 24%; bottom: 30%; box-shadow: 0 0 0 9999px rgba(8, 10, 16, 0.62);" aria-hidden="true">
+          <div class="absolute inset-0 rounded-[3px] ring-1 ring-white/55"></div>
+          <span class="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-[3px] border-l-[3px] border-accent rounded-tl-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
+          <span class="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-[3px] border-r-[3px] border-accent rounded-tr-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
+          <span class="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-[3px] border-l-[3px] border-accent rounded-bl-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
+          <span class="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-[3px] border-r-[3px] border-accent rounded-br-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
         </div>
 
-        <!-- Capture control bar -->
-        <div class="absolute left-1/2 -translate-x-1/2 bottom-4 flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-bg-card/95 border border-white/10 shadow-xl">
-          <span class="hero-rec inline-block w-2.5 h-2.5 rounded-full bg-red-500"></span>
-          <span class="text-xs font-mono text-text-primary">0:04</span>
+        <!-- Edit toolbar: the climax. Crop active, then Trim/Clean; loop reads Capture -> Edit -> Paste -->
+        <div class="absolute left-1/2 -translate-x-1/2 bottom-4 flex items-center gap-2 px-3 py-2 rounded-full bg-bg-card/95 border border-white/10 shadow-xl">
+          <span class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/20 text-accent text-[11px] font-medium">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" />
+            </svg>
+            Crop
+          </span>
+          <span class="text-[11px] text-text-muted px-1">Trim</span>
+          <span class="text-[11px] text-text-muted px-1">Clean</span>
           <span class="w-px h-3.5 bg-white/10"></span>
-          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/20 text-accent font-medium">GIF</span>
-          <span class="text-[10px] text-text-muted">Capture &rarr; Trim &rarr; Paste</span>
+          <span class="text-[10px] text-text-muted">Capture &rarr; <span class="text-accent font-medium">Edit</span> &rarr; Paste</span>
         </div>
       </div>
     </MacWindow>
@@ -75,11 +92,15 @@ import { DOWNLOAD_URL } from "../config";
 </section>
 
 <style>
-  @keyframes heroRecPulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.35; transform: scale(0.75); }
+  /* One orchestrated moment: the crop grips breathe gently to read as an active edit. */
+  @keyframes cropPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
   }
-  .hero-rec {
-    animation: heroRecPulse 1.4s ease-in-out infinite;
+  .hero-crop span {
+    animation: cropPulse 2.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-crop span { animation: none; }
   }
 </style>
