@@ -8,7 +8,9 @@
  * rounded corners, a hairline border, and a soft shadow so it lifts off the page.
  *
  * Handles both stills/GIFs (rendered as <img>, lazy) and video (.mp4/.webm,
- * rendered as a muted autoplay loop with a poster for instant first paint).
+ * rendered as a muted looping <video> with a poster for instant first paint;
+ * playback is started by JS only when motion is welcome, so reduced-motion and
+ * no-JS visitors rest on the poster, enforced at markup time).
  *
  * Motion accessibility (WCAG 2.2.2: any autoplaying loop longer than a few
  * seconds needs a stop mechanism for ALL visitors, not only reduced-motion ones):
@@ -55,7 +57,6 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       class="block w-full h-auto"
       width={width}
       height={height}
-      autoplay
       muted
       loop
       playsinline
@@ -130,10 +131,12 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       });
       video.addEventListener("play", () => reflect(false));
       video.addEventListener("pause", () => reflect(true));
+      // No autoplay attribute: reduced-motion and no-JS visitors rest on the
+      // poster (enforced at markup time). Start playback only when motion is welcome.
       if (reduceMotion) {
-        video.removeAttribute("autoplay");
-        video.pause();
         reflect(true);
+      } else {
+        video.play().catch(() => reflect(true));
       }
     } else if (kind === "gif") {
       const img = fig.querySelector("img");
