@@ -17,9 +17,9 @@
  *  - Video AND GIF showcases get an always-visible pause/play toggle. Video uses
  *    the media API; a GIF (no playback API) is frozen by swapping its <img> to the
  *    static still and back.
- *  - On top of that, video rests on its poster and GIFs swap to the still
- *    automatically for visitors who prefer reduced motion (the GIF via a <picture>
- *    media query, JS-free).
+ *  - Both default to the still/poster in the markup, so reduced-motion AND no-JS
+ *    visitors get no motion at all. JS opts into the animation only when motion is
+ *    welcome; the toggle then swaps between still and motion for everyone.
  *
  * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
  * intrinsic width/height so the browser reserves space (no layout shift).
@@ -34,8 +34,8 @@ interface Props {
   height: number;
   /** Poster image for video: the LCP frame and the reduced-motion still */
   poster?: string;
-  /** Static still for a GIF: the reduced-motion fallback AND the paused frame.
-   *  Required to offer a pause control for a GIF. */
+  /** Static still for a GIF: the default frame shipped in the markup (no motion
+   *  without JS) and the paused frame. Required to animate/pause a GIF. */
   still?: string;
   class?: string;
 }
@@ -67,20 +67,17 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       <source src={src} type={videoType} />
     </video>
   ) : (
-    <picture>
-      {still && <source srcset={still} media="(prefers-reduced-motion: reduce)" />}
-      <img
-        src={src}
-        alt={alt}
-        width={width}
-        height={height}
-        loading="lazy"
-        decoding="async"
-        class="block w-full h-auto"
-        data-animated={pausableGif ? src : undefined}
-        data-still={pausableGif ? still : undefined}
-      />
-    </picture>
+    <img
+      src={pausableGif ? still : src}
+      alt={alt}
+      width={width}
+      height={height}
+      loading="lazy"
+      decoding="async"
+      class="block w-full h-auto"
+      data-animated={pausableGif ? src : undefined}
+      data-still={pausableGif ? still : undefined}
+    />
   )}
 
   {showcaseKind && (
@@ -144,17 +141,12 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       const animated = img.dataset.animated;
       const still = img.dataset.still;
       if (!animated || !still) continue;
-      // The <picture> reduced-motion <source> forces the still and would override
-      // img.src, so a reduced-motion visitor's Play click could never animate.
-      // Keep that as the JS-free default, but once the visitor takes manual
-      // control, drop the source so the toggle is authoritative (they can opt in).
-      const picture = img.closest("picture");
-      const rmSource = picture && picture.querySelector('source[media*="reduced-motion"]');
-      // Reduced-motion visitors already see the still (via <picture>); start paused.
+      // Markup ships the still (no motion without JS). Start animating only when
+      // motion is welcome; the toggle swaps between still and animated for all.
       let paused = reduceMotion;
+      if (!paused) img.src = animated;
       reflect(paused);
       btn.addEventListener("click", () => {
-        if (rmSource) rmSource.remove();
         paused = !paused;
         img.src = paused ? still : animated;
         reflect(paused);
