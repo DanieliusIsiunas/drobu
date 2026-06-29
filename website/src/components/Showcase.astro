@@ -141,10 +141,17 @@ const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
       const animated = img.dataset.animated;
       const still = img.dataset.still;
       if (!animated || !still) continue;
+      // The <picture> reduced-motion <source> forces the still and would override
+      // img.src, so a reduced-motion visitor's Play click could never animate.
+      // Keep that as the JS-free default, but once the visitor takes manual
+      // control, drop the source so the toggle is authoritative (they can opt in).
+      const picture = img.closest("picture");
+      const rmSource = picture && picture.querySelector('source[media*="reduced-motion"]');
       // Reduced-motion visitors already see the still (via <picture>); start paused.
       let paused = reduceMotion;
       reflect(paused);
       btn.addEventListener("click", () => {
+        if (rmSource) rmSource.remove();
         paused = !paused;
         img.src = paused ? still : animated;
         reflect(paused);
