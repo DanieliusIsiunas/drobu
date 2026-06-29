@@ -10,11 +10,14 @@
  * Handles both stills/GIFs (rendered as <img>, lazy) and video (.mp4/.webm,
  * rendered as a muted autoplay loop with a poster for instant first paint).
  *
- * Motion accessibility:
- *  - Video shows an always-visible pause/play toggle (WCAG 2.2.2: any autoplaying
- *    loop longer than a few seconds needs a stop mechanism for all visitors), and
- *    rests on its poster for visitors who prefer reduced motion.
- *  - GIFs swap to a static still via a <picture> reduced-motion media query (JS-free).
+ * Motion accessibility (WCAG 2.2.2: any autoplaying loop longer than a few
+ * seconds needs a stop mechanism for ALL visitors, not only reduced-motion ones):
+ *  - Video AND GIF showcases get an always-visible pause/play toggle. Video uses
+ *    the media API; a GIF (no playback API) is frozen by swapping its <img> to the
+ *    static still and back.
+ *  - On top of that, video rests on its poster and GIFs swap to the still
+ *    automatically for visitors who prefer reduced motion (the GIF via a <picture>
+ *    media query, JS-free).
  *
  * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
  * intrinsic width/height so the browser reserves space (no layout shift).
@@ -29,8 +32,8 @@ interface Props {
   height: number;
   /** Poster image for video: the LCP frame and the reduced-motion still */
   poster?: string;
-  /** Static still for a GIF: shown instead of the animation when the visitor
-   *  prefers reduced motion (swapped via a <picture> media query, no JS). */
+  /** Static still for a GIF: the reduced-motion fallback AND the paused frame.
+   *  Required to offer a pause control for a GIF. */
   still?: string;
   class?: string;
 }
@@ -38,42 +41,30 @@ interface Props {
 const { src, alt, width, height, poster, still, class: className = "" } = Astro.props;
 const isVideo = /\.(mp4|webm)$/.test(src);
 const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
+// A GIF can only be paused if we have a still to freeze it on.
+const pausableGif = !isVideo && !!still;
+const showcaseKind = isVideo ? "video" : pausableGif ? "gif" : undefined;
 ---
 
 <figure
   class:list={["relative m-0 rounded-xl overflow-hidden border border-white/10 bg-bg-elevated shadow-2xl", className]}
-  data-showcase-video={isVideo ? "" : undefined}
+  data-showcase={showcaseKind}
 >
   {isVideo ? (
-    <Fragment>
-      <video
-        class="block w-full h-auto"
-        width={width}
-        height={height}
-        autoplay
-        muted
-        loop
-        playsinline
-        preload="auto"
-        poster={poster}
-        aria-label={alt}
-      >
-        <source src={src} type={videoType} />
-      </video>
-      <button
-        type="button"
-        class="showcase-toggle absolute bottom-3 right-3 grid place-items-center w-9 h-9 rounded-full bg-black/55 text-white backdrop-blur transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-        aria-label="Pause the demo"
-        aria-pressed="false"
-      >
-        <svg class="icon-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
-        </svg>
-        <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-      </button>
-    </Fragment>
+    <video
+      class="block w-full h-auto"
+      width={width}
+      height={height}
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="auto"
+      poster={poster}
+      aria-label={alt}
+    >
+      <source src={src} type={videoType} />
+    </video>
   ) : (
     <picture>
       {still && <source srcset={still} media="(prefers-reduced-motion: reduce)" />}
@@ -85,8 +76,26 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
         loading="lazy"
         decoding="async"
         class="block w-full h-auto"
+        data-animated={pausableGif ? src : undefined}
+        data-still={pausableGif ? still : undefined}
       />
     </picture>
+  )}
+
+  {showcaseKind && (
+    <button
+      type="button"
+      class="showcase-toggle absolute bottom-3 right-3 grid place-items-center w-9 h-9 rounded-full bg-black/55 text-white backdrop-blur transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+      aria-label="Pause the demo"
+      aria-pressed="false"
+    >
+      <svg class="icon-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+      </svg>
+      <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </button>
   )}
 </figure>
 
@@ -97,12 +106,14 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
 </style>
 
 <script>
-  // Wire each video showcase: a pause/play toggle (WCAG 2.2.2) and a
-  // reduced-motion default that rests the loop on its poster.
-  for (const fig of document.querySelectorAll("[data-showcase-video]")) {
-    const video = fig.querySelector("video");
+  // Wire each showcase's pause/play toggle (WCAG 2.2.2). Video uses the media
+  // API; a GIF is frozen by swapping its <img> to the static still and back.
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  for (const fig of document.querySelectorAll("[data-showcase]")) {
+    const kind = fig.getAttribute("data-showcase");
     const btn = fig.querySelector(".showcase-toggle");
-    if (!(video instanceof HTMLVideoElement) || !(btn instanceof HTMLButtonElement)) continue;
+    if (!(btn instanceof HTMLButtonElement)) continue;
 
     const reflect = (paused: boolean) => {
       btn.classList.toggle("is-paused", paused);
@@ -110,17 +121,34 @@ const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
       btn.setAttribute("aria-pressed", String(paused));
     };
 
-    btn.addEventListener("click", () => {
-      if (video.paused) video.play();
-      else video.pause();
-    });
-    video.addEventListener("play", () => reflect(false));
-    video.addEventListener("pause", () => reflect(true));
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      video.removeAttribute("autoplay");
-      video.pause();
-      reflect(true);
+    if (kind === "video") {
+      const video = fig.querySelector("video");
+      if (!(video instanceof HTMLVideoElement)) continue;
+      btn.addEventListener("click", () => {
+        if (video.paused) video.play();
+        else video.pause();
+      });
+      video.addEventListener("play", () => reflect(false));
+      video.addEventListener("pause", () => reflect(true));
+      if (reduceMotion) {
+        video.removeAttribute("autoplay");
+        video.pause();
+        reflect(true);
+      }
+    } else if (kind === "gif") {
+      const img = fig.querySelector("img");
+      if (!(img instanceof HTMLImageElement)) continue;
+      const animated = img.dataset.animated;
+      const still = img.dataset.still;
+      if (!animated || !still) continue;
+      // Reduced-motion visitors already see the still (via <picture>); start paused.
+      let paused = reduceMotion;
+      reflect(paused);
+      btn.addEventListener("click", () => {
+        paused = !paused;
+        img.src = paused ? still : animated;
+        reflect(paused);
+      });
     }
   }
 </script>
