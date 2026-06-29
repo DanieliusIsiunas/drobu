@@ -1,0 +1,38 @@
+---
+/**
+ * Honest media frame for real Drobu captures.
+ *
+ * Drobu's surface is a floating panel, NOT a Mac window, so this deliberately
+ * does NOT use MacWindow (no traffic-light chrome). It presents a real
+ * screenshot / screen recording as a clean floating "screen": rounded corners,
+ * a hairline border, and a soft shadow so it lifts off the page.
+ *
+ * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
+ * intrinsic width/height so the browser reserves space (no layout shift), and
+ * lazy-load since these live below the fold.
+ */
+interface Props {
+  /** Path under /media, e.g. "/media/image-crop.gif" */
+  src: string;
+  /** What the capture shows, for screen readers */
+  alt: string;
+  /** Intrinsic pixel dimensions of the asset (for aspect ratio + no CLS) */
+  width: number;
+  height: number;
+  class?: string;
+}
+
+const { src, alt, width, height, class: className = "" } = Astro.props;
+---
+
+<figure class:list={["m-0 rounded-xl overflow-hidden border border-white/10 bg-bg-elevated shadow-2xl", className]}>
+  <img
+    src={src}
+    alt={alt}
+    width={width}
+    height={height}
+    loading="lazy"
+    decoding="async"
+    class="block w-full h-auto"
+  />
+</figure>
