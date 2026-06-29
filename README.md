@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://danieliusisiunas.github.io/drobu/">Website</a> ·
+  <a href="https://drobu.app">Website</a> ·
   <a href="https://github.com/DanieliusIsiunas/drobu/releases/latest/download/Drobu.dmg">Download</a> ·
   <a href="LICENSE">License</a>
 </p>
@@ -19,9 +19,13 @@
 
 ## What it is
 
-Drobu lives in the menu bar and takes care of everything between "I copied this" and "I pasted this":
+**Drobu is a macOS clipboard manager you can edit.** It lives in the menu bar and takes care of everything between "I copied this" and "I pasted this":
 
-Your clipboard stays on your machine. No account, no tracking, no ads. (A paid license activates online to enforce a 3-device limit; see the [privacy page](https://danieliusisiunas.github.io/drobu/privacy/) for the full statement.)
+- **Capture anything** — text, links, images, GIFs, files, and screen recordings all land in one searchable history.
+- **Edit in place** — crop a screenshot, trim a GIF or recording, or clean up copied text without a detour through Preview or QuickTime.
+- **Search and paste fast** — full-text search across everything you copied; paste one item or a whole stack with a single keystroke.
+
+Your clipboard stays on your machine. No account, no tracking, no ads, and password-manager items are ignored automatically. It is a one-time **$14.99** purchase (not a subscription) with a 14-day free trial, and it runs on macOS 14 and later. (A paid license activates online to enforce a 3-device limit; see the [privacy page](https://drobu.app/privacy/) — including [how to verify it sends nothing](https://drobu.app/privacy/#verify) — for the full statement.)
 
 ## Architecture
 
