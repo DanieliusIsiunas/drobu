@@ -1,5 +1,5 @@
 ---
-import MacWindow from "./MacWindow.astro";
+import Showcase from "./Showcase.astro";
 import { DOWNLOAD_URL } from "../config";
 ---
 
@@ -36,71 +36,14 @@ import { DOWNLOAD_URL } from "../config";
       </p>
     </div>
 
-    <!-- Hero visual: the editing climax. A captured screenshot sits in the Drobu
-         panel mid-crop (corner grips, everything outside dimmed), and the toolbar
-         shows Crop active. The loop reads Capture -> Edit -> Paste. -->
-    <MacWindow title="Drobu" class="max-w-3xl mx-auto">
-      <div class="relative bg-bg-primary overflow-hidden" style="aspect-ratio: 16 / 9;" id="hero-media">
-        <!-- A captured screenshot, now open for editing -->
-        <div class="absolute inset-0 select-none" aria-hidden="true">
-          <div class="absolute inset-0 bg-gradient-to-br from-[#28324c] via-[#1b2236] to-[#11151f]"></div>
-          <div class="absolute inset-0 p-6 opacity-80">
-            <div class="h-3 w-40 rounded bg-white/20 mb-4"></div>
-            <div class="h-2.5 w-3/4 rounded bg-white/12 mb-2.5"></div>
-            <div class="h-2.5 w-2/3 rounded bg-white/12 mb-2.5"></div>
-            <div class="mt-6 grid grid-cols-3 gap-3 max-w-md">
-              <div class="h-16 rounded-lg bg-accent/15"></div>
-              <div class="h-16 rounded-lg bg-white/[0.08]"></div>
-              <div class="h-16 rounded-lg bg-white/[0.08]"></div>
-            </div>
-          </div>
-          <!-- captured-item chip: this is a clip in your history, now being edited -->
-          <div class="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-bg-card/90 border border-white/10">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-text-muted">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" />
-            </svg>
-            <span class="text-[10px] text-text-muted font-mono">Screenshot &middot; PNG</span>
-          </div>
-        </div>
-
-        <!-- Crop overlay: everything outside the crop is dimmed via one box-shadow,
-             with the app's corner-bracket grips -->
-        <div class="hero-crop absolute rounded-[3px]" style="left: 17%; top: 18%; right: 24%; bottom: 30%; box-shadow: 0 0 0 9999px rgba(8, 10, 16, 0.62);" aria-hidden="true">
-          <div class="absolute inset-0 rounded-[3px] ring-1 ring-white/55"></div>
-          <span class="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-[3px] border-l-[3px] border-accent rounded-tl-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
-          <span class="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-[3px] border-r-[3px] border-accent rounded-tr-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
-          <span class="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-[3px] border-l-[3px] border-accent rounded-bl-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
-          <span class="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-[3px] border-r-[3px] border-accent rounded-br-[3px] drop-shadow-[0_0_1.5px_rgba(0,0,0,0.7)]"></span>
-        </div>
-
-        <!-- Edit toolbar: the climax. Crop active, then Trim/Clean; loop reads Capture -> Edit -> Paste -->
-        <div class="absolute left-1/2 -translate-x-1/2 bottom-4 flex items-center gap-2 px-3 py-2 rounded-full bg-bg-card/95 border border-white/10 shadow-xl">
-          <span class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/20 text-accent text-[11px] font-medium">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" />
-            </svg>
-            Crop
-          </span>
-          <span class="text-[11px] text-text-muted px-1">Trim</span>
-          <span class="text-[11px] text-text-muted px-1">Clean</span>
-          <span class="w-px h-3.5 bg-white/10"></span>
-          <span class="text-[10px] text-text-muted">Capture &rarr; <span class="text-accent font-medium">Edit</span> &rarr; Paste</span>
-        </div>
-      </div>
-    </MacWindow>
+    <!-- Primary hero visual: the real Drobu interface, autoplay muted loop. -->
+    <Showcase
+      src="/media/main-interface.mp4"
+      poster="/media/main-interface.jpg"
+      alt="The Drobu clipboard panel: search the history, filter by type, preview a clip, and paste"
+      width={1064}
+      height={634}
+      class="max-w-4xl mx-auto"
+    />
   </div>
 </section>
-
-<style>
-  /* One orchestrated moment: the crop grips breathe gently to read as an active edit. */
-  @keyframes cropPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.55; }
-  }
-  .hero-crop span {
-    animation: cropPulse 2.2s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hero-crop span { animation: none; }
-  }
-</style>

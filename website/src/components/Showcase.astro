@@ -7,32 +7,65 @@
  * screenshot / screen recording as a clean floating "screen": rounded corners,
  * a hairline border, and a soft shadow so it lifts off the page.
  *
+ * Handles both stills/GIFs (rendered as <img>, lazy) and video (.mp4/.webm,
+ * rendered as a muted autoplay loop with a poster for instant first paint).
  * Media is self-hosted (public/media) to fit the no-CDN privacy stance. Pass
- * intrinsic width/height so the browser reserves space (no layout shift), and
- * lazy-load since these live below the fold.
+ * intrinsic width/height so the browser reserves space (no layout shift).
  */
 interface Props {
-  /** Path under /media, e.g. "/media/image-crop.gif" */
+  /** Path under /media, e.g. "/media/main-interface.mp4" or "/media/image-crop.gif" */
   src: string;
   /** What the capture shows, for screen readers */
   alt: string;
   /** Intrinsic pixel dimensions of the asset (for aspect ratio + no CLS) */
   width: number;
   height: number;
+  /** Poster image for video: the LCP frame and the reduced-motion still */
+  poster?: string;
   class?: string;
 }
 
-const { src, alt, width, height, class: className = "" } = Astro.props;
+const { src, alt, width, height, poster, class: className = "" } = Astro.props;
+const isVideo = /\.(mp4|webm)$/.test(src);
+const videoType = src.endsWith(".webm") ? "video/webm" : "video/mp4";
 ---
 
 <figure class:list={["m-0 rounded-xl overflow-hidden border border-white/10 bg-bg-elevated shadow-2xl", className]}>
-  <img
-    src={src}
-    alt={alt}
-    width={width}
-    height={height}
-    loading="lazy"
-    decoding="async"
-    class="block w-full h-auto"
-  />
+  {isVideo ? (
+    <video
+      class="block w-full h-auto"
+      width={width}
+      height={height}
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="auto"
+      poster={poster}
+      aria-label={alt}
+    >
+      <source src={src} type={videoType} />
+    </video>
+  ) : (
+    <img
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      loading="lazy"
+      decoding="async"
+      class="block w-full h-auto"
+    />
+  )}
 </figure>
+
+<script>
+  // Respect "reduce motion": pause autoplaying showcase videos so they rest on
+  // their poster frame instead of looping.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    for (const v of document.querySelectorAll<HTMLVideoElement>("video[autoplay]")) {
+      v.removeAttribute("autoplay");
+      v.pause();
+    }
+  }
+</script>
