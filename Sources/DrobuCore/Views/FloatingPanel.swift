@@ -155,9 +155,12 @@ final class FloatingPanel: NSPanel {
         setFrameOrigin(NSPoint(x: x, y: y))
 
         bufferedKeystrokes = ""
-        // Seed the modifier baseline from the chord still held at show-time, so a
-        // Shift-containing invoking hotkey (e.g. ⇧⌘C) is treated as already-down
-        // and its release never registers as a bare-Shift tap (rising edge).
+        // Reset the shift-tap state at show-time so a fresh show is always disarmed —
+        // an intrinsic invariant rather than one that depends on the caller recreating
+        // the panel — and seed the modifier baseline from the chord still held at
+        // show-time so a Shift-containing invoking hotkey (e.g. ⇧⌘C) is treated as
+        // already-down and its release never registers as a bare-Shift tap (rising edge).
+        shiftDownWithoutKey = false
         lastRelevantFlags = NSEvent.modifierFlags.intersection(shiftTapRelevantModifiers)
         makeKeyAndOrderFront(nil)
     }
