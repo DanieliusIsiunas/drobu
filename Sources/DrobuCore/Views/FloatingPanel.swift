@@ -8,8 +8,12 @@ import Carbon.HIToolbox
 final class FloatingPanel: NSPanel {
     private var bufferedKeystrokes: String = ""
 
-    // Shift-tap detection: toggle preview on Shift release if no other key was pressed
+    // Shift-tap detection: toggle preview on a bare Shift tap (rising-edge armed).
+    // `shiftDownWithoutKey` is the armed flag; `lastRelevantFlags` is the previously
+    // observed masked modifier state, seeded from the held chord at show-time so the
+    // invoking hotkey's Shift release is never mistaken for a deliberate tap.
     private var shiftDownWithoutKey = false
+    private var lastRelevantFlags: NSEvent.ModifierFlags = []
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
     var onShiftTap: (() -> Void)?
@@ -106,12 +110,16 @@ final class FloatingPanel: NSPanel {
     // MARK: - Shift-Tap Detection
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        if event.modifierFlags.contains(.shift) {
-            // Shift pressed down
-            shiftDownWithoutKey = true
-        } else if shiftDownWithoutKey {
-            // Shift released with no intervening key → tap
-            shiftDownWithoutKey = false
+        // Mask to the four chordable modifiers, then route through the pure
+        // edge-aware decision (see ShiftTapDetector.swift). Update the baseline
+        // before firing so the next event sees this event's state as "previous".
+        let current = event.modifierFlags.intersection(shiftTapRelevantModifiers)
+        let decision = shiftTapDecision(previous: lastRelevantFlags,
+                                        current: current,
+                                        armed: shiftDownWithoutKey)
+        lastRelevantFlags = current
+        shiftDownWithoutKey = decision.armed
+        if decision.fireTap {
             onShiftTap?()
         }
     }
@@ -147,6 +155,10 @@ final class FloatingPanel: NSPanel {
         setFrameOrigin(NSPoint(x: x, y: y))
 
         bufferedKeystrokes = ""
+        // Seed the modifier baseline from the chord still held at show-time, so a
+        // Shift-containing invoking hotkey (e.g. ⇧⌘C) is treated as already-down
+        // and its release never registers as a bare-Shift tap (rising edge).
+        lastRelevantFlags = NSEvent.modifierFlags.intersection(shiftTapRelevantModifiers)
         makeKeyAndOrderFront(nil)
     }
 
