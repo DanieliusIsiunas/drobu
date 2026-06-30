@@ -24,7 +24,7 @@ enum HotkeyDefaults {
     static func load() -> KeyCombo {
         guard let dict = UserDefaults.standard.dictionary(forKey: key),
               let combo = KeyCombo(dictionary: dict) else {
-            return KeyCombo(key: .v, modifiers: [.command, .shift])
+            return KeyCombo(key: .c, modifiers: [.command, .shift])
         }
         return combo
     }
