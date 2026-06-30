@@ -1,5 +1,33 @@
 # NSMenu / NSStatusItem Gotchas
 
+## A status badge driven by `onStateChange` needs a deadline trigger, not just a process/callback (v1.9.6)
+
+The menu-bar sleep dot is refreshed only from `CaffeinateService`/`ClosedLidService`
+`onStateChange` (→ `AppDelegate.refreshStatusIcon`, which reads `currentSleepMode`
+← each service's `isActive`). The trap: `isActive` is **computed and
+deadline-aware** (`CaffeinateService.isActive` returns false once `remainingTime
+<= 0`), but `state` (the thing whose `didSet` fires `onStateChange`) flipped to
+`.idle` **only when the OS `caffeinate` process terminated** — its
+`terminationHandler`. Those two diverge: at the logical deadline `isActive`/the
+menu say "expired" while `state` is still `.active`, and **nothing re-evaluates
+the badge in that window** (the 1 Hz menu timer runs only while the menu is open
+and only mutates titles). So the green dot persisted after keep-awake expired —
+worst across system sleep, where the suspended `caffeinate` process outlives its
+`-t` and the termination callback's main-actor hop doesn't run until wake (shipped
+bug, v1.9.5).
+
+**Rule:** any status driven by a push (`onStateChange`) whose underlying truth is
+a computed deadline-aware flag must have a **deadline trigger** that pushes at the
+deadline — don't rely on an OS process/callback that can lag it. Fix
+(`CaffeinateService.scheduleExpiry` + idempotent `reconcileExpiry`): a one-shot
+`.common`-mode `Timer` at the deadline calls `reconcileExpiry()`, which ends the
+session (→ `state = .idle` → `onStateChange` → badge clears). `.common` so it fires
+during menu tracking; a one-shot whose fire date passed during sleep fires **on
+wake**, which is when you want to reconcile. `reconcileExpiry` is guarded
+(`active && remaining <= 0`) so it's safe to call any time. `ClosedLidService`
+already had this shape (its 30 s `reconcileTick`); `CaffeinateService` did not —
+that asymmetry was the bug.
+
 ## Live-updating an open NSMenu: `.common`-mode timer + title-only mutations
 
 NSMenu tracking runs the run loop in `.eventTracking` mode. `Timer.scheduledTimer` registers in `.default` only, so it **does not fire while a menu is open** — countdowns and live status text freeze the moment the user opens the menu.
