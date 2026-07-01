@@ -1,19 +1,24 @@
 import Foundation
 
-/// Display verb for the ⌘→ edit action, by content **kind alone** — no data-availability
+/// Display verb for the ⌘→ action, by content **kind alone** — no data-availability
 /// gate. Used by the per-row VoiceOver hint, where running `ImageCrop.isBitmapData` (a
 /// CGImageSource build over the whole image `Data`) or a `FileManager` check on every
 /// visible row per render would be a hot-path cost. A rare non-bitmap image / missing
-/// video row therefore announces its verb even though ⌘→ would no-op there — an accepted,
+/// video row therefore announces the verb even though ⌘→ would no-op there — an accepted,
 /// cheap over-promise for a spoken hint (see `.claude/rules/accessibility.md`).
 ///
-/// text → "edit", image/gif → "crop", video → "trim", file/other → nil.
+/// The verb is uniformly **"edit"**: ⌘→ opens *edit mode*, and the specific tool inside
+/// (crop an image, trim a video, or edit text) depends on the content — the hint names the
+/// mode, not the inner tool. Returns "edit" for every editable kind, nil for file/other.
 func editVerb(forKind kind: String) -> String? {
     switch kind {
-    case ClipboardRecord.kindText: return "edit"
-    case ClipboardRecord.kindImage, ClipboardRecord.kindGif: return "crop"
-    case ClipboardRecord.kindVideo: return "trim"
-    default: return nil
+    case ClipboardRecord.kindText,
+         ClipboardRecord.kindImage,
+         ClipboardRecord.kindGif,
+         ClipboardRecord.kindVideo:
+        return "edit"
+    default:
+        return nil
     }
 }
 

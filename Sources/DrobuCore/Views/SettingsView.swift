@@ -344,7 +344,7 @@ public struct SettingsView: View {
         Divider()
         // Static reference (not a shortcutRow): the ⌘→ edit key is an in-panel,
         // context-dependent shortcut, not a rebindable global hotkey.
-        settingsRow("Edit / crop / trim selected") {
+        settingsRow("Edit selected") {
             Text("\u{2318}\u{2192}")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
