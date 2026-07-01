@@ -341,6 +341,15 @@ public struct SettingsView: View {
         shortcutRow("Capture GIF", binding: $captureHotkeyCombo, save: CaptureHotkeyDefaults.save, a11y: "Capture GIF Hotkey")
         Divider()
         shortcutRow("Capture video", binding: $videoCaptureHotkeyCombo, save: VideoCaptureHotkeyDefaults.save, a11y: "Capture Video Hotkey")
+        Divider()
+        // Static reference (not a shortcutRow): the ⌘→ edit key is an in-panel,
+        // context-dependent shortcut, not a rebindable global hotkey.
+        settingsRow("Edit / crop / trim selected") {
+            Text("\u{2318}\u{2192}")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Command Right arrow")
+        }
     }
 
     private func shortcutRow(_ label: String, binding: Binding<KeyCombo?>,

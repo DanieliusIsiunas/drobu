@@ -5,6 +5,7 @@ struct ClipboardRowView: View {
     let isSelected: Bool
     let isCursor: Bool      // true for the keyboard-focus row
     let shortcutIndex: Int? // 0-8 for Cmd+1 through Cmd+9, nil if beyond range
+    let editVerb: String?   // "edit"/"crop"/"trim" when ⌘→ acts on this kind, else nil (kind-only; see EditAction.swift)
 
     /// Fixed row height: 24px icon + 4px padding each side = 32px.
     /// Used by PanelView to compute the list area height.
@@ -34,7 +35,7 @@ struct ClipboardRowView: View {
         .accessibilityLabel(item.accessibilityDescription)
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint("Press Return to paste")
+        .accessibilityHint(editVerb.map { "Press Return to paste. Press Command Right to \($0)." } ?? "Press Return to paste")
     }
 
     // MARK: - App Icon
