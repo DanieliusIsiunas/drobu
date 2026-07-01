@@ -969,7 +969,7 @@ struct PanelView: View {
         // kindGif/kindImage save via onGifSave/onImageSave; kindVideo is deliberately
         // absent because VideoTrimView fires onVideoSave directly and never routes through
         // saveEdit — the entry gate and the save routing are different concerns, so
-        // editActionVerb returning "trim" for video does NOT mean video flows through here.
+        // editActionVerb returning "edit" for video does NOT mean video flows through here.
         if let item = items.first(where: { $0.id == editingItemId }),
            item.kind == ClipboardRecord.kindGif || item.kind == ClipboardRecord.kindImage {
             discardEdit()
