@@ -3,16 +3,17 @@ import Landing from "../../layouts/Landing.astro";
 import { DOWNLOAD_URL } from "../../config";
 import { comparisons, masterMatrix } from "../../data/comparisons";
 
-const title = "Drobu vs Maccy, Paste, CleanShot & Spotlight";
+const title = "Drobu vs Maccy, Paste, CleanShot, Raycast & Spotlight";
 const description =
-  "How Drobu compares to Maccy, Paste, CleanShot X, and the macOS Spotlight clipboard on history, capture, pricing, and privacy for Mac.";
+  "How Drobu compares to Maccy, Paste, CleanShot X, Raycast, and the macOS Spotlight clipboard on history, capture, editing, pricing, and privacy for Mac.";
 
-const products = ["drobu", "maccy", "paste", "cleanshot", "spotlight"] as const;
+const products = ["drobu", "maccy", "paste", "cleanshot", "raycast", "spotlight"] as const;
 const productLabels: Record<string, string> = {
   drobu: "Drobu",
   maccy: "Maccy",
   paste: "Paste",
   cleanshot: "CleanShot X",
+  raycast: "Raycast",
   spotlight: "Spotlight",
 };
 ---
@@ -50,6 +51,7 @@ const productLabels: Record<string, string> = {
                 <td class="px-4 py-3 text-text-secondary">{row.maccy}</td>
                 <td class="px-4 py-3 text-text-secondary">{row.paste}</td>
                 <td class="px-4 py-3 text-text-secondary">{row.cleanshot}</td>
+                <td class="px-4 py-3 text-text-secondary">{row.raycast}</td>
                 <td class="px-4 py-3 text-text-secondary">{row.spotlight}</td>
               </tr>
             ))}
