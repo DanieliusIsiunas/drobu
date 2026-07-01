@@ -355,7 +355,8 @@ struct PanelView: View {
                                     item: item,
                                     isSelected: selectionRange.contains(index),
                                     isCursor: index == cursor,
-                                    shortcutIndex: index < 9 ? index : nil
+                                    shortcutIndex: index < 9 ? index : nil,
+                                    editVerb: editVerb(forKind: item.kind)
                                 )
                                 .id(item.id)
                                 .onTapGesture {
@@ -379,7 +380,7 @@ struct PanelView: View {
             }
 
             Divider()
-            Text("\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview")
+            Text(clipboardFooterHint)
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .padding(.vertical, 4)
@@ -604,6 +605,23 @@ struct PanelView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Footer hint string, with a context-sensitive `⌘→ <verb>` segment appended for the
+    /// selected item when it is editable (see EditAction.swift). Decorative — the VoiceOver
+    /// affordance is carried by ClipboardRowView's accessibilityHint, not this text. The
+    /// gated verb is computed for the single selected item only, so it stays cheap.
+    private var clipboardFooterHint: String {
+        var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview"
+        guard !isEditing, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
+        let item = items[cursor]
+        let isBitmapImage = item.imageData.map(ImageCrop.isBitmapData) ?? false
+        let videoFileExists = FileManager.default.fileExists(
+            atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
+        if let verb = editActionVerb(for: item, isBitmapImage: isBitmapImage, videoFileExists: videoFileExists) {
+            hint += "  \u{2318}\u{2192} \(verb)"
+        }
+        return hint
+    }
+
     // MARK: - Keyboard Handlers
 
     private func handleClipboardKeyPress(_ press: KeyPress) -> KeyPress.Result {
@@ -612,30 +630,17 @@ struct PanelView: View {
 
         switch press.key {
         case .rightArrow:
-            // Cmd+Right → enter edit mode
+            // Cmd+Right → enter edit mode (edit text / crop image·gif / trim video)
             if press.modifiers.contains(.command) {
                 guard !items.isEmpty, !hasMultiSelection else { return .ignored }
                 let item = items[cursor]
-                if item.kind == ClipboardRecord.kindText, item.plainText != nil {
+                // Single source of truth for "is this editable via ⌘→" — see EditAction.swift.
+                let isBitmapImage = item.imageData.map(ImageCrop.isBitmapData) ?? false
+                let videoFileExists = FileManager.default.fileExists(
+                    atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
+                if editActionVerb(for: item, isBitmapImage: isBitmapImage, videoFileExists: videoFileExists) != nil {
                     enterEditMode()
                     return .handled
-                }
-                if item.kind == ClipboardRecord.kindGif, item.imageData != nil {
-                    enterEditMode()
-                    return .handled
-                }
-                if item.kind == ClipboardRecord.kindImage,
-                   let data = item.imageData,
-                   ImageCrop.isBitmapData(data) {
-                    enterEditMode()
-                    return .handled
-                }
-                if item.kind == ClipboardRecord.kindVideo {
-                    let url = ClipboardRecord.videoPath(for: item.contentHash)
-                    if FileManager.default.fileExists(atPath: url.path) {
-                        enterEditMode()
-                        return .handled
-                    }
                 }
                 return .ignored
             }
@@ -954,11 +959,13 @@ struct PanelView: View {
     private func saveEdit() {
         guard isEditing else { return }
 
-        // INVARIANT — keep in sync with the Cmd+Right entry gate: every media kind
-        // that can enter edit mode must be listed here so the editingText path never
-        // clobbers it. kindGif/kindImage save via onGifSave/onImageSave; kindVideo is
-        // deliberately absent because VideoTrimView fires onVideoSave directly and
-        // never routes through saveEdit.
+        // INVARIANT — the set of editable kinds is defined by `editActionVerb`
+        // (EditAction.swift), the shared Cmd+Right entry gate. Every media kind that can
+        // enter edit mode must be handled here so the editingText path never clobbers it:
+        // kindGif/kindImage save via onGifSave/onImageSave; kindVideo is deliberately
+        // absent because VideoTrimView fires onVideoSave directly and never routes through
+        // saveEdit — the entry gate and the save routing are different concerns, so
+        // editActionVerb returning "trim" for video does NOT mean video flows through here.
         if let item = items.first(where: { $0.id == editingItemId }),
            item.kind == ClipboardRecord.kindGif || item.kind == ClipboardRecord.kindImage {
             discardEdit()
