@@ -611,7 +611,9 @@ struct PanelView: View {
     /// gated verb is computed for the single selected item only, so it stays cheap.
     private var clipboardFooterHint: String {
         var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview"
-        guard !isEditing, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
+        // Mirror the ⌘→ entry gate, which ignores Cmd+Right while a range is selected
+        // (guard !hasMultiSelection): don't advertise a shortcut that no-ops mid-multiselect.
+        guard !isEditing, !hasMultiSelection, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
         let item = items[cursor]
         // Kind-scope the impure facts so a non-video selection doesn't stat a video path and
         // a non-image selection doesn't build a CGImageSource — this recomputes on every body
