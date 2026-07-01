@@ -11,9 +11,9 @@
 	<key>CFBundleName</key>
 	<string>Drobu</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.9.7</string>
+	<string>1.9.8</string>
 	<key>CFBundleVersion</key>
-	<string>21</string>
+	<string>22</string>
 	<key>DrobuLicensePublicKey</key>
 	<string>uvHoJNNeLFAv671r15WGSDUxRNUUWwpOaJKqgUkEDSc=</string>
 	<key>LSUIElement</key>
