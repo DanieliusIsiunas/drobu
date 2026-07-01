@@ -1,0 +1,131 @@
+---
+import Landing from "../layouts/Landing.astro";
+import { DOWNLOAD_URL } from "../config";
+
+const title = "Edit Clipboard Items on Mac Before Pasting | Drobu";
+const description =
+  "How to edit, crop, trim, or clean any clipboard item on a Mac before you paste it: text, screenshots, GIFs, and screen recordings, using Drobu.";
+
+const steps = [
+  {
+    name: "Open your clipboard history",
+    text: "Press Cmd+Shift+V to open Drobu's floating panel from any app. Your recent copies appear newest first, and you can type to search by content.",
+  },
+  {
+    name: "Select the item you want to change",
+    text: "Use the arrow keys or click to select the text, screenshot, GIF, or screen recording you copied. A preview appears on the right side of the panel.",
+  },
+  {
+    name: "Open it in the editor",
+    text: "Press the Right arrow (Cmd+Right) to open the item. Text opens an inline editor, images and screenshots open the crop overlay, and GIFs and screen recordings open the trim timeline.",
+  },
+  {
+    name: "Make your edit",
+    text: "For text, retype it or use Clean to strip formatting and unwrap terminal output. For images and screenshots, drag the corner handles to crop to the part you want. For GIFs and recordings, drag the start and end handles to trim. The original stays untouched in your history.",
+  },
+  {
+    name: "Save the edit",
+    text: "Press Cmd+Return to save, or Escape to discard. The item in your history updates to the edited version.",
+  },
+  {
+    name: "Paste the edited item",
+    text: "Press Return to paste the edited item into whichever app was active when you opened Drobu. The panel closes and the content lands at your cursor.",
+  },
+];
+
+const howToSchema = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "How to edit clipboard items on a Mac before pasting",
+  description:
+    "Edit, crop, trim, or clean a clipboard item on a Mac before pasting it, using a clipboard manager with a built-in editor.",
+  step: steps.map((s) => ({ "@type": "HowToStep", name: s.name, text: s.text })),
+};
+---
+
+<Landing title={title} description={description} extraSchema={howToSchema}>
+  <main id="main" class="max-w-3xl mx-auto px-6 pt-28 pb-24">
+    <header class="mb-14">
+      <p class="text-xs uppercase tracking-widest text-accent mb-4 font-medium">Guide</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-text-primary mb-5 leading-tight">
+        How to edit clipboard items on a Mac before pasting
+      </h1>
+      <p class="text-lg text-text-secondary leading-relaxed">
+        You just copied something, a paragraph, a screenshot, a screen recording, and it is almost right but not quite. macOS gives you no way to fix it before it lands in the next app. Here is how to crop, trim, and clean any clipboard item before you paste it, without a round trip through Preview or QuickTime.
+      </p>
+    </header>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">What macOS gives you natively, and where it stops</h2>
+      <p class="text-text-secondary leading-relaxed mb-4">
+        By default, macOS only remembers your most recent copy, and it offers no way to change it before pasting. macOS 26 (Tahoe) added a clipboard history you can open from Spotlight, but it is view-and-paste only: no editing, no cropping, no trimming, and it clears entries after a short window.
+      </p>
+      <p class="text-text-secondary leading-relaxed">
+        To edit what you copied before you paste it, you need a clipboard manager with a built-in editor.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-6">How to edit clipboard items before pasting in Drobu</h2>
+      <ol class="space-y-5">
+        {steps.map((s, i) => (
+          <li class="flex gap-4">
+            <span class="shrink-0 w-7 h-7 rounded-full bg-accent/15 text-accent font-semibold text-sm flex items-center justify-center">{i + 1}</span>
+            <div>
+              <p class="text-text-primary font-medium">{s.name}</p>
+              <p class="text-text-secondary text-sm leading-relaxed mt-1">{s.text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">Crop a screenshot before you paste it</h2>
+      <p class="text-text-secondary leading-relaxed">
+        This is the most common case. Take a screenshot the normal way, open Drobu, select it, and press the Right arrow to open the crop overlay. Drag the corner handles to keep just the part you need, save with Cmd+Return, and paste. You never open a separate editor, and the full screenshot stays in your history in case you need it again.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">Trim a GIF or screen recording before you paste it</h2>
+      <p class="text-text-secondary leading-relaxed">
+        Record a region of your screen straight into Drobu, or paste in a GIF you already have. Open it, and the trim timeline appears. Drag the start and end handles to cut it down to the moment that matters, then paste the trimmed clip into Slack, a GitHub issue, or a doc. No exports, no files to clean up afterward.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">Clean up copied text before you paste it</h2>
+      <p class="text-text-secondary leading-relaxed">
+        Copied text often arrives with hard line breaks, stray formatting, or terminal color codes. Open the text item, edit it inline, or use Clean to strip formatting and unwrap wrapped output, then paste the tidy version. The original is preserved, so you can always go back.
+      </p>
+    </section>
+
+    <section class="mb-14">
+      <h2 class="text-2xl font-bold text-text-primary mb-4">What other tools can and cannot edit</h2>
+      <p class="text-text-secondary leading-relaxed">
+        Most clipboard managers stop at storing and recalling what you copied. Raycast's clipboard history can edit text, links, and colors, but not images, GIFs, or recordings. Paste supports text edits and basic image tweaks. Maccy is intentionally minimal and does not edit at all. Cropping a screenshot already in your history, trimming a GIF in place, or trimming a screen recording before pasting is what Drobu is built for.
+      </p>
+    </section>
+
+    <section class="text-center border-t border-white/5 pt-12">
+      <h2 class="text-2xl md:text-3xl font-bold text-text-primary mb-4">The clipboard you can edit.</h2>
+      <p class="text-text-secondary mb-8">Free for 14 days, then $14.99 once. No subscription, no account.</p>
+      <a
+        href={DOWNLOAD_URL}
+        download="Drobu.dmg"
+        class="js-app-download inline-flex items-center gap-2 px-8 py-4 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 text-lg"
+      >
+        <span class="download-label">Download Free Trial</span>
+      </a>
+      <p class="mt-10 text-sm text-text-muted">
+        More:
+        <a href="/how-to-see-clipboard-history-on-mac" class="text-accent hover:underline">See clipboard history on a Mac</a>
+        &middot;
+        <a href="/is-drobu-right-for-you" class="text-accent hover:underline">Is Drobu right for you?</a>
+        &middot;
+        <a href="/compare" class="text-accent hover:underline">Compare clipboard managers</a>
+      </p>
+    </section>
+  </main>
+</Landing>

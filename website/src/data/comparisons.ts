@@ -215,7 +215,54 @@ const spotlight: Comparison = {
     "Pick Drobu if you want clips that stick around, keep their formatting and media, and work on macOS 14 and later. Spotlight's clipboard is a fine free buffer for the last few days if you're on macOS 26 and don't need more.",
 };
 
-export const comparisons: Comparison[] = [maccy, paste, cleanshot, spotlight];
+const raycast: Comparison = {
+  slug: "drobu-vs-raycast",
+  rival: "Raycast",
+  headTerm: "Raycast clipboard alternative",
+  title: "Drobu vs Raycast Clipboard for Mac",
+  description:
+    "Drobu vs Raycast clipboard history: a dedicated Mac clipboard you can edit versus the free clipboard built into the Raycast launcher. Honest side-by-side, including where Raycast wins.",
+  h1: "Drobu vs Raycast Clipboard",
+  subhead:
+    "Raycast is a launcher with a genuinely good, free clipboard history. Drobu is a dedicated clipboard manager you can edit. They overlap, but they solve different problems. Here is the honest comparison, including where Raycast wins.",
+  priceLine:
+    "Drobu is $14.99 one-time. Raycast's clipboard history is free (up to 3 months of history); unlimited history and cloud sync need Raycast Pro at $8/month billed annually. Prices as of mid-2026.",
+  rows: [
+    { dimension: "Primary purpose", drobu: "Dedicated clipboard manager (capture, edit, paste)", rival: "Launcher and command bar; clipboard is one built-in feature", advantage: "even" },
+    { dimension: "Free version", drobu: "14-day full trial, then paid", rival: "Free tier with up to 3 months of clipboard history", advantage: "rival" },
+    { dimension: "Price to own", drobu: "$14.99 one-time", rival: "Free tier; Pro is $8/month billed annually ($96/year) for unlimited history and sync", advantage: "drobu" },
+    { dimension: "Unlimited clipboard history", drobu: "Included, configurable by you", rival: "Pro only (free caps at 3 months)", advantage: "drobu" },
+    { dimension: "In-place media editing", drobu: "Crop images, trim GIFs and screen recordings, clean text", rival: "Text, link, and color editing only; no image, GIF, or video editing", advantage: "drobu" },
+    { dimension: "Screen capture into history", drobu: "Yes, capture a screen region as a GIF or recording", rival: "No", advantage: "drobu" },
+    { dimension: "Search", drobu: "Full-text search, type filters", rival: "Full-text search, type filters", advantage: "even" },
+    { dimension: "Snippets and text expansion", drobu: "No", rival: "Yes, built in and free", advantage: "rival" },
+    { dimension: "Extensions and integrations", drobu: "No, a focused tool", rival: "Thousands of community extensions", advantage: "rival" },
+    { dimension: "Built-in AI", drobu: "No", rival: "Yes, limited on free, more on Pro", advantage: "rival" },
+    { dimension: "Cross-device sync and iOS", drobu: "No, local only by design", rival: "Cloud sync and iOS clipboard on Pro", advantage: "rival" },
+    { dimension: "Fully local, no account", drobu: "Yes, no login ever", rival: "Local for free clipboard use; account needed for sync and extensions", advantage: "drobu" },
+    { dimension: "Platform", drobu: "macOS 14+", rival: "macOS, Windows beta, iOS companion", advantage: "rival" },
+  ],
+  drobuWins: [
+    "Edit what you copy: crop images, trim GIFs and screen recordings, clean text, none of which Raycast does",
+    "Capture a screen region straight into your clipboard history",
+    "Own it once for $14.99, with no subscription and no Pro upsell for unlimited history",
+    "Unlimited, configurable retention included, not gated behind a monthly plan",
+    "Fully local with no account, ever; privacy is structural, not a setting",
+    "Built solely around the capture, edit, and paste loop",
+  ],
+  rivalWins: [
+    "A genuinely capable free tier (clipboard history, snippets, window management)",
+    "It is a full launcher and Spotlight replacement, not just a clipboard",
+    "A large extensions ecosystem (GitHub, Notion, Figma, and more)",
+    "Built-in snippets, quicklinks, and window management",
+    "Built-in AI commands from any context",
+    "Cross-device cloud sync, an iOS companion, and a Windows beta",
+  ],
+  verdict:
+    "If you already want a launcher, Raycast's free clipboard history is a great bonus and may be all you need. Choose Drobu if you specifically want to edit what you copy (crop, trim, clean), capture your screen into history, keep everything unlimited and fully local for a one-time price, and use a tool built only for the capture, edit, and paste loop. Plenty of people run both: Raycast as the launcher, Drobu as the clipboard you work in.",
+};
+
+export const comparisons: Comparison[] = [maccy, paste, cleanshot, spotlight, raycast];
 
 /** Condensed matrix for the /compare hub "at a glance" table. */
 export interface MasterRow {
@@ -225,18 +272,19 @@ export interface MasterRow {
   paste: string;
   cleanshot: string;
   spotlight: string;
+  raycast: string;
 }
 
 export const masterMatrix: MasterRow[] = [
-  { dimension: "Price", drobu: "$14.99 once", maccy: "Free (or $9.99)", paste: "$29.99/yr or $89.99 once", cleanshot: "$29 once", spotlight: "Free (macOS 26)" },
-  { dimension: "Clipboard history", drobu: "Yes, searchable", maccy: "Yes", paste: "Yes (+ pinboards)", cleanshot: "No", spotlight: "Yes, 7-day" },
-  { dimension: "Search", drobu: "Full-text (FTS5)", maccy: "Fuzzy / regex", paste: "Full-text + OCR", cleanshot: "None", spotlight: "Recent clips" },
-  { dimension: "Screen capture (GIF/video)", drobu: "Yes", maccy: "No", paste: "No", cleanshot: "Yes, advanced", spotlight: "No" },
-  { dimension: "Inline editing", drobu: "Crop, trim, clean", maccy: "No", paste: "No", cleanshot: "Annotation", spotlight: "No" },
-  { dimension: "Cross-device sync", drobu: "No", maccy: "No", paste: "iCloud (Mac + iOS)", cleanshot: "No", spotlight: "No" },
-  { dimension: "Storage / account", drobu: "Local, no account", maccy: "Local, no account", paste: "Local-first, opt. sync", cleanshot: "Local core", spotlight: "Local, on device" },
-  { dimension: "Open source", drobu: "No", maccy: "Yes (MIT)", paste: "No", cleanshot: "No", spotlight: "No (built in)" },
-  { dimension: "Platform", drobu: "macOS 14+", maccy: "macOS 14+", paste: "macOS + iOS", cleanshot: "macOS 10.15+", spotlight: "macOS 26 only" },
+  { dimension: "Price", drobu: "$14.99 once", maccy: "Free (or $9.99)", paste: "$29.99/yr or $89.99 once", cleanshot: "$29 once", spotlight: "Free (macOS 26)", raycast: "Free; Pro $8/mo" },
+  { dimension: "Clipboard history", drobu: "Yes, searchable", maccy: "Yes", paste: "Yes (+ pinboards)", cleanshot: "No", spotlight: "Yes, 7-day", raycast: "Yes (3-mo free)" },
+  { dimension: "Search", drobu: "Full-text (FTS5)", maccy: "Fuzzy / regex", paste: "Full-text + OCR", cleanshot: "None", spotlight: "Recent clips", raycast: "Full-text + filter" },
+  { dimension: "Screen capture (GIF/video)", drobu: "Yes", maccy: "No", paste: "No", cleanshot: "Yes, advanced", spotlight: "No", raycast: "No" },
+  { dimension: "Inline editing", drobu: "Crop, trim, clean", maccy: "No", paste: "No", cleanshot: "Annotation", spotlight: "No", raycast: "Text only, no media" },
+  { dimension: "Cross-device sync", drobu: "No", maccy: "No", paste: "iCloud (Mac + iOS)", cleanshot: "No", spotlight: "No", raycast: "Pro (Cloud Sync)" },
+  { dimension: "Storage / account", drobu: "Local, no account", maccy: "Local, no account", paste: "Local-first, opt. sync", cleanshot: "Local core", spotlight: "Local, on device", raycast: "Local; account for sync" },
+  { dimension: "Open source", drobu: "No", maccy: "Yes (MIT)", paste: "No", cleanshot: "No", spotlight: "No (built in)", raycast: "No" },
+  { dimension: "Platform", drobu: "macOS 14+", maccy: "macOS 14+", paste: "macOS + iOS", cleanshot: "macOS 10.15+", spotlight: "macOS 26 only", raycast: "macOS + Win beta + iOS" },
 ];
 
 export function getComparison(slug: string): Comparison | undefined {

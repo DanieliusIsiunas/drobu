@@ -19,5 +19,7 @@ Drobu is the clipboard you can edit: it captures everything you copy (text, link
 - [Drobu vs Paste](https://drobu.app/compare/drobu-vs-paste): vs the subscription clipboard manager
 - [Drobu vs CleanShot X](https://drobu.app/compare/drobu-vs-cleanshot-x): vs the screen-capture suite
 - [Drobu vs the macOS Spotlight clipboard](https://drobu.app/compare/drobu-vs-spotlight): vs the built-in macOS 26 clipboard
+- [Drobu vs Raycast Clipboard](https://drobu.app/compare/drobu-vs-raycast): vs the free clipboard history in the Raycast launcher
+- [How to edit clipboard items on Mac before pasting](https://drobu.app/how-to-edit-clipboard-before-pasting-mac): crop, trim, and clean clips before pasting
 - [Privacy](https://drobu.app/privacy): privacy policy
 - [Terms](https://drobu.app/terms): terms of service
