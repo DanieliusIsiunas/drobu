@@ -36,6 +36,8 @@ func editActionVerb(for item: ClipboardRecord,
     case ClipboardRecord.kindImage: return isBitmapImage ? verb : nil
     case ClipboardRecord.kindGif: return item.imageData != nil ? verb : nil
     case ClipboardRecord.kindVideo: return videoFileExists ? verb : nil
+    // Unreachable: the guard above already returns nil for non-editable kinds;
+    // this arm exists only for `switch`-over-`String` exhaustiveness.
     default: return nil
     }
 }

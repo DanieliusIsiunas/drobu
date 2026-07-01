@@ -348,6 +348,7 @@ public struct SettingsView: View {
             Text("\u{2318}\u{2192}")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("Command Right arrow")
         }
     }
 

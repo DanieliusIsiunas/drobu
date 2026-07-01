@@ -613,9 +613,11 @@ struct PanelView: View {
         var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview"
         guard !isEditing, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
         let item = items[cursor]
-        let isBitmapImage = item.imageData.map(ImageCrop.isBitmapData) ?? false
-        let videoFileExists = FileManager.default.fileExists(
-            atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
+        // Kind-scope the impure facts so a non-video selection doesn't stat a video path and
+        // a non-image selection doesn't build a CGImageSource — this recomputes on every body
+        // render (e.g. per search keystroke), so keep it to the fact each kind actually needs.
+        let isBitmapImage = item.kind == ClipboardRecord.kindImage && (item.imageData.map(ImageCrop.isBitmapData) ?? false)
+        let videoFileExists = item.kind == ClipboardRecord.kindVideo && FileManager.default.fileExists(atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
         if let verb = editActionVerb(for: item, isBitmapImage: isBitmapImage, videoFileExists: videoFileExists) {
             hint += "  \u{2318}\u{2192} \(verb)"
         }
@@ -635,9 +637,9 @@ struct PanelView: View {
                 guard !items.isEmpty, !hasMultiSelection else { return .ignored }
                 let item = items[cursor]
                 // Single source of truth for "is this editable via ⌘→" — see EditAction.swift.
-                let isBitmapImage = item.imageData.map(ImageCrop.isBitmapData) ?? false
-                let videoFileExists = FileManager.default.fileExists(
-                    atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
+                // Kind-scope the impure facts so ⌘→ on a non-video item doesn't stat a video path.
+                let isBitmapImage = item.kind == ClipboardRecord.kindImage && (item.imageData.map(ImageCrop.isBitmapData) ?? false)
+                let videoFileExists = item.kind == ClipboardRecord.kindVideo && FileManager.default.fileExists(atPath: ClipboardRecord.videoPath(for: item.contentHash).path)
                 if editActionVerb(for: item, isBitmapImage: isBitmapImage, videoFileExists: videoFileExists) != nil {
                     enterEditMode()
                     return .handled
