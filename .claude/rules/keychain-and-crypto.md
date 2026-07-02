@@ -75,3 +75,38 @@ security unlock-keychain ~/Library/Keychains/login.keychain-db
 ```
 
 This prompts the user for the login password and is unsuitable for unattended automation. For unattended use (e.g., a CI runner signing builds), use a dedicated keychain with a stored password instead of relying on the login keychain.
+
+## `notarytool` "No Keychain password item found for profile" usually means LOCKED, not MISSING
+
+Observed live during a v1.9.8 release (2026-07-01): `release.sh`'s notary preflight
+(`xcrun notarytool history --keychain-profile "notary-profile"`) failed with:
+
+```
+Error: No Keychain password item found for profile: notary-profile
+```
+
+even though the **same profile had notarized a release hours earlier** and the user
+changed nothing. Root cause: the login keychain **auto-locked on sleep** (settings show
+`no-timeout`, so it doesn't lock on idle — but it *does* lock on sleep/logout). A locked
+keychain returns its stored items as "not found," so notarytool reports the profile as
+missing. The failure reproduces in **both** background and foreground until the keychain
+is unlocked, then **self-resolves the moment the Mac is woken/unlocked** (which re-unlocks
+the login keychain).
+
+**Don't misread this as a deleted credential** (the wrong first call here — nearly sent the
+user to re-run `notarytool store-credentials`). Diagnose lock-vs-missing before escalating:
+
+```bash
+# Lock test — read ANY known secret to /dev/null; rc=0 means the keychain is unlocked/readable.
+security find-generic-password -w -s "com.danielius.ClipboardHistory.license-signing" \
+    -a "drobu-license-ed25519" >/dev/null 2>&1; echo "rc=$?"
+# Then just re-run the notarytool check — if the Mac is now awake it will succeed.
+xcrun notarytool history --keychain-profile "notary-profile"
+```
+
+`security show-keychain-info` prints the lock *settings* (e.g. `no-timeout`) whether or not
+the keychain is currently locked, so it is **not** a lock-state test — use the secret-read
+`rc` check above. Fix is simply to have the Mac awake/unlocked (or
+`security unlock-keychain ~/Library/Keychains/login.keychain-db`) and re-run `release.sh`;
+the run aborts at preflight *before* any tag/build/publish, so a locked-keychain failure
+leaves no partial release to clean up.
