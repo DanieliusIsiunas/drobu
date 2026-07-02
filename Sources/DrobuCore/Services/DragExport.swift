@@ -66,48 +66,57 @@ enum DragExport {
         let multi = records.count > 1
         var result: [Payload] = []
         var usedNames = Set<String>()
+        // Track dirs created this call so a mid-loop staging failure doesn't strand
+        // already-written clipboard-derived files until the 24h sweep — purge them
+        // and rethrow, so the caller aborts with nothing left on disk.
+        var stagedDirs: [URL] = []
 
-        for record in records {
-            switch record.kind {
-            case ClipboardRecord.kindText:
-                let text = record.plainText ?? ""
-                if multi {
-                    let name = uniqueName(textFileName(from: text, createdAt: record.createdAt), in: &usedNames)
-                    let url = try stage(Data(text.utf8), as: name, contentHash: record.contentHash, root: stagingRoot)
+        do {
+            for record in records {
+                switch record.kind {
+                case ClipboardRecord.kindText:
+                    let text = record.plainText ?? ""
+                    if multi {
+                        let name = uniqueName(textFileName(from: text, createdAt: record.createdAt), in: &usedNames)
+                        let url = try stage(Data(text.utf8), as: name, contentHash: record.contentHash, root: stagingRoot, createdDirs: &stagedDirs)
+                        result.append(.file(url, secondaryPNG: nil))
+                    } else {
+                        result.append(.string(text))
+                    }
+
+                case ClipboardRecord.kindImage:
+                    guard let data = record.imageData, let png = pngData(from: data) else { continue }
+                    let name = uniqueName(mediaFileName("Image", ext: "png", createdAt: record.createdAt), in: &usedNames)
+                    let url = try stage(png, as: name, contentHash: record.contentHash, root: stagingRoot, createdDirs: &stagedDirs)
+                    result.append(.file(url, secondaryPNG: multi ? nil : png))
+
+                case ClipboardRecord.kindGif:
+                    guard let data = record.imageData else { continue }
+                    let name = uniqueName(mediaFileName("GIF", ext: "gif", createdAt: record.createdAt), in: &usedNames)
+                    let url = try stage(data, as: name, contentHash: record.contentHash, root: stagingRoot, createdDirs: &stagedDirs)
                     result.append(.file(url, secondaryPNG: nil))
-                } else {
-                    result.append(.string(text))
+
+                case ClipboardRecord.kindVideo:
+                    let source = ClipboardRecord.videoPath(for: record.contentHash)
+                    guard FileManager.default.fileExists(atPath: source.path) else { continue }
+                    let name = uniqueName(mediaFileName("Video", ext: "mp4", createdAt: record.createdAt), in: &usedNames)
+                    let url = try stageExistingFile(source, as: name, contentHash: record.contentHash, root: stagingRoot, createdDirs: &stagedDirs)
+                    result.append(.file(url, secondaryPNG: nil))
+
+                case ClipboardRecord.kindFile:
+                    // Drag the originals — no staging, no reconcile bucket. Skip stale paths.
+                    let paths = record.plainText?.split(separator: "\n").map(String.init) ?? []
+                    for path in paths where FileManager.default.fileExists(atPath: path) {
+                        result.append(.file(URL(fileURLWithPath: path), secondaryPNG: nil))
+                    }
+
+                default:
+                    continue
                 }
-
-            case ClipboardRecord.kindImage:
-                guard let data = record.imageData, let png = pngData(from: data) else { continue }
-                let name = uniqueName(mediaFileName("Image", ext: "png", createdAt: record.createdAt), in: &usedNames)
-                let url = try stage(png, as: name, contentHash: record.contentHash, root: stagingRoot)
-                result.append(.file(url, secondaryPNG: multi ? nil : png))
-
-            case ClipboardRecord.kindGif:
-                guard let data = record.imageData else { continue }
-                let name = uniqueName(mediaFileName("GIF", ext: "gif", createdAt: record.createdAt), in: &usedNames)
-                let url = try stage(data, as: name, contentHash: record.contentHash, root: stagingRoot)
-                result.append(.file(url, secondaryPNG: nil))
-
-            case ClipboardRecord.kindVideo:
-                let source = ClipboardRecord.videoPath(for: record.contentHash)
-                guard FileManager.default.fileExists(atPath: source.path) else { continue }
-                let name = uniqueName(mediaFileName("Video", ext: "mp4", createdAt: record.createdAt), in: &usedNames)
-                let url = try stageExistingFile(source, as: name, contentHash: record.contentHash, root: stagingRoot)
-                result.append(.file(url, secondaryPNG: nil))
-
-            case ClipboardRecord.kindFile:
-                // Drag the originals — no staging, no reconcile bucket. Skip stale paths.
-                let paths = record.plainText?.split(separator: "\n").map(String.init) ?? []
-                for path in paths where FileManager.default.fileExists(atPath: path) {
-                    result.append(.file(URL(fileURLWithPath: path), secondaryPNG: nil))
-                }
-
-            default:
-                continue
             }
+        } catch {
+            for dir in stagedDirs { try? FileManager.default.removeItem(at: dir) }
+            throw error
         }
         return result
     }
@@ -244,8 +253,10 @@ enum DragExport {
 
     /// Write `data` into a fresh `<hash>-<UUID>/<name>` staging subdir (dir 0700,
     /// file 0600 per `.claude/rules/file-permission-hardening.md`). Throws on failure.
-    private static func stage(_ data: Data, as name: String, contentHash: String, root: URL) throws -> URL {
-        let url = try makeStagingSubdir(contentHash: contentHash, root: root).appendingPathComponent(name)
+    private static func stage(_ data: Data, as name: String, contentHash: String, root: URL, createdDirs: inout [URL]) throws -> URL {
+        let dir = try makeStagingSubdir(contentHash: contentHash, root: root)
+        createdDirs.append(dir)  // track before the write, so a write failure still purges the dir
+        let url = dir.appendingPathComponent(name)
         try data.write(to: url)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         return url
@@ -253,8 +264,10 @@ enum DragExport {
 
     /// Hardlink `source` into a fresh staging subdir under a nice name, falling back
     /// to a copy if linking fails (e.g. cross-volume). O(1) on-volume for video.
-    private static func stageExistingFile(_ source: URL, as name: String, contentHash: String, root: URL) throws -> URL {
-        let url = try makeStagingSubdir(contentHash: contentHash, root: root).appendingPathComponent(name)
+    private static func stageExistingFile(_ source: URL, as name: String, contentHash: String, root: URL, createdDirs: inout [URL]) throws -> URL {
+        let dir = try makeStagingSubdir(contentHash: contentHash, root: root)
+        createdDirs.append(dir)
+        let url = dir.appendingPathComponent(name)
         do {
             try FileManager.default.linkItem(at: source, to: url)
         } catch {
