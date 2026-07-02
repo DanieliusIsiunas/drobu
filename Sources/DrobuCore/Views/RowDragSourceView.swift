@@ -93,7 +93,6 @@ final class RowDragSourceNSView: NSView, NSDraggingSource {
     private func makeDraggingItem(_ payload: DragExport.Payload, index: Int) -> NSDraggingItem {
         let item: NSDraggingItem
         let dragImage: NSImage
-        let label: String
 
         switch payload {
         case let .file(url, secondaryPNG):
@@ -109,20 +108,17 @@ final class RowDragSourceNSView: NSView, NSDraggingSource {
                 item = NSDraggingItem(pasteboardWriter: url as NSURL)
             }
             dragImage = NSWorkspace.shared.icon(forFile: url.path)
-            label = url.lastPathComponent
         case let .string(text):
             item = NSDraggingItem(pasteboardWriter: text as NSString)
             dragImage = NSWorkspace.shared.icon(for: .plainText)
-            label = String(text.prefix(20))
         }
 
         let size = NSSize(width: 48, height: 48)
         dragImage.size = size
-        // Fan multi-drags out slightly so the stack reads as several files.
+        // Fan multi-drags out slightly so the stack reads as several files (v1 uses
+        // the file-type icon as the preview; a thumbnail/label component is follow-up).
         let frame = NSRect(x: CGFloat(index) * 6, y: CGFloat(index) * -6, width: size.width, height: size.height)
         item.setDraggingFrame(frame, contents: dragImage)
-        item.imageComponentsProvider = nil  // default icon rendering
-        _ = label  // reserved for a future label component; icon is the v1 preview
         return item
     }
 
