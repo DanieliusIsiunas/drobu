@@ -343,11 +343,14 @@ public struct SettingsView: View {
         shortcutRow("Capture video", binding: $videoCaptureHotkeyCombo, save: VideoCaptureHotkeyDefaults.save, a11y: "Capture Video Hotkey")
         Divider()
         // Static reference (not a shortcutRow): the ⌘→ edit key is an in-panel,
-        // context-dependent shortcut, not a rebindable global hotkey.
-        settingsRow("Edit selected") {
+        // context-dependent shortcut, not a rebindable global hotkey. Chrome-free (no
+        // field box) and greyed to .tertiary so it clearly reads as a reference, not an
+        // editable control; the 160x24 footprint keeps it aligned with the rows above.
+        settingsRow("Edit Mode", verticalAlignment: .center) {
             Text("\u{2318}\u{2192}")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+                .frame(width: 160, height: 24)
                 .accessibilityLabel("Command Right arrow")
         }
     }
