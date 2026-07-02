@@ -724,6 +724,7 @@ public struct SettingsView: View {
             do {
                 try AppDatabase().deleteAll()
                 try? FileManager.default.removeItem(at: ClipboardRecord.videosDirectory)
+                DragExport.purgeAllStaging(root: DragExport.stagingDirectory)
             } catch {
                 Log.error("SettingsView: delete all data failed: \(error)")
             }
