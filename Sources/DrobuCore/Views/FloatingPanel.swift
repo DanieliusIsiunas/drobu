@@ -18,6 +18,15 @@ final class FloatingPanel: NSPanel {
     private var keyDownMonitor: Any?
     var onShiftTap: (() -> Void)?
 
+    /// True while a drag-out session started from a history row is in flight.
+    /// Guards the deferred `resignKey` close (a drop activates the target app,
+    /// resigning our key) and mutes keyboard / shift-tap handling. See KTD8.
+    private(set) var isDragSessionActive = false
+    /// Bumped on every drag begin AND end, so a `resignKey` close enqueued during
+    /// a drag is invalidated regardless of main-queue drain order — the cancel
+    /// race a plain flag check would lose.
+    private var dragGeneration = 0
+
     init<Content: View>(contentRect: NSRect = NSRect(x: 0, y: 0, width: 780, height: 500),
                         @ViewBuilder content: @escaping () -> Content) {
         super.init(
@@ -89,13 +98,35 @@ final class FloatingPanel: NSPanel {
         // Defer close: when user clicks a child window (e.g., large preview for Live Text),
         // isKeyWindow on the child is not yet updated when resignKey fires synchronously.
         // One runloop cycle is enough for AppKit to finalize key window status.
+        let gen = dragGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isVisible, !self.isKeyWindow else { return }
+            // Don't close during a drag, and don't honor a resign enqueued around a
+            // drag: any begin/end since this closure was scheduled bumps the
+            // generation, so a raced cancel can't close a panel meant to stay open.
+            guard !self.isDragSessionActive, self.dragGeneration == gen else { return }
             if let children = self.childWindows, children.contains(where: { $0.isKeyWindow }) {
                 return
             }
             self.close()
         }
+    }
+
+    // MARK: - Drag-out session lifecycle
+
+    /// Called by a row's drag source when a drag session begins, so the panel
+    /// survives the drop-triggered `resignKey`.
+    func beginDragSession() {
+        isDragSessionActive = true
+        dragGeneration &+= 1
+    }
+
+    /// Called from the drag source's `draggingSession(_:endedAt:operation:)`.
+    /// An accepted drop closes the panel (mirrors paste); a cancel leaves it open.
+    func dragSessionEnded(accepted: Bool) {
+        isDragSessionActive = false
+        dragGeneration &+= 1
+        if accepted { close() }
     }
 
     /// Buffer keystrokes that arrive before SwiftUI focus is established.
@@ -110,6 +141,9 @@ final class FloatingPanel: NSPanel {
     // MARK: - Shift-Tap Detection
 
     private func handleFlagsChanged(_ event: NSEvent) {
+        // A drag session owns the modifier state (e.g. holding a key mid-drag) —
+        // never fire a shift-tap preview toggle while dragging a row out.
+        guard !isDragSessionActive else { return }
         // Mask to the four chordable modifiers, then route through the pure
         // edge-aware decision (see ShiftTapDetector.swift). Update the baseline
         // before firing so the next event sees this event's state as "previous".

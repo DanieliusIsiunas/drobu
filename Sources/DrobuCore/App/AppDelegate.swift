@@ -365,6 +365,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
                 } catch {
                     Log.debug("AppDelegate: orphan scan skipped — could not list videos dir: \(error)")
                 }
+
+                // Drag-out staging reclamation: purge staged copies whose record is
+                // gone (R14 — reconcile against ALL live hashes, not just video), then
+                // an age backstop that also adopts the legacy never-cleaned GIF paste
+                // temps. Reconcile before age so a deleted item's copy goes immediately.
+                let liveHashes = try await database.pool.read { db in
+                    try Set(String.fetchAll(db, sql: "SELECT contentHash FROM clipboardItem"))
+                }
+                let stagingRoot = DragExport.stagingDirectory
+                DragExport.reconcileStaging(liveContentHashes: liveHashes, root: stagingRoot)
+                DragExport.ageSweep(
+                    root: stagingRoot,
+                    legacyTempRoot: FileManager.default.temporaryDirectory,
+                    maxAge: 24 * 3600,
+                    now: Date()
+                )
             } catch {
                 Log.error("AppDelegate: cleanup failed: \(error)")
             }

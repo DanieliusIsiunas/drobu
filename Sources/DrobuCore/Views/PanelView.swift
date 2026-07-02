@@ -359,10 +359,28 @@ struct PanelView: View {
                                     editVerb: editVerb(forKind: item.kind)
                                 )
                                 .id(item.id)
-                                .onTapGesture {
+                                .overlay {
+                                    // AppKit drag source: a within-threshold press
+                                    // pastes (the former .onTapGesture body); a drag
+                                    // past the threshold drags the item(s) out as files.
+                                    RowDragSourceView(
+                                        onTap: {
+                                            anchor = index
+                                            cursor = index
+                                            panel?.pasteItem(item)
+                                        },
+                                        dragRecords: {
+                                            dragParticipants(pressedIndex: index)
+                                        }
+                                    )
+                                }
+                                // The drag overlay is accessibility-hidden, so restore
+                                // the row's VoiceOver activation (VO+Space) → paste,
+                                // which the removed .onTapGesture used to provide.
+                                .accessibilityAction {
                                     anchor = index
                                     cursor = index
-                                    panel?.pasteItem(items[index])
+                                    panel?.pasteItem(item)
                                 }
                             }
                         }
@@ -629,6 +647,9 @@ struct PanelView: View {
     // MARK: - Keyboard Handlers
 
     private func handleClipboardKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // A drag session owns Esc (it cancels the drag) and other keys — don't let
+        // the panel's own handlers fire mid-drag (R9).
+        if panel?.isDragSessionActive == true { return .ignored }
         // When editing, let NSTextView handle all keys
         if isEditing { return .ignored }
 
@@ -1157,6 +1178,25 @@ struct PanelView: View {
 
     // MARK: - Actions
 
+    /// Records a drag started on `pressedIndex` should carry. A drag from inside an
+    /// active multi-selection carries the whole selection; from outside (or with no
+    /// multi-selection) it collapses the selection to that row and carries it alone
+    /// (mirrors tap). Returns [] while editing so rows aren't draggable mid-crop (R11).
+    /// Evaluated at mouseDown, so `items` here is the snapshot at gesture start (KTD3).
+    private func dragParticipants(pressedIndex: Int) -> [ClipboardRecord] {
+        guard !isEditing, items.indices.contains(pressedIndex) else { return [] }
+        let indices = DragExport.participantIndices(
+            pressed: pressedIndex,
+            selection: selectionRange,
+            hasMultiSelection: hasMultiSelection
+        )
+        if !(hasMultiSelection && selectionRange.contains(pressedIndex)) {
+            anchor = pressedIndex
+            cursor = pressedIndex
+        }
+        return indices.compactMap { items.indices.contains($0) ? items[$0] : nil }
+    }
+
     private func pasteSelected() {
         let selected = selectedItems
         guard !selected.isEmpty else { return }
@@ -1176,6 +1216,9 @@ struct PanelView: View {
         let videoHashes = selected
             .filter { $0.kind == ClipboardRecord.kindVideo }
             .map(\.contentHash)
+        // All selected hashes: purge any drag-out staged copies immediately so a
+        // deleted item's file doesn't linger on disk until the age sweep (R14).
+        let deletedHashes = selected.map(\.contentHash)
 
         let afterIndex = max(anchor, cursor) + 1
         let newIndex = afterIndex < items.count
@@ -1193,6 +1236,11 @@ struct PanelView: View {
                 for hash in videoHashes {
                     do { try FileManager.default.removeItem(at: ClipboardRecord.videoPath(for: hash)) }
                     catch { Log.debug("PanelView: cleanup video \(hash.prefix(8)) failed: \(error)") }
+                }
+                // Purge staged drag-out copies for every deleted item (R14).
+                let stagingRoot = DragExport.stagingDirectory
+                for hash in deletedHashes {
+                    DragExport.purgeStaging(contentHash: hash, root: stagingRoot)
                 }
             } catch {
                 Log.error("PanelView: deleteSelected failed: \(error)")
