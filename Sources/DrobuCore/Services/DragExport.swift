@@ -1,6 +1,5 @@
 import Foundation
 import ImageIO
-import UniformTypeIdentifiers
 
 /// Pure engine for turning `ClipboardRecord`s into drag-out payloads and for
 /// reclaiming the temp files those drags leave behind. Kept free of AppKit and
@@ -122,7 +121,7 @@ enum DragExport {
         for dir in stagingSubdirectories(in: root) {
             let hash = contentHash(fromStagingDirName: dir.lastPathComponent)
             if let hash, !liveContentHashes.contains(hash) {
-                try? FileManager.default.removeItem(at: dir)
+                removeStagingItem(dir)
             }
         }
     }
@@ -134,7 +133,7 @@ enum DragExport {
     static func ageSweep(root: URL, legacyTempRoot: URL, maxAge: TimeInterval, now: Date) {
         for dir in stagingSubdirectories(in: root) {
             if let modified = modificationDate(of: dir), now.timeIntervalSince(modified) > maxAge {
-                try? FileManager.default.removeItem(at: dir)
+                removeStagingItem(dir)
             }
         }
         let legacyFiles = (try? FileManager.default.contentsOfDirectory(
@@ -142,7 +141,7 @@ enum DragExport {
         for file in legacyFiles
         where file.lastPathComponent.hasPrefix(legacyGifTempPrefix) && file.pathExtension == "gif" {
             if let modified = modificationDate(of: file), now.timeIntervalSince(modified) > maxAge {
-                try? FileManager.default.removeItem(at: file)
+                removeStagingItem(file)
             }
         }
     }
@@ -151,13 +150,29 @@ enum DragExport {
     static func purgeStaging(contentHash: String, root: URL) {
         for dir in stagingSubdirectories(in: root)
         where self.contentHash(fromStagingDirName: dir.lastPathComponent) == contentHash {
-            try? FileManager.default.removeItem(at: dir)
+            removeStagingItem(dir)
         }
     }
 
     /// Remove the entire staging tree (for "Delete all history").
     static func purgeAllStaging(root: URL) {
-        try? FileManager.default.removeItem(at: root)
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Log.error("DragExport: purge-all staging failed: \((error as NSError).domain) \((error as NSError).code)")
+        }
+    }
+
+    /// Delete a staging file/dir, logging a failure so a stranded staged copy of a
+    /// deleted item leaves a trail (the reclaim paths are R14's privacy guarantee —
+    /// a silent removeItem failure would let it persist unnoticed). Never logs names.
+    private static func removeStagingItem(_ url: URL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            Log.error("DragExport: staging reclaim failed: \((error as NSError).domain) \((error as NSError).code)")
+        }
     }
 
     // MARK: - Filename synthesis (pure)
@@ -249,6 +264,14 @@ enum DragExport {
     }
 
     private static func makeStagingSubdir(contentHash: String, root: URL) throws -> URL {
+        // Create the root explicitly at 0700 first — createDirectory's `attributes`
+        // apply only to the leaf, so an intermediate root would otherwise be 0755 and
+        // leak staging dir *names* (content hashes) to other local users.
+        if !FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.createDirectory(
+                at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+            )
+        }
         let dir = root.appendingPathComponent("\(contentHash)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: dir,
@@ -266,7 +289,9 @@ enum DragExport {
     }
 
     /// A staging dir is named `<contentHash>-<UUID>`; the hash is everything before
-    /// the last hyphen group. Returns nil for a name that doesn't match the shape.
+    /// the FIRST hyphen. Safe because a SHA-256 hex hash contains no hyphens, so the
+    /// first hyphen is always the hash/UUID separator. Returns nil for a name that
+    /// doesn't match the shape.
     static func contentHash(fromStagingDirName name: String) -> String? {
         // contentHash is a 64-char lowercase hex SHA-256; the UUID suffix is
         // `-XXXXXXXX-XXXX-...`. Split on the first hyphen after the hash.

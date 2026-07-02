@@ -80,6 +80,24 @@ struct DragExportTests {
         #expect(name == "Drobu Text 2026-07-02 at 14.05.32.txt")
     }
 
+    @Test func textFileNameStripsLeadingDots() {
+        let name = DragExport.textFileName(from: "...hidden note", createdAt: fixedDate())
+        #expect(!name.hasPrefix("."))  // must not become an invisible dotfile
+        #expect(name.hasPrefix("hidden note"))
+    }
+
+    @Test func collidingNamesInOneDragGetFinderStyleCounter() throws {
+        let root = makeStagingRoot()
+        // Two GIF records with the same capture second → same synthesized base name.
+        let a = makeRecord(kind: ClipboardRecord.kindGif, imageData: Data([0x47, 0x01]), contentHash: "gifA", createdAt: fixedDate())
+        let b = makeRecord(kind: ClipboardRecord.kindGif, imageData: Data([0x47, 0x02]), contentHash: "gifB", createdAt: fixedDate())
+        let names = try DragExport.payloads(for: [a, b], stagingRoot: root)
+            .compactMap { fileURL($0)?.lastPathComponent }
+        #expect(names.count == 2)
+        #expect(Set(names).count == 2)  // distinct
+        #expect(names.contains { $0.hasSuffix(" 2.gif") })
+    }
+
     // MARK: - Participant rule
 
     @Test func participantInsideMultiSelectionDragsWholeSelection() {
@@ -144,6 +162,13 @@ struct DragExportTests {
         guard let url = payloads.first.flatMap(fileURL) else { Issue.record("expected file payload"); return }
         #expect(url.pathExtension == "gif")
         #expect(try Data(contentsOf: url) == gifBytes)
+    }
+
+    @Test func undecodableImageYieldsNoPayload() throws {
+        let root = makeStagingRoot()
+        // Not PNG-magic and not a decodable bitmap → gate rejects (like missing video).
+        let payloads = try DragExport.payloads(for: [makeRecord(kind: ClipboardRecord.kindImage, imageData: Data([0x00, 0x01, 0x02]))], stagingRoot: root)
+        #expect(payloads.isEmpty)
     }
 
     @Test func missingVideoYieldsNoPayload() throws {
@@ -228,17 +253,21 @@ struct DragExportTests {
 
     @Test func ageSweepDeletesOldStagingKeepsNew() throws {
         let root = makeStagingRoot()
-        _ = try DragExport.payloads(for: [makeRecord(kind: ClipboardRecord.kindGif, imageData: Data([0x47]), contentHash: "recent")], stagingRoot: root)
-        // Age the one subdir by backdating its mtime.
-        let subdir = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)[0]
-        let old = Date().addingTimeInterval(-48 * 3600)
-        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: subdir.path)
+        _ = try DragExport.payloads(for: [makeRecord(kind: ClipboardRecord.kindGif, imageData: Data([0x47]), contentHash: "old")], stagingRoot: root)
+        // Backdate the first subdir past the floor; add a second at natural (fresh) mtime.
+        let oldSubdir = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)[0]
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)], ofItemAtPath: oldSubdir.path)
+        _ = try DragExport.payloads(for: [makeRecord(kind: ClipboardRecord.kindGif, imageData: Data([0x47]), contentHash: "fresh")], stagingRoot: root)
 
         let legacyRoot = makeStagingRoot()
         try FileManager.default.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
 
         DragExport.ageSweep(root: root, legacyTempRoot: legacyRoot, maxAge: 24 * 3600, now: Date())
-        #expect((try? FileManager.default.contentsOfDirectory(atPath: root.path))?.isEmpty ?? true)
+
+        // Old one gone, fresh one kept — asserts the age comparison, not blanket deletion.
+        let survivors = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        #expect(survivors.count == 1)
+        #expect(DragExport.contentHash(fromStagingDirName: survivors[0]) == "fresh")
     }
 
     @Test func ageSweepReclaimsLegacyGifTempsOnly() throws {
@@ -250,14 +279,19 @@ struct DragExportTests {
         try Data([0x47]).write(to: oldGif)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)], ofItemAtPath: oldGif.path)
 
+        // A matching-prefix but FRESH gif must be kept (asserts the age comparison).
+        let freshGif = legacyRoot.appendingPathComponent("ClipboardHistory-\(UUID().uuidString).gif")
+        try Data([0x47]).write(to: freshGif)
+
         let unrelated = legacyRoot.appendingPathComponent("other-file.gif")
         try Data([0x47]).write(to: unrelated)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)], ofItemAtPath: unrelated.path)
 
         DragExport.ageSweep(root: root, legacyTempRoot: legacyRoot, maxAge: 24 * 3600, now: Date())
 
-        #expect(!FileManager.default.fileExists(atPath: oldGif.path))
-        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+        #expect(!FileManager.default.fileExists(atPath: oldGif.path))   // old + matching prefix → deleted
+        #expect(FileManager.default.fileExists(atPath: freshGif.path))  // fresh + matching prefix → kept
+        #expect(FileManager.default.fileExists(atPath: unrelated.path)) // old but wrong prefix → untouched
     }
 
     @Test func reclamationOverMissingRootIsNoOp() {

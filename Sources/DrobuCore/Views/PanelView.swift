@@ -374,6 +374,14 @@ struct PanelView: View {
                                         }
                                     )
                                 }
+                                // The drag overlay is accessibility-hidden, so restore
+                                // the row's VoiceOver activation (VO+Space) → paste,
+                                // which the removed .onTapGesture used to provide.
+                                .accessibilityAction {
+                                    anchor = index
+                                    cursor = index
+                                    panel?.pasteItem(item)
+                                }
                             }
                         }
                         .padding(.horizontal, 6)

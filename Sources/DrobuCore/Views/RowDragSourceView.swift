@@ -40,6 +40,10 @@ final class RowDragSourceNSView: NSView, NSDraggingSource {
     private var mouseDownEvent: NSEvent?
     private var snapshot: [ClipboardRecord] = []
     private var dragStarted = false
+    /// The panel captured at drag start, so the end-of-session callback still
+    /// clears the drag flag if this view's `window` detaches mid-drag (the row
+    /// leaving the LazyVStack). Reading `window` in `endedAt` could return nil.
+    private weak var owningPanel: FloatingPanel?
     /// Click-vs-drag hysteresis. AppKit exposes no public constant; ~4pt sits
     /// between WebKit's text (3) and image (5) drag thresholds and tolerates
     /// normal click jitter. Erring larger is safe; smaller silently breaks paste.
@@ -79,14 +83,18 @@ final class RowDragSourceNSView: NSView, NSDraggingSource {
         do {
             payloads = try DragExport.payloads(for: snapshot, stagingRoot: DragExport.stagingDirectory)
         } catch {
-            Log.error("RowDragSourceView: staging failed — drag aborted: \(error)")
+            // Never interpolate the error: a Data.write failure's description embeds
+            // the destination path, and a multi-drag text file's name is derived from
+            // clipboard content — log the code only, never content (repo rule).
+            Log.error("RowDragSourceView: staging failed — drag aborted (\((error as NSError).domain) \((error as NSError).code))")
             return  // no session, no tap (threshold already crossed)
         }
         guard !payloads.isEmpty else { return }  // gate failed (R6): missing content
 
         let items = payloads.enumerated().map { makeDraggingItem($0.element, index: $0.offset) }
 
-        (window as? FloatingPanel)?.beginDragSession()
+        owningPanel = window as? FloatingPanel
+        owningPanel?.beginDragSession()
         beginDraggingSession(with: items, event: event, source: self)
     }
 
@@ -138,6 +146,13 @@ final class RowDragSourceNSView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         // Non-empty operation = a target accepted the drop → close (mirrors paste).
         // Empty (NSDragOperationNone) = cancelled or rejected → panel stays open.
-        (window as? FloatingPanel)?.dragSessionEnded(accepted: operation != [])
+        // Use the captured panel (window may be nil if the row detached mid-drag).
+        owningPanel?.dragSessionEnded(accepted: operation != [])
+        owningPanel = nil
+        // The terminal mouse-up is consumed by the drag machinery, so mouseUp's
+        // defer won't fire — release the (possibly large) record snapshot here.
+        snapshot = []
+        mouseDownEvent = nil
+        dragStarted = false
     }
 }
