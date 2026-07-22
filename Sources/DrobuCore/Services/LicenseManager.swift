@@ -40,6 +40,21 @@ public extension LicenseStatus {
     }
 }
 
+/// The outcome of a store read, preserving the distinction the raw Keychain API
+/// makes but `get -> String?` throws away:
+/// `found` — a value is present and readable.
+/// `absent` — a genuine miss (`errSecItemNotFound`): the item does not exist.
+/// `denied` — the read failed for any reason OTHER than not-found (most
+///   importantly `errSecAuthFailed` / `errSecInteractionNotAllowed`). The item
+///   almost certainly EXISTS but is transiently unreadable (ACL/auth denial,
+///   securityd hiccup). The status machine fails OPEN on `.denied` — only an
+///   affirmative `.absent` gates. See `.claude/rules/keychain-and-crypto.md`.
+public enum LicenseStoreRead: Equatable, Sendable {
+    case found(String)
+    case absent
+    case denied
+}
+
 /// Minimal key-value store the LicenseManager uses to persist the
 /// trial-start timestamp and the active license key. Production uses
 /// `KeychainLicenseStore`; tests inject `InMemoryLicenseStore` so
@@ -49,6 +64,17 @@ public protocol LicenseStore {
     func get(_ key: String) -> String?
     func set(_ key: String, _ value: String)
     func delete(_ key: String)
+    /// Lossless read used by the gating paths so a transient Keychain denial is
+    /// not mistaken for "no license". Defaulted below in terms of `get`, so a
+    /// store that cannot distinguish denial (in-memory) never reports `.denied`.
+    func read(_ key: String) -> LicenseStoreRead
+}
+
+public extension LicenseStore {
+    func read(_ key: String) -> LicenseStoreRead {
+        if let value = get(key) { return .found(value) }
+        return .absent
+    }
 }
 
 /// Keychain-backed store. One generic-password entry per (service, key)
@@ -62,6 +88,11 @@ public struct KeychainLicenseStore: LicenseStore {
     }
 
     public func get(_ key: String) -> String? {
+        if case .found(let value) = read(key) { return value }
+        return nil
+    }
+
+    public func read(_ key: String) -> LicenseStoreRead {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -71,20 +102,44 @@ public struct KeychainLicenseStore: LicenseStore {
         ]
         var item: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else {
-            // notFound is the normal miss (every trial-mode recompute queries
-            // active-license) — only real denials are signal. An ACL denial
-            // here is what gates a paying customer (the "Never Deny" mode).
-            if status != errSecItemNotFound {
-                Log.error("KeychainLicenseStore: SecItemCopyMatching failed for \(key): \(status) (\(Self.describe(status)))")
+        let data = item as? Data
+        switch Self.classify(status: status, hasData: data != nil) {
+        case .value:
+            guard let data, let string = String(data: data, encoding: .utf8) else {
+                // Success with non-UTF8 bytes: readable but unusable. The item
+                // exists, so this is `.denied` (fail open), never `.absent`.
+                Log.error("KeychainLicenseStore: item for \(key) read OK but is not valid UTF-8 (\(data?.count ?? 0) bytes)")
+                return .denied
             }
-            return nil
+            return .found(string)
+        case .absent:
+            // notFound is the normal miss (every trial-mode recompute queries
+            // active-license) — not signal, not logged.
+            return .absent
+        case .denied:
+            // An ACL/auth denial is what gates a paying customer (the "Never
+            // Deny" mode) — always signal. The status machine fails OPEN on it.
+            Log.error("KeychainLicenseStore: SecItemCopyMatching denied for \(key): \(status) (\(Self.describe(status)))")
+            return .denied
         }
-        guard let string = String(data: data, encoding: .utf8) else {
-            Log.error("KeychainLicenseStore: item for \(key) read OK but is not valid UTF-8 (\(data.count) bytes)")
-            return nil
+    }
+
+    /// Three-way classification of a `SecItemCopyMatching` result.
+    /// `errSecSuccess` with data is the only `.value`; `errSecItemNotFound` is
+    /// the only `.absent`; everything else — notably `errSecAuthFailed` (-25293)
+    /// and `errSecInteractionNotAllowed` (-25308), and the anomalous
+    /// success-without-data — is `.denied` (item likely exists, transiently
+    /// unreadable). Pure, so it is unit-tested without touching the real Keychain.
+    enum ReadOutcome: Equatable { case value, absent, denied }
+    static func classify(status: OSStatus, hasData: Bool) -> ReadOutcome {
+        switch status {
+        case errSecSuccess:
+            return hasData ? .value : .denied
+        case errSecItemNotFound:
+            return .absent
+        default:
+            return .denied
         }
-        return string
     }
 
     public func set(_ key: String, _ value: String) {
@@ -264,14 +319,27 @@ public final class LicenseManager: ObservableObject {
     /// it's called; no-op on subsequent calls. AppDelegate should call
     /// this once during `applicationDidFinishLaunching`.
     public func recordFirstLaunchIfNeeded() {
-        guard store.get(Self.trialStartKey) == nil else { return }
+        switch store.read(Self.trialStartKey) {
+        case .found:
+            return   // trial already recorded
+        case .denied:
+            // A denied read means trial-start EXISTS but is transiently
+            // unreadable (Keychain auth/ACL denial). Writing a fresh trial-start
+            // now could overwrite the real one and reset the clock if the write
+            // recovers before the read does — so do nothing and defer to a later
+            // launch. recomputeStatus() already fails open in this window, so the
+            // user is not gated meanwhile. See `.claude/rules/keychain-and-crypto.md`.
+            Log.error("LicenseManager: trial-start read denied at first-launch check — not overwriting; deferring")
+            return
+        case .absent:
+            break   // genuinely first launch — record it below
+        }
         // The anchor can only legitimately exist after trial-start was
-        // written, so finding it alone is tamper evidence (trial-start
-        // wiped) — but a Keychain-ACL-denied read of trial-start looks
-        // identical, so log and proceed with the fresh trial rather than
-        // failing closed and bricking a real user.
+        // written, so finding it alone is tamper evidence (trial-start wiped).
+        // A denied trial-start read no longer reaches here (handled above), so
+        // this branch is now a true absence, not an ACL-denied read.
         if store.get(Self.lastSeenKey) != nil {
-            Log.error("LicenseManager: last-seen present without trial-start — possible trial reset (or ACL-denied read)")
+            Log.error("LicenseManager: last-seen present without trial-start — possible trial reset")
         }
         let iso = Self.isoFormatter.string(from: now())
         store.set(Self.trialStartKey, iso)
@@ -414,7 +482,16 @@ public final class LicenseManager: ObservableObject {
 
     private func recomputeStatus() {
         // A stored, signature-valid key is gated on the device-activation cap.
-        if let activeKey = store.get(Self.activeLicenseKey) {
+        switch store.read(Self.activeLicenseKey) {
+        case .denied:
+            // FAIL OPEN. A denied read means the item EXISTS but is transiently
+            // unreadable (Keychain auth/ACL denial). It is NOT evidence of "no
+            // license" — only `.absent` (errSecItemNotFound) is. Never gate a
+            // (likely paying) user on data we couldn't read; treat as activated
+            // until the read recovers. See `.claude/rules/keychain-and-crypto.md`.
+            status = .activated
+            return
+        case .found(let activeKey):
             do {
                 try verifyKey(activeKey)
                 let gated = activationGatedStatus()
@@ -437,9 +514,12 @@ public final class LicenseManager: ObservableObject {
                 // gated-paying-customer case OSStatus logging alone misses
                 // (bitrot, truncated write, public-key change). Never log
                 // the key material itself — the error case carries no key
-                // bytes.
+                // bytes. Falls through to trial state below.
                 Log.error("LicenseManager: stored active-license failed verification (\(error)) — falling back to trial state")
             }
+        case .absent:
+            // Genuinely no stored license — fall through to trial state.
+            break
         }
 
         status = trialStatus()
@@ -462,8 +542,18 @@ public final class LicenseManager: ObservableObject {
     /// for paying customers), while the no-key and blocked-but-trial paths reuse
     /// the exact same math.
     private func trialStatus() -> LicenseStatus {
-        guard let startIso = store.get(Self.trialStartKey) else {
-            // First launch hasn't been recorded yet. Treat as expired
+        let startRead = store.read(Self.trialStartKey)
+        if case .denied = startRead {
+            // FAIL OPEN. trial-start exists (a trial was started) but is
+            // transiently unreadable. Don't gate on an unreadable anchor —
+            // grant a nominal active trial until the read recovers. No anchor
+            // write here: reads/writes can't be trusted in this window. See
+            // `.claude/rules/keychain-and-crypto.md`.
+            Log.error("LicenseManager: trial-start read denied — failing open to a nominal active trial")
+            return .trialActive(daysRemaining: 1)
+        }
+        guard case .found(let startIso) = startRead else {
+            // `.absent`: first launch hasn't been recorded yet. Treat as expired
             // so the gate is closed by default — `recordFirstLaunchIfNeeded`
             // flips it open on app startup.
             return .trialExpired
