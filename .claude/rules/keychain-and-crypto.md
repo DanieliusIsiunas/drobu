@@ -110,3 +110,57 @@ the keychain is currently locked, so it is **not** a lock-state test — use the
 `security unlock-keychain ~/Library/Keychains/login.keychain-db`) and re-run `release.sh`;
 the run aborts at preflight *before* any tag/build/publish, so a locked-keychain failure
 leaves no partial release to clean up.
+
+## Transient `errSecAuthFailed` (-25293) on the app's OWN license items → "trial expired" gate; a REBOOT clears it
+
+Observed live 2026-07-20 (user report: "I paste my key, it says activated, then invoking
+Drobu asks for the key again — trial expired"). Root cause was NOT a licensing-logic bug:
+`securityd`/the login keychain got into a state where the running Drobu app could neither
+read nor write its own items in service `com.danielius.ClipboardHistory.license`, every
+access returning **`-25293` (`errSecAuthFailed`)** — an ACL/authorization failure, distinct
+from locked (`-25308` `errSecInteractionNotAllowed`) and from absent (`errSecItemNotFound`).
+
+**How it masquerades as a licensing bug** — the two Keychain-independent steps succeed and
+mislead you: `activate()` verifies the key signature **offline** (CryptoKit, no Keychain)
+and the online device-activation RPC succeeds, so `status` flips to `.activated` in memory
+and the UI says "activated." But `store.set("active-license", …)` silently fails with -25293,
+so nothing persists. Next launch, `recomputeStatus()` reads `active-license` → -25293 → the
+store returns `nil` (same as not-found) → falls back to trial → long-expired → activation
+gate. So "activates then gates on relaunch" = a **write that didn't persist**, not bad key logic.
+
+**Diagnose from the log + keychain, not guesswork:**
+```bash
+grep -c "SecItemCopyMatching failed\|write failed" ~/Library/Application\ Support/ClipboardHistory/app.log.1
+# App can't touch its items, but the `security` CLI still can (proves items intact, keychain unlocked):
+security find-generic-password -s "com.danielius.ClipboardHistory.license" -a active-license -w >/dev/null 2>&1; echo "rc=$?"
+# "panel shown" in app.log = NORMAL panel opened (status not blocking); the activation-gate path
+# (AppDelegate.showActivationPanel) does NOT log it — so its presence proves the license read OK.
+```
+
+**Fix on the affected Mac: reboot.** Restarting `securityd` re-reads the keychain and clears
+the transient bad auth/ACL state; reads/writes then succeed and the stored `activation-verdict`
+("activated") is honored. (Likely triggered by a differently-signed binary — a `.build/`
+dev build, ad-hoc, or a re-evaluated signature — poisoning securityd's per-item accessor
+cache until it restarts. The item ACLs themselves are fine, which is why the CLI reads work.)
+
+**The code defect this exposed (fail-closed) — FIXED, v1.10.1.** `KeychainLicenseStore.get()`
+collapsed *every* failure to `nil`, so `recomputeStatus()` couldn't distinguish "no license"
+(`errSecItemNotFound`) from "couldn't read the license" (`errSecAuthFailed` /
+`errSecInteractionNotAllowed`) — and gated a paying customer on a transient denial. Fix: a
+lossless `LicenseStore.read(_:) -> LicenseStoreRead` (`.found`/`.absent`/`.denied`) with a pure
+`KeychainLicenseStore.classify(status:hasData:)`; the gating paths (`recomputeStatus`,
+`trialStatus`, `recordFirstLaunchIfNeeded`) fail **OPEN** on `.denied` and gate only on an
+affirmative `.absent` — mirroring the device-cap rule that only an *affirmative negative* verdict
+blocks. In `Sources/DrobuCore/Services/LicenseManager.swift`.
+
+**Accepted trade-off (do NOT "fix" this in a later pass):** failing open on `errSecAuthFailed` is
+*also* a code-free gate bypass — a user can plant a deny-ACL'd generic-password item at the
+license service/account so `read()` returns `.denied` → `.activated`, with no valid key. It is
+**not closable** without either not-fixing-the-bug (the real transient failure *is*
+`errSecAuthFailed`, indistinguishable by status from a planted item) or adding out-of-Keychain
+corroboration that is *more* forgeable (`defaults write`) and is denied together with the license
+in the real service-wide-denial case anyway. Accepted because the app is a $15 offline-verified
+purchase already trivially crackable (network block / binary patch) and fail-open-favoring-the-user
+is the codebase's explicit philosophy (device-cap unreachable → fail open). A *locked* keychain
+returns items as `notFound` (→ gated), so this fix targets the ACL/securityd-corruption case,
+which is the observed bug. Surfaced by the ce-code-review adversarial pass on PR for v1.10.1.

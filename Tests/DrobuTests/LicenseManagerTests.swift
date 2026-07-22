@@ -1,6 +1,7 @@
 import Testing
 import CryptoKit
 import Foundation
+import Security
 @testable import DrobuCore
 
 @MainActor
@@ -43,6 +44,29 @@ struct LicenseManagerTests {
             guard !failingKeys.contains(key) else { return }
             storage[key] = value
         }
+        func delete(_ key: String) { storage.removeValue(forKey: key) }
+    }
+
+    /// Store that reports `.denied` for a configured key set (simulating a
+    /// transient Keychain ACL/auth denial), behaving like an in-memory store
+    /// otherwise. Seeded values for denied keys are deliberately ignored by
+    /// `read`, so tests prove the status machine never reads through a denial.
+    /// Tracks writes so a test can assert the anchor is NOT written while denied.
+    private final class DenyingReadLicenseStore: LicenseStore {
+        private var storage: [String: String] = [:]
+        var denyingKeys: Set<String>
+        private(set) var writes: [String] = []
+        init(denyingKeys: Set<String>) { self.denyingKeys = denyingKeys }
+        func read(_ key: String) -> LicenseStoreRead {
+            if denyingKeys.contains(key) { return .denied }
+            if let value = storage[key] { return .found(value) }
+            return .absent
+        }
+        func get(_ key: String) -> String? {
+            if case .found(let value) = read(key) { return value }
+            return nil
+        }
+        func set(_ key: String, _ value: String) { writes.append(key); storage[key] = value }
         func delete(_ key: String) { storage.removeValue(forKey: key) }
     }
 
@@ -175,6 +199,115 @@ struct LicenseManagerTests {
         let mgr = LicenseManager(publicKey: testPublicKey, store: store)
         mgr.recordFirstLaunchIfNeeded()
         #expect(mgr.status == .trialActive(daysRemaining: 14))
+    }
+
+    // MARK: - Keychain denial fails OPEN (never gate on an unreadable read)
+
+    @Test func classifyMapsStatusToReadOutcome() {
+        // errSecSuccess+data is the only .value; not-found is the only .absent;
+        // every other status (incl. auth/interaction denials, and the anomalous
+        // success-without-data) is .denied.
+        #expect(KeychainLicenseStore.classify(status: errSecSuccess, hasData: true) == .value)
+        #expect(KeychainLicenseStore.classify(status: errSecSuccess, hasData: false) == .denied)
+        #expect(KeychainLicenseStore.classify(status: errSecItemNotFound, hasData: false) == .absent)
+        #expect(KeychainLicenseStore.classify(status: errSecAuthFailed, hasData: false) == .denied)
+        #expect(KeychainLicenseStore.classify(status: errSecInteractionNotAllowed, hasData: false) == .denied)
+        #expect(KeychainLicenseStore.classify(status: errSecParam, hasData: false) == .denied)
+    }
+
+    @Test func inMemoryStoreDefaultReadNeverReportsDenied() {
+        // The protocol-default read (used by every non-Keychain conformer) maps
+        // presence -> .found, absence -> .absent, and can never say .denied.
+        let store = InMemoryLicenseStore()
+        #expect(store.read("k") == .absent)
+        store.set("k", "v")
+        #expect(store.read("k") == .found("v"))
+    }
+
+    @Test func deniedActiveLicenseReadFailsOpenNotGated() {
+        // THE REPORTED BUG: active-license read is denied and the trial is long
+        // expired. Before the fix this gated the user ("trial expired"); now it
+        // fails open to .activated and never blocks usage.
+        let store = DenyingReadLicenseStore(denyingKeys: ["active-license"])
+        store.set("trial-start", iso(Date(timeIntervalSince1970: 1_600_000_000))) // long ago
+        let now = { Date(timeIntervalSince1970: 1_700_000_000) }
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: now,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        #expect(mgr.status == .activated)
+        #expect(mgr.status.blocksUsage == false)
+    }
+
+    @Test func absentActiveLicenseWithExpiredTrialStillGates() {
+        // The real gate must survive: a genuine miss (not a denial) on a
+        // long-expired trial still blocks.
+        let store = InMemoryLicenseStore()
+        store.set("trial-start", iso(Date(timeIntervalSince1970: 1_600_000_000)))
+        let now = { Date(timeIntervalSince1970: 1_700_000_000) }
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: now,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        #expect(mgr.status == .trialExpired)
+        #expect(mgr.status.blocksUsage == true)
+    }
+
+    @Test func deniedTrialStartReadFailsOpenAndDoesNotWriteAnchor() {
+        // active-license genuinely absent, but trial-start is denied. Fail open
+        // to a non-blocking trial, and do NOT write the clock anchor (reads and
+        // writes can't be trusted in the denial window).
+        let store = DenyingReadLicenseStore(denyingKeys: ["trial-start"])
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: Date.init,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        #expect(mgr.status == .trialActive(daysRemaining: 1))
+        #expect(mgr.status.blocksUsage == false)
+        #expect(store.writes.contains("last-seen") == false)
+    }
+
+    @Test func deniedVerdictReadKeepsValidLicenseActivated() {
+        // A valid stored key whose device-cap verdict read is denied must NOT be
+        // downgraded — activationGatedStatus's default arm keeps it .activated
+        // (same fail-open posture as an absent verdict).
+        let store = DenyingReadLicenseStore(denyingKeys: ["activation-verdict"])
+        store.set("active-license", makeKey(payload: randomPayload()))
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: Date.init,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        #expect(mgr.status == .activated)
+    }
+
+    @Test func recordFirstLaunchSkipsWriteOnDeniedTrialStart() {
+        // A denied trial-start read must NOT be treated as "first launch": writing
+        // a fresh trial-start could overwrite the real (unreadable) one and reset
+        // the clock. Seed an existing trial-start, deny it, and assert
+        // recordFirstLaunchIfNeeded writes nothing new.
+        let store = DenyingReadLicenseStore(denyingKeys: ["trial-start"])
+        store.set("trial-start", iso(Date(timeIntervalSince1970: 1_600_000_000))) // seed the real value
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: Date.init,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        mgr.recordFirstLaunchIfNeeded()
+        // Only the seed write happened — no fresh trial-start was written on the denied read.
+        #expect(store.writes == ["trial-start"])
+    }
+
+    @Test func recordFirstLaunchWritesOnGenuineAbsence() {
+        // Control: a genuine absence (not a denial) still records first launch.
+        let store = DenyingReadLicenseStore(denyingKeys: [])
+        let mgr = LicenseManager(publicKey: testPublicKey, store: store, now: Date.init,
+                                 device: StubDeviceIdentity(), activationClient: StubActivationClient())
+        mgr.recordFirstLaunchIfNeeded()
+        #expect(store.writes.contains("trial-start"))
+    }
+
+    @Test func activateThenRelaunchStaysActivatedThroughDefaultReadPath() async throws {
+        // Regression: the new read() default path is transparent. A normal
+        // activate() persists, and a fresh manager over the same store reads
+        // .activated on "relaunch".
+        let store = InMemoryLicenseStore()
+        let key = makeKey(payload: randomPayload())
+        let mgr = makeManager(store: store)
+        mgr.recordFirstLaunchIfNeeded()
+        _ = try await mgr.activate(keyString: key)
+        #expect(mgr.status == .activated)
+
+        let relaunched = makeManager(store: store)
+        #expect(relaunched.status == .activated)
     }
 
     // MARK: - Clock-rollback anchor
