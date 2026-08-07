@@ -16,6 +16,7 @@ final class FloatingPanel: NSPanel {
     private var lastRelevantFlags: NSEvent.ModifierFlags = []
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
+    private var leftMouseDownMonitor: Any?
     var onShiftTap: (() -> Void)?
 
     /// True while a drag-out session started from a history row is in flight.
@@ -73,6 +74,17 @@ final class FloatingPanel: NSPanel {
             self?.shiftDownWithoutKey = false
             return event
         }
+        // A left click disarms a pending shift-tap too — the mouse twin of the
+        // keyDown disarm above (KTD9). This is deliberately PANEL-WIDE, not a
+        // per-row hook: it fixes a live shipped bug that has nothing to do with
+        // rows — Shift+Clicking the search field or a filter tab armed the
+        // detector, so releasing Shift toggled the large preview. (Row clicks only
+        // escaped it because pasting closes the panel.) Do NOT narrow this to the
+        // row gesture; that reopens the search-field / filter-tab misfire.
+        leftMouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.shiftDownWithoutKey = false
+            return event
+        }
     }
 
     override var canBecomeKey: Bool { true }
@@ -87,6 +99,10 @@ final class FloatingPanel: NSPanel {
         if let monitor = keyDownMonitor {
             NSEvent.removeMonitor(monitor)
             keyDownMonitor = nil
+        }
+        if let monitor = leftMouseDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            leftMouseDownMonitor = nil
         }
         // Close child windows (e.g. large preview) before closing self
         childWindows?.forEach { $0.close() }
