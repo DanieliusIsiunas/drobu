@@ -35,8 +35,12 @@ struct PanelView: View {
     @State private var searchText = ""
     @State private var allItems: [ClipboardRecord] = []   // raw from DB observation
     @State private var items: [ClipboardRecord] = []      // filtered by activeFilter
-    @State private var anchor = 0      // where Shift-select started
-    @State private var cursor = 0      // current keyboard position
+    /// All selection state — cherry-picked rows, the Shift-range anchor, and the
+    /// keyboard cursor — lives in one pure value (`PanelSelection`, Services/), so
+    /// every gesture's effect is unit-tested there rather than re-derived per call
+    /// site here. Read it, never reimplement it: the grow/shrink and floor-of-one
+    /// rules have pinned quirks documented on the model.
+    @State private var selection = PanelSelection()
     @State private var observation: AnyDatabaseCancellable?
     @State private var isEditing = false
     @State private var editingText = ""
@@ -52,23 +56,33 @@ struct PanelView: View {
 
     private var panel: FloatingPanel? { panelWrapper.panel }
 
-    private var selectionRange: ClosedRange<Int> {
-        min(anchor, cursor)...max(anchor, cursor)
+    /// The clipboard list's record IDs in list order — the input every
+    /// `PanelSelection` operation takes (selection is keyed by ID, not index, so a
+    /// new item arriving at the top can't smear the user's picks onto other rows).
+    ///
+    /// Index-aligned with `items` by construction: a record whose `id` is nil (not
+    /// reachable for a row fetched from the DB, but the column is optional) gets a
+    /// unique negative placeholder instead of being dropped, because `compactMap`
+    /// would silently shift every index below it out of step with the rendered rows.
+    private var itemIDs: [Int64] {
+        items.enumerated().map { offset, item in item.id ?? Int64(-1 - offset) }
     }
 
     private var hasMultiSelection: Bool {
-        anchor != cursor
+        selection.hasMultiSelection(ids: itemIDs)
     }
 
+    /// The effectively selected records in list order (R4) — the paste, delete and
+    /// drag payload. Sparse: a cherry-picked {0, 2, 4} yields three records.
     private var selectedItems: [ClipboardRecord] {
         guard !items.isEmpty else { return [] }
-        let clamped = selectionRange.clamped(to: 0...(items.count - 1))
-        return Array(items[clamped])
+        return selection.selectedIndices(ids: itemIDs)
+            .compactMap { items.indices.contains($0) ? items[$0] : nil }
     }
 
     private var previewItem: ClipboardRecord? {
-        guard panelMode == .clipboard, cursor < items.count else { return nil }
-        return items[cursor]
+        guard panelMode == .clipboard, selection.cursor < items.count else { return nil }
+        return items[selection.cursor]
     }
 
     // MARK: - Content Type Filters
@@ -224,8 +238,7 @@ struct PanelView: View {
             editingItemId = nil
             editingText = ""
             originalText = ""
-            anchor = 0
-            cursor = 0
+            selection.reset()
             panelMode = .clipboard
             activeSection = 0
             activeFilter = 0
@@ -241,20 +254,17 @@ struct PanelView: View {
                     panelMode = .commandList
                     observation?.cancel()
                     observation = nil
-                    cursor = 0
-                    anchor = 0
+                    selection.reset()
                 }
             } else {
                 if panelMode != .clipboard { panelMode = .clipboard }
-                cursor = 0
-                anchor = 0
+                selection.reset()
                 startObservation()
             }
         }
         .onChange(of: activeFilter) { _, _ in
             if panelMode == .clipboard {
-                cursor = 0
-                anchor = 0
+                selection.reset()
                 refilterItems()
             }
         }
@@ -280,8 +290,9 @@ struct PanelView: View {
             }
             let index = digit - 1
             guard index < items.count else { return .ignored }
-            anchor = index
-            cursor = index
+            // R9: a numeric shortcut always collapses to the one row it names, so a
+            // cherry-picked set can't make ⌘3 paste something other than row 3.
+            selection.collapse(to: index, ids: itemIDs)
             panel?.pasteItem(items[index])
             return .handled
         }
@@ -347,47 +358,69 @@ struct PanelView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                // Resolve the selection ONCE per body pass. `selectedIndices` is O(n)
+                // (it scans the list for toggled IDs), so a per-row call would make
+                // rendering O(n²) — the model's doc comment calls this out explicitly.
+                let ids = itemIDs
+                let selectedIndices = Set(selection.selectedIndices(ids: ids))
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                                 ClipboardRowView(
                                     item: item,
-                                    isSelected: selectionRange.contains(index),
-                                    isCursor: index == cursor,
+                                    isSelected: selectedIndices.contains(index),
+                                    // R13: the Return glyph is advertised only where
+                                    // Return actually acts — the cursor row AND inside
+                                    // the effective selection. A plain `index == cursor`
+                                    // rule would keep the arrow on a row the user just
+                                    // Shift+Clicked OFF, promising a paste of itself
+                                    // while Return pastes the other selected rows.
+                                    showsReturnAffordance: index == selection.cursor
+                                        && selectedIndices.contains(index),
                                     shortcutIndex: index < 9 ? index : nil,
                                     editVerb: editVerb(forKind: item.kind)
                                 )
                                 .id(item.id)
                                 .overlay {
-                                    // AppKit drag source: a within-threshold press
-                                    // pastes (the former .onTapGesture body); a drag
-                                    // past the threshold drags the item(s) out as files.
+                                    // AppKit drag source. The press mutates the
+                                    // selection at mouseDown (Shift toggles, a plain
+                                    // press outside collapses — KTD6); a
+                                    // within-threshold release pastes the whole
+                                    // effective selection; a drag past the threshold
+                                    // drags the participants out as files.
                                     RowDragSourceView(
+                                        onPress: { isShift in
+                                            handleRowPress(at: index, isShift: isShift)
+                                        },
                                         onTap: {
-                                            anchor = index
-                                            cursor = index
-                                            panel?.pasteItem(item)
+                                            pasteSelected()
                                         },
                                         dragRecords: {
                                             dragParticipants(pressedIndex: index)
                                         }
                                     )
                                 }
-                                // The drag overlay is accessibility-hidden, so restore
-                                // the row's VoiceOver activation (VO+Space) → paste,
-                                // which the removed .onTapGesture used to provide.
+                                // The drag overlay is accessibility-hidden, so the row
+                                // itself carries the VoiceOver contract (R12). The
+                                // default action (VO+Space) mirrors a plain click —
+                                // same collapse-if-outside rule, then paste the
+                                // effective selection — and the named action is the
+                                // only way a VoiceOver user can cherry-pick at all,
+                                // since Shift+Click isn't reachable from the VO cursor.
                                 .accessibilityAction {
-                                    anchor = index
-                                    cursor = index
-                                    panel?.pasteItem(item)
+                                    handleRowPress(at: index, isShift: false)
+                                    pasteSelected()
+                                }
+                                .accessibilityAction(named: "Toggle Selection") {
+                                    handleRowPress(at: index, isShift: true)
                                 }
                             }
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                     }
-                    .onChange(of: cursor) { _, newValue in
+                    .onChange(of: selection.cursor) { _, newValue in
                         guard panelMode == .clipboard, newValue < items.count else { return }
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(items[newValue].id, anchor: .center)
@@ -426,8 +459,7 @@ struct PanelView: View {
                     .onTapGesture {
                         if activeFilter != index {
                             activeFilter = index
-                            cursor = 0
-                            anchor = 0
+                            selection.reset()
                         }
                     }
                     .accessibilityLabel("\(filter.label) filter")
@@ -450,7 +482,7 @@ struct PanelView: View {
                         CommandItemRow(
                             label: command.displayName,
                             icon: command.icon,
-                            isCursor: index == cursor
+                            isCursor: index == selection.cursor
                         )
                         .id(command.name)
                         .onTapGesture {
@@ -461,7 +493,7 @@ struct PanelView: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
             }
-            .onChange(of: cursor) { _, newValue in
+            .onChange(of: selection.cursor) { _, newValue in
                 guard panelMode == .commandList else { return }
                 let cmds = filteredCommands
                 guard newValue < cmds.count else { return }
@@ -491,7 +523,7 @@ struct PanelView: View {
                                 CommandItemRow(
                                     label: option.label,
                                     icon: option.icon,
-                                    isCursor: index == cursor,
+                                    isCursor: index == selection.cursor,
                                     isDestructive: option.isDestructive
                                 )
                                 .id(option.id)
@@ -503,7 +535,7 @@ struct PanelView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                     }
-                    .onChange(of: cursor) { _, newValue in
+                    .onChange(of: selection.cursor) { _, newValue in
                         guard case .commandOptions = panelMode else { return }
                         let opts = activeSectionOptions
                         guard newValue < opts.count else { return }
@@ -544,8 +576,7 @@ struct PanelView: View {
                     .onTapGesture {
                         if activeSection != index {
                             activeSection = index
-                            cursor = 0
-                            anchor = 0
+                            selection.reset()
                         }
                     }
                     .accessibilityLabel("\(section) section")
@@ -564,8 +595,8 @@ struct PanelView: View {
         VStack(spacing: 8) {
             Spacer()
             let cmds = filteredCommands
-            if cursor < cmds.count {
-                commandPreviewContent(for: cmds[cursor])
+            if selection.cursor < cmds.count {
+                commandPreviewContent(for: cmds[selection.cursor])
             } else {
                 Image(systemName: "terminal")
                     .font(.system(size: 32))
@@ -628,9 +659,18 @@ struct PanelView: View {
     /// affordance is carried by ClipboardRowView's accessibilityHint, not this text. The
     /// gated verb is computed for the single selected item only, so it stays cheap.
     private var clipboardFooterHint: String {
-        var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview"
-        // Mirror the ⌘→ entry gate, which ignores Cmd+Right while a range is selected
-        // (guard !hasMultiSelection): don't advertise a shortcut that no-ops mid-multiselect.
+        // The two ⇧ segments sit side by side on purpose: bare Shift previews, Shift
+        // **with a click** picks rows — stated as one contrast so neither reads as a
+        // contradiction of the other. Width is load-bearing: the list column is 340pt
+        // and this Text has no lineLimit, so a longer string wraps to two lines and
+        // eats a row of the fixed-height list. Measured at 11pt system font, this
+        // string plus the widest "  ⌘→ edit" suffix renders ~329pt. "select" instead
+        // of "pick" pushes it to ~339pt — do not spend that margin without measuring.
+        var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} move  \u{21B5} paste  \u{21E7}click pick  \u{21E7} preview"
+        // Mirror the ⌘→ entry gate, which ignores Cmd+Right while more than one row is
+        // selected (guard !hasMultiSelection): don't advertise a shortcut that no-ops
+        // mid-multiselect.
+        let cursor = selection.cursor
         guard !isEditing, !hasMultiSelection, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
         let item = items[cursor]
         // Kind-scope the impure facts so a non-video selection doesn't stat a video path and
@@ -657,8 +697,9 @@ struct PanelView: View {
         case .rightArrow:
             // Cmd+Right → enter edit mode (edit text / crop image·gif / trim video)
             if press.modifiers.contains(.command) {
-                guard !items.isEmpty, !hasMultiSelection else { return .ignored }
-                let item = items[cursor]
+                guard !items.isEmpty, !hasMultiSelection,
+                      items.indices.contains(selection.cursor) else { return .ignored }
+                let item = items[selection.cursor]
                 // Single source of truth for "is this editable via ⌘→" — see EditAction.swift.
                 // Kind-scope the impure facts so ⌘→ on a non-video item doesn't stat a video path.
                 let isBitmapImage = item.kind == ClipboardRecord.kindImage && (item.imageData.map(ImageCrop.isBitmapData) ?? false)
@@ -681,29 +722,24 @@ struct PanelView: View {
             }
             return .handled
 
+        // Match on `press.key` and probe modifiers with `.contains` only — arrow events
+        // carry `.numericPad` (and sometimes `.function`), so `== .shift` / `.isEmpty`
+        // never match (`.claude/rules/swiftui-keypress-gotchas.md`).
         case .downArrow:
             guard !items.isEmpty else { return .handled }
             if press.modifiers.contains(.shift) {
-                if cursor < items.count - 1 { cursor += 1 }
+                selection.shiftMove(by: 1, ids: itemIDs)
             } else {
-                let newIndex = hasMultiSelection
-                    ? min(max(anchor, cursor), items.count - 1)
-                    : (cursor + 1) % items.count
-                anchor = newIndex
-                cursor = newIndex
+                selection.plainMove(by: 1, ids: itemIDs)
             }
             return .handled
 
         case .upArrow:
             guard !items.isEmpty else { return .handled }
             if press.modifiers.contains(.shift) {
-                if cursor > 0 { cursor -= 1 }
+                selection.shiftMove(by: -1, ids: itemIDs)
             } else {
-                let newIndex = hasMultiSelection
-                    ? min(anchor, cursor)
-                    : (cursor - 1 + items.count) % items.count
-                anchor = newIndex
-                cursor = newIndex
+                selection.plainMove(by: -1, ids: itemIDs)
             }
             return .handled
 
@@ -712,14 +748,21 @@ struct PanelView: View {
             return .handled
 
         case .escape:
+            // The Escape ladder advances exactly one VISIBLE step per press: close the
+            // large preview → clear the selection → clear the search field → close the
+            // panel. `escapeClear` always clears, but reports whether the user could see
+            // anything change: a toggled set holding only the cursor row's own ID (what a
+            // Shift+Down/Shift+Up round-trip, or a single Shift+Click, leaves behind)
+            // renders identically to a bare cursor, so it reports false and this press
+            // falls through to the search rung exactly as it does today (R8).
             if largePreviewPanel != nil {
                 closeLargePreview()
-            } else if hasMultiSelection {
-                anchor = cursor
-            } else if !searchText.isEmpty {
-                searchText = ""
-            } else {
-                panel?.close()
+            } else if !selection.escapeClear(ids: itemIDs) {
+                if !searchText.isEmpty {
+                    searchText = ""
+                } else {
+                    panel?.close()
+                }
             }
             return .handled
 
@@ -734,16 +777,17 @@ struct PanelView: View {
 
     private func handleCommandKeyPress(_ press: KeyPress, count: Int, onReturn: () -> Void, onEscape: () -> Void) -> KeyPress.Result {
         switch press.key {
+        // Command rows are keyed by name, not record ID, so they use the count-only
+        // `plainMove` overload — there is no ID list to hand the model, and multi-select
+        // is a clipboard-mode concept only (the toggled set stays empty here).
         case .downArrow:
             guard count > 0 else { return .handled }
-            cursor = (cursor + 1) % count
-            anchor = cursor
+            selection.plainMove(by: 1, count: count)
             return .handled
 
         case .upArrow:
             guard count > 0 else { return .handled }
-            cursor = (cursor - 1 + count) % count
-            anchor = cursor
+            selection.plainMove(by: -1, count: count)
             return .handled
 
         case .return:
@@ -766,7 +810,7 @@ struct PanelView: View {
         handleCommandKeyPress(
             press,
             count: filteredCommands.count,
-            onReturn: { selectCommand(at: cursor) },
+            onReturn: { selectCommand(at: selection.cursor) },
             onEscape: { searchText = "" }
         )
     }
@@ -783,16 +827,14 @@ struct PanelView: View {
             if press.key == .leftArrow {
                 if activeSection > 0 {
                     activeSection -= 1
-                    cursor = 0
-                    anchor = 0
+                    selection.reset()
                 }
                 return .handled
             }
             if press.key == .rightArrow {
                 if activeSection < cmd.sections.count - 1 {
                     activeSection += 1
-                    cursor = 0
-                    anchor = 0
+                    selection.reset()
                 }
                 return .handled
             }
@@ -801,7 +843,7 @@ struct PanelView: View {
         return handleCommandKeyPress(
             press,
             count: activeSectionOptions.count,
-            onReturn: { executeSectionOption(at: cursor) },
+            onReturn: { executeSectionOption(at: selection.cursor) },
             onEscape: { returnToCommandList() }
         )
     }
@@ -809,8 +851,7 @@ struct PanelView: View {
     private func returnToCommandList() {
         panelMode = .commandList
         searchText = "/"
-        cursor = 0
-        anchor = 0
+        selection.reset()
         activeSection = 0
     }
 
@@ -833,8 +874,7 @@ struct PanelView: View {
 
         panelMode = .commandOptions(commandName: cmd.name)
         searchText = "/\(cmd.name)"
-        cursor = 0
-        anchor = 0
+        selection.reset()
 
         // Default to the active mode's section if one is active
         if let sleepCmd = cmd as? SleepCommand, !sleepCmd.sections.isEmpty {
@@ -887,11 +927,13 @@ struct PanelView: View {
 
             refilterItems()
 
-            // While editing, follow the edited item to its new index
+            // While editing, follow the edited item to its new index. `collapse` is the
+            // right operation, not a bare cursor move: the edit flow is a
+            // single-selection flow (⌘→ is gated on !hasMultiSelection), so landing on
+            // the edited row with an empty toggled set keeps it that way.
             if isEditing, let targetId = editingItemId,
                let newIndex = items.firstIndex(where: { $0.id == targetId }) {
-                anchor = newIndex
-                cursor = newIndex
+                selection.collapse(to: newIndex, ids: itemIDs)
             }
         })
     }
@@ -903,15 +945,16 @@ struct PanelView: View {
         } else {
             items = allItems
         }
-        let maxIdx = max(0, items.count - 1)
-        if anchor > maxIdx { anchor = maxIdx }
-        if cursor > maxIdx { cursor = maxIdx }
+        // Clamp the indices into the new bounds AND drop toggled IDs whose rows are
+        // gone (deleted, filtered out, or aged out) — otherwise a long session's
+        // toggled set grows without bound and a re-appearing row would light up again.
+        selection.clampAndPrune(ids: itemIDs)
 
         // Update or close large preview after items change
         if items.isEmpty {
             closeLargePreview()
-        } else if cursor < items.count {
-            largePreviewPanel?.update(for: items[cursor])
+        } else if selection.cursor < items.count {
+            largePreviewPanel?.update(for: items[selection.cursor])
         }
     }
 
@@ -937,16 +980,17 @@ struct PanelView: View {
         switch Int(keyCode) {
         case kVK_Escape:
             closeLargePreview()
+        // Relayed arrows go through the same `plainMove` the panel's own arrows use, so
+        // the two surfaces can't drift. Deliberate, plan-sanctioned nuance: with a
+        // multi-selection active this now collapses to the selection's edge (the panel's
+        // semantics) instead of always wrap-moving. Single-selection behavior — the only
+        // reachable state before cherry-picking existed — is unchanged.
         case kVK_UpArrow:
             guard !items.isEmpty else { return }
-            let newIndex = (cursor - 1 + items.count) % items.count
-            anchor = newIndex
-            cursor = newIndex
+            selection.plainMove(by: -1, ids: itemIDs)
         case kVK_DownArrow:
             guard !items.isEmpty else { return }
-            let newIndex = (cursor + 1) % items.count
-            anchor = newIndex
-            cursor = newIndex
+            selection.plainMove(by: 1, ids: itemIDs)
         case kVK_LeftArrow:
             if activeFilter > 0 { activeFilter -= 1 }
         case kVK_RightArrow:
@@ -968,7 +1012,7 @@ struct PanelView: View {
     // MARK: - Edit Mode
 
     private func enterEditMode() {
-        let item = items[cursor]
+        let item = items[selection.cursor]
         editingText = item.plainText ?? ""
         originalText = editingText
         editingItemId = item.id
@@ -1023,8 +1067,7 @@ struct PanelView: View {
         }
 
         // Item moves to top when ValueObservation fires
-        anchor = 0
-        cursor = 0
+        selection.reset()
     }
 
     private func saveGifTrim(data: Data) {
@@ -1062,8 +1105,7 @@ struct PanelView: View {
         }
 
         // Item moves to top when ValueObservation fires
-        anchor = 0
-        cursor = 0
+        selection.reset()
     }
 
     private func saveVideoTrim(url trimmedURL: URL) {
@@ -1165,10 +1207,13 @@ struct PanelView: View {
             }
         }
 
-        anchor = 0
-        cursor = 0
+        selection.reset()
     }
 
+    /// Leaves the selection ALONE, deliberately (R9). Every *save* path resets to the
+    /// top because the saved item is about to move there; a discard changes nothing in
+    /// the list, so resetting here would yank the cursor to row 0 every time the user
+    /// escapes out of an edit. There is no selection write here today — don't add one.
     private func discardEdit() {
         isEditing = false
         editingItemId = nil
@@ -1178,22 +1223,53 @@ struct PanelView: View {
 
     // MARK: - Actions
 
+    /// The whole selection effect of a row press, applied at mouseDown (KTD6) — before
+    /// the drag snapshot, so a press that becomes a drag carries what the user just
+    /// selected. Shared by the mouse pipeline and the VoiceOver row actions so the two
+    /// can never diverge.
+    ///
+    /// - Shift press: toggle this row (R1). Ignored while editing (R11), mirroring the
+    ///   keyboard and drag guards — a cherry-pick mid-crop has no meaning.
+    /// - Plain press: collapse onto this row **only when it is outside** the current
+    ///   effective selection (R2). Pressing inside leaves the selection intact, which is
+    ///   what makes a plain click paste the whole set and a drag from a selected row
+    ///   carry the whole set.
+    ///
+    /// The plain branch is deliberately NOT guarded on `isEditing`: a plain click
+    /// mid-edit still pastes the clicked row, a pre-existing oddity the plan keeps
+    /// explicitly out of scope. Only the Shift branch is new, so only it gets the guard.
+    private func handleRowPress(at index: Int, isShift: Bool) {
+        let ids = itemIDs
+        if isShift {
+            guard !isEditing else { return }
+            selection.shiftClick(at: index, ids: ids)
+            return
+        }
+        guard !selection.selectedIndices(ids: ids).contains(index) else { return }
+        selection.collapse(to: index, ids: ids)
+    }
+
     /// Records a drag started on `pressedIndex` should carry. A drag from inside an
     /// active multi-selection carries the whole selection; from outside (or with no
-    /// multi-selection) it collapses the selection to that row and carries it alone
-    /// (mirrors tap). Returns [] while editing so rows aren't draggable mid-crop (R11).
-    /// Evaluated at mouseDown, so `items` here is the snapshot at gesture start (KTD3).
+    /// multi-selection) it carries just the pressed row.
+    ///
+    /// **Side-effect-free (KTD7).** It used to collapse the selection onto the pressed
+    /// row itself; that collapse now lives in `handleRowPress`, which runs first on every
+    /// press — including presses that never become drags. Keep this a pure read: it is
+    /// called from `mouseDown` purely to snapshot a payload, and a mutation here would
+    /// fire on gestures (a plain press inside the selection) that must leave the
+    /// selection alone.
+    ///
+    /// Returns [] while editing so rows aren't draggable mid-crop (R11). Evaluated at
+    /// mouseDown, so `items` here is the snapshot at gesture start (KTD3).
     private func dragParticipants(pressedIndex: Int) -> [ClipboardRecord] {
         guard !isEditing, items.indices.contains(pressedIndex) else { return [] }
+        let ids = itemIDs
         let indices = DragExport.participantIndices(
             pressed: pressedIndex,
-            selection: Set(selectionRange),
-            hasMultiSelection: hasMultiSelection
+            selection: Set(selection.selectedIndices(ids: ids)),
+            hasMultiSelection: selection.hasMultiSelection(ids: ids)
         )
-        if !(hasMultiSelection && selectionRange.contains(pressedIndex)) {
-            anchor = pressedIndex
-            cursor = pressedIndex
-        }
         return indices.compactMap { items.indices.contains($0) ? items[$0] : nil }
     }
 
@@ -1208,7 +1284,12 @@ struct PanelView: View {
     }
 
     private func deleteSelected() {
-        let selected = selectedItems
+        // Resolve indices and records together — the reposition below needs the indices,
+        // and `selectedIndices` is already ascending (list order), so this is also the
+        // R4 delete order.
+        let ids = itemIDs
+        let deletedIndices = selection.selectedIndices(ids: ids)
+        let selected = deletedIndices.compactMap { items.indices.contains($0) ? items[$0] : nil }
         let toDelete = selected.compactMap(\.id)
         guard !toDelete.isEmpty else { return }
 
@@ -1220,10 +1301,12 @@ struct PanelView: View {
         // deleted item's file doesn't linger on disk until the age sweep (R14).
         let deletedHashes = selected.map(\.contentHash)
 
-        let afterIndex = max(anchor, cursor) + 1
-        let newIndex = afterIndex < items.count
-            ? afterIndex - toDelete.count
-            : max(0, min(anchor, cursor) - 1)
+        // Where the cursor lands, as a POST-delete index (R5). The old arithmetic here
+        // (`max(anchor, cursor) + 1 - count`) assumed the deletion was one contiguous
+        // block; with a cherry-picked set it over-counts the rows removed above the
+        // landing row and the cursor drifts up. `indexAfterDeleting` walks the survivors
+        // instead, so it is correct for sparse and contiguous deletions alike.
+        let newIndex = PanelSelection.indexAfterDeleting(deleted: Set(deletedIndices), count: items.count)
 
         Task.detached {
             do {
@@ -1247,9 +1330,10 @@ struct PanelView: View {
             }
         }
 
-        let safeIndex = max(0, min(newIndex, items.count - toDelete.count - 1))
-        anchor = safeIndex
-        cursor = safeIndex
+        // Collapse rather than just move the cursor: the deleted rows are still in `items`
+        // until the observation fires, so leaving them toggled would keep them highlighted
+        // (and re-selected for the next Return) in that window.
+        selection.collapse(to: newIndex, ids: ids)
     }
 }
 
