@@ -425,7 +425,12 @@ struct PanelView: View {
                                     // would leave the arrow on the row the user just
                                     // deselected, promising a paste of itself while Return
                                     // pastes the others.
-                                    showsReturnAffordance: index == returnRow,
+                                    //
+                                    // Nothing gets the glyph while editing: Return there
+                                    // inserts a newline (only ⌘Return saves), so the arrow
+                                    // would name an action Return will not perform. The
+                                    // footer's ⌘→ verb already gates the same way.
+                                    showsReturnAffordance: !isEditing && index == returnRow,
                                     shortcutIndex: index < 9 ? index : nil,
                                     editVerb: editVerb(forKind: item.kind)
                                 )

@@ -186,19 +186,6 @@ struct PreviewPanel: View {
 
     // MARK: - Metadata Bar
 
-    /// The `⌘→ to <verb>` discoverability hint, routed through the shared `editActionVerb`
-    /// gate (EditAction.swift) so it never advertises a shortcut that would do nothing.
-    /// Decorative (`.accessibilityHidden(true)`) — the VoiceOver affordance is on the row.
-    @ViewBuilder
-    private func editHint(for item: ClipboardRecord, isBitmapImage: Bool, videoFileExists: Bool) -> some View {
-        if !isEditing, let verb = editActionVerb(for: item, isBitmapImage: isBitmapImage, videoFileExists: videoFileExists) {
-            Text("\u{2318}\u{2192} to \(verb)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
-        }
-    }
-
     private func metadataBar(for item: ClipboardRecord) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             if item.kind == ClipboardRecord.kindText {
@@ -208,7 +195,6 @@ struct PreviewPanel: View {
                 Text("\(words) words; \(displayText.count) chars")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                editHint(for: item, isBitmapImage: false, videoFileExists: false)
             } else if item.kind == ClipboardRecord.kindGif, let data = item.imageData, let nsImage = NSImage(data: data) {
                 let w = Int(nsImage.size.width)
                 let h = Int(nsImage.size.height)
@@ -221,7 +207,6 @@ struct PreviewPanel: View {
                 Text(detailStr)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                editHint(for: item, isBitmapImage: false, videoFileExists: false)
             } else if item.kind == ClipboardRecord.kindVideo {
                 let url = ClipboardRecord.videoPath(for: item.contentHash)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
@@ -237,7 +222,6 @@ struct PreviewPanel: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                editHint(for: item, isBitmapImage: false, videoFileExists: FileManager.default.fileExists(atPath: url.path))
             } else if item.kind == ClipboardRecord.kindImage, let data = item.imageData, let nsImage = NSImage(data: data) {
                 let w = Int(nsImage.size.width)
                 let h = Int(nsImage.size.height)
@@ -245,7 +229,6 @@ struct PreviewPanel: View {
                 Text("\(w)x\(h) (\(sizeStr))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                editHint(for: item, isBitmapImage: ImageCrop.isBitmapData(data), videoFileExists: false)
             } else if item.kind == ClipboardRecord.kindFile, let text = item.plainText {
                 let paths = text.split(separator: "\n")
                 if paths.count == 1, let first = paths.first {
