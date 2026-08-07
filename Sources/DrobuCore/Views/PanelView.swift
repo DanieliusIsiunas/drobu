@@ -1187,7 +1187,7 @@ struct PanelView: View {
         guard !isEditing, items.indices.contains(pressedIndex) else { return [] }
         let indices = DragExport.participantIndices(
             pressed: pressedIndex,
-            selection: selectionRange,
+            selection: Set(selectionRange),
             hasMultiSelection: hasMultiSelection
         )
         if !(hasMultiSelection && selectionRange.contains(pressedIndex)) {

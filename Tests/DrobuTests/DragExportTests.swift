@@ -101,18 +101,41 @@ struct DragExportTests {
     // MARK: - Participant rule
 
     @Test func participantInsideMultiSelectionDragsWholeSelection() {
-        let indices = DragExport.participantIndices(pressed: 2, selection: 1...3, hasMultiSelection: true)
+        let indices = DragExport.participantIndices(pressed: 2, selection: [1, 2, 3], hasMultiSelection: true)
         #expect(indices == [1, 2, 3])
     }
 
     @Test func participantOutsideSelectionDragsPressedOnly() {
-        let indices = DragExport.participantIndices(pressed: 5, selection: 1...3, hasMultiSelection: true)
+        let indices = DragExport.participantIndices(pressed: 5, selection: [1, 2, 3], hasMultiSelection: true)
         #expect(indices == [5])
     }
 
     @Test func participantWithNoMultiSelectionDragsPressedOnly() {
-        let indices = DragExport.participantIndices(pressed: 2, selection: 2...2, hasMultiSelection: false)
+        let indices = DragExport.participantIndices(pressed: 2, selection: [2], hasMultiSelection: false)
         #expect(indices == [2])
+    }
+
+    // A cherry-picked (Shift+Click) selection has gaps — {0, 2, 4} — which a
+    // ClosedRange could never express. The pressed row is a member, so the whole
+    // sparse set drags, in ascending list order.
+    @Test func participantInsideSparseSelectionDragsWholeSelectionAscending() {
+        let indices = DragExport.participantIndices(pressed: 2, selection: [0, 2, 4], hasMultiSelection: true)
+        #expect(indices == [0, 2, 4])
+    }
+
+    @Test func participantOutsideSparseSelectionDragsPressedOnly() {
+        let indices = DragExport.participantIndices(pressed: 3, selection: [0, 2, 4], hasMultiSelection: true)
+        #expect(indices == [3])
+    }
+
+    // `Set<Int>` iteration order is unspecified, so the ascending-order guarantee
+    // has to come from the function, not from callers passing sorted input. Build
+    // the set from a deliberately descending literal to make sure a hash-order
+    // fluke can't quietly pass this test.
+    @Test func participantResultIsAscendingRegardlessOfInsertionOrder() {
+        let unordered: Set<Int> = [4, 0, 2]
+        let indices = DragExport.participantIndices(pressed: 4, selection: unordered, hasMultiSelection: true)
+        #expect(indices == [0, 2, 4])
     }
 
     // MARK: - Payload matrix
