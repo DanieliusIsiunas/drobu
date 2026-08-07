@@ -209,7 +209,7 @@ Pinned model quirk (test it, don't fix it): a toggled row absorbed into a live S
   6. Command-mode cursor sites (command-list arrows, command-options arrows, and their resets) migrate via a count-only `plainMove(by:count:)` overload — command rows are keyed by name, not record ID, so the ID-based signatures cannot serve them; the toggled set stays empty in command modes.
   7. Row rendering: `isSelected` from `selectedIndices`; the Return affordance only when the row is the cursor **and** in `selectedIndices` (R13); `PreviewPanel.selectionCount` from effective count.
   8. Accessibility: default row action mirrors the click rule (R2); add `.accessibilityAction(named: "Toggle Selection")`; keep label/trait contract per `.claude/rules/accessibility.md`.
-  9. Footer hint: mention Shift+Click selection without dropping the existing `⇧ preview` meaning (exact wording is an implementation choice).
+  9. Footer hint: leave it unchanged. Advertising Shift+Click there was tried and rejected on sight — every wording that fits the 340pt column ("⇧click pick", "⇧click select") reads as jargon, and an unclear hint spends a scarce line without teaching the gesture. `⇧` in the hint keeps its single existing meaning, the bare-Shift preview tap.
 - **Test scenarios:** behavior is pinned in U1/U2; this unit is wiring. `Test expectation: none beyond U1/U2 suites — SwiftUI/AppKit wiring is out of test scope per repo rules.` The acceptance examples (AE1–AE8) are the manual checklist.
 - **Verification:** `swift test` green; manual run of AE1–AE8 in the built app.
 

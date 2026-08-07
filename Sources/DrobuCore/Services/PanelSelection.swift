@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure selection model for the clipboard panel: which rows are selected, where the
 /// keyboard cursor is, and how every gesture moves both. Kept free of AppKit,
 /// SwiftUI, and the database so the whole grow/shrink/cherry-pick matrix is directly
@@ -164,9 +162,8 @@ struct PanelSelection: Equatable {
     /// keeps `toggledIDs` from growing without bound across a long session.
     mutating func clampAndPrune(ids: [Int64]) {
         toggledIDs.formIntersection(ids)
-        let maxIndex = max(0, ids.count - 1)
-        anchor = min(max(anchor, 0), maxIndex)
-        cursor = min(max(cursor, 0), maxIndex)
+        anchor = clamped(anchor, count: ids.count)
+        cursor = clamped(cursor, count: ids.count)
     }
 
     // MARK: - Queries

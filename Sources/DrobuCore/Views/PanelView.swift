@@ -75,9 +75,21 @@ struct PanelView: View {
     /// The effectively selected records in list order (R4) — the paste, delete and
     /// drag payload. Sparse: a cherry-picked {0, 2, 4} yields three records.
     private var selectedItems: [ClipboardRecord] {
-        guard !items.isEmpty else { return [] }
-        return selection.selectedIndices(ids: itemIDs)
-            .compactMap { items.indices.contains($0) ? items[$0] : nil }
+        records(at: selection.selectedIndices(ids: itemIDs))
+    }
+
+    /// How many rows are effectively selected. Deliberately not `selectedItems.count`:
+    /// the preview pane and the footer only need the number, and building the record
+    /// array to count it is work on every body pass.
+    private var selectedCount: Int {
+        selection.selectedIndices(ids: itemIDs).count
+    }
+
+    /// Rows at `indices`, skipping any that fell out of `items` since the indices were
+    /// resolved — the list can refire between a gesture's start and its use (KTD3).
+    /// One home for that bounds rule; paste, delete and drag all route through it.
+    private func records(at indices: [Int]) -> [ClipboardRecord] {
+        indices.compactMap { items.indices.contains($0) ? items[$0] : nil }
     }
 
     private var previewItem: ClipboardRecord? {
@@ -291,9 +303,11 @@ struct PanelView: View {
             let index = digit - 1
             guard index < items.count else { return .ignored }
             // R9: a numeric shortcut always collapses to the one row it names, so a
-            // cherry-picked set can't make ⌘3 paste something other than row 3.
+            // cherry-picked set can't make ⌘3 paste something other than row 3. Paste
+            // through the shared path so every paste site stays one behavior; after
+            // the collapse the effective selection is exactly this row.
             selection.collapse(to: index, ids: itemIDs)
-            panel?.pasteItem(items[index])
+            pasteSelected()
             return .handled
         }
     }
@@ -320,7 +334,7 @@ struct PanelView: View {
         case .clipboard:
             PreviewPanel(
                 item: previewItem,
-                selectionCount: selectedItems.count,
+                selectionCount: selectedCount,
                 isEditing: $isEditing,
                 editingText: $editingText,
                 onSave: { saveEdit() },
@@ -659,14 +673,13 @@ struct PanelView: View {
     /// affordance is carried by ClipboardRowView's accessibilityHint, not this text. The
     /// gated verb is computed for the single selected item only, so it stays cheap.
     private var clipboardFooterHint: String {
-        // The two ⇧ segments sit side by side on purpose: bare Shift previews, Shift
-        // **with a click** picks rows — stated as one contrast so neither reads as a
-        // contradiction of the other. Width is load-bearing: the list column is 340pt
-        // and this Text has no lineLimit, so a longer string wraps to two lines and
-        // eats a row of the fixed-height list. Measured at 11pt system font, this
-        // string plus the widest "  ⌘→ edit" suffix renders ~329pt. "select" instead
-        // of "pick" pushes it to ~339pt — do not spend that margin without measuring.
-        var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} move  \u{21B5} paste  \u{21E7}click pick  \u{21E7} preview"
+        // Shift+Click selection is deliberately NOT advertised here. Every wording
+        // short enough to fit ("⇧click pick", "⇧click select") reads as jargon rather
+        // than instruction, and an unclear hint costs a scarce line without teaching
+        // anything. Width is load-bearing: the list column is 340pt and this Text has
+        // no lineLimit, so a longer string wraps and eats a row of the fixed-height
+        // list. ⇧ here means the bare-Shift preview tap, its only meaning in this hint.
+        var hint = "\u{2190}\u{2192} filter  \u{2191}\u{2193} navigate  \u{21B5} paste  \u{21E7} preview"
         // Mirror the ⌘→ entry gate, which ignores Cmd+Right while more than one row is
         // selected (guard !hasMultiSelection): don't advertise a shortcut that no-ops
         // mid-multiselect.
@@ -1264,13 +1277,8 @@ struct PanelView: View {
     /// mouseDown, so `items` here is the snapshot at gesture start (KTD3).
     private func dragParticipants(pressedIndex: Int) -> [ClipboardRecord] {
         guard !isEditing, items.indices.contains(pressedIndex) else { return [] }
-        let ids = itemIDs
-        let indices = DragExport.participantIndices(
-            pressed: pressedIndex,
-            selection: Set(selection.selectedIndices(ids: ids)),
-            hasMultiSelection: selection.hasMultiSelection(ids: ids)
-        )
-        return indices.compactMap { items.indices.contains($0) ? items[$0] : nil }
+        let selected = selection.selectedIndices(ids: itemIDs)
+        return records(at: DragExport.participantIndices(pressed: pressedIndex, selection: Set(selected)))
     }
 
     private func pasteSelected() {
@@ -1289,7 +1297,7 @@ struct PanelView: View {
         // R4 delete order.
         let ids = itemIDs
         let deletedIndices = selection.selectedIndices(ids: ids)
-        let selected = deletedIndices.compactMap { items.indices.contains($0) ? items[$0] : nil }
+        let selected = records(at: deletedIndices)
         let toDelete = selected.compactMap(\.id)
         guard !toDelete.isEmpty else { return }
 

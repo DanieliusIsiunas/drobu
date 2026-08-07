@@ -52,8 +52,12 @@ enum DragExport {
     /// contiguous range. The return value is always sorted ascending — list order —
     /// regardless of set iteration order, since it feeds the multi-item drag payload
     /// order directly (paste/drag order is pinned to list order).
-    static func participantIndices(pressed: Int, selection: Set<Int>, hasMultiSelection: Bool) -> [Int] {
-        if hasMultiSelection && selection.contains(pressed) {
+    ///
+    /// "Multi-selection" is read off `selection` itself rather than taken as a
+    /// separate flag: it is exactly `count > 1` at every call site, and a parameter
+    /// the caller could disagree with is a drift the compiler cannot catch.
+    static func participantIndices(pressed: Int, selection: Set<Int>) -> [Int] {
+        if selection.count > 1 && selection.contains(pressed) {
             return selection.sorted()
         }
         return [pressed]
