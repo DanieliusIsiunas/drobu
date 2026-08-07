@@ -92,9 +92,36 @@ struct PanelView: View {
         indices.compactMap { items.indices.contains($0) ? items[$0] : nil }
     }
 
+    /// The record every preview surface shows. Deliberately NOT `items[cursor]` —
+    /// two states make the raw cursor the wrong answer, and both are reachable:
+    ///
+    /// 1. **Mid-edit.** The selection now moves at mouseDown, so a click on another
+    ///    row while a crop/trim is open would swap the edited item out from under
+    ///    the editor before the paste on mouseUp closes the panel. While editing,
+    ///    the preview stays pinned to `editingItemId` — the same re-follow rule the
+    ///    list observation already uses.
+    /// 2. **Cursor outside the selection.** Shift+Clicking the cursor row toggles it
+    ///    OFF while leaving the cursor there, so the raw cursor names a row that
+    ///    Return will not paste. Fall back to the first selected row — the one
+    ///    Return pastes first. This is R13's rule (the Return glyph) applied to the
+    ///    preview, so the two surfaces cannot disagree about what is selected.
+    ///
+    /// Unchanged in every state where the cursor is inside the selection, which is
+    /// all of single-selection and Shift+Arrow.
+    private var previewIndex: Int? {
+        let selected = selection.selectedIndices(ids: itemIDs)
+        let index = selected.contains(selection.cursor) ? selection.cursor : selected.first
+        guard let index, items.indices.contains(index) else { return nil }
+        return index
+    }
+
     private var previewItem: ClipboardRecord? {
-        guard panelMode == .clipboard, selection.cursor < items.count else { return nil }
-        return items[selection.cursor]
+        guard panelMode == .clipboard else { return nil }
+        if isEditing, let targetId = editingItemId,
+           let edited = items.first(where: { $0.id == targetId }) {
+            return edited
+        }
+        return previewIndex.map { items[$0] }
     }
 
     // MARK: - Content Type Filters
@@ -439,7 +466,10 @@ struct PanelView: View {
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(items[newValue].id, anchor: .center)
                         }
-                        largePreviewPanel?.update(for: items[newValue])
+                        // Scroll follows the cursor, but the large preview shows what
+                        // the inline preview shows — same resolution, or the two
+                        // surfaces disagree once the cursor leaves the selection.
+                        if let item = previewItem { largePreviewPanel?.update(for: item) }
                     }
                 }
             }
@@ -966,8 +996,8 @@ struct PanelView: View {
         // Update or close large preview after items change
         if items.isEmpty {
             closeLargePreview()
-        } else if selection.cursor < items.count {
-            largePreviewPanel?.update(for: items[selection.cursor])
+        } else if let item = previewItem {
+            largePreviewPanel?.update(for: item)
         }
     }
 

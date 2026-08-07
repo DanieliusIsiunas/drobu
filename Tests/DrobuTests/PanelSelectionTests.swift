@@ -180,6 +180,25 @@ struct PanelSelectionTests {
         #expect(s.escapeClear(ids: ids) == false)
     }
 
+    /// The cursor can sit past the end of an empty list — a search that matches
+    /// nothing, or deleting the last rows — and Escape is reachable there. The
+    /// cursor-row lookup must fall back rather than trap, and a set that somehow
+    /// outlived its rows still counts as visible so the press clears it.
+    @Test("escapeClear tolerates a cursor past the end of an empty list")
+    func escapeClearWithOutOfRangeCursor() {
+        var s = PanelSelection()
+        s.shiftClick(at: 3, ids: ids)
+        s.clampAndPrune(ids: [])          // list emptied under the selection
+        #expect(s.escapeClear(ids: []) == false)
+        #expect(s.toggledIDs.isEmpty)
+
+        var stale = PanelSelection()
+        stale.shiftClick(at: 0, ids: ids)
+        stale.shiftClick(at: 2, ids: ids)
+        #expect(stale.escapeClear(ids: []) == true)   // no cursor row to excuse them
+        #expect(stale.toggledIDs.isEmpty)
+    }
+
     /// A single Shift+Click highlights only the cursor row (Shift+Click moves the
     /// cursor onto it), so it is also visually indistinguishable from a bare cursor.
     @Test("escapeClear after one Shift+Click reports nothing visible")
