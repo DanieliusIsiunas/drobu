@@ -46,9 +46,19 @@ enum DragExport {
     /// Which items a drag started on `pressed` should carry. A drag from inside an
     /// active multi-selection carries the whole selection; a drag from outside (or
     /// with no multi-selection) carries just the pressed row.
-    static func participantIndices(pressed: Int, selection: ClosedRange<Int>, hasMultiSelection: Bool) -> [Int] {
-        if hasMultiSelection && selection.contains(pressed) {
-            return Array(selection)
+    ///
+    /// `selection` is a `Set<Int>` rather than a `ClosedRange<Int>` because
+    /// Shift+Click cherry-picking (e.g. rows {0, 2, 4}) is not expressible as a
+    /// contiguous range. The return value is always sorted ascending — list order —
+    /// regardless of set iteration order, since it feeds the multi-item drag payload
+    /// order directly (paste/drag order is pinned to list order).
+    ///
+    /// "Multi-selection" is read off `selection` itself rather than taken as a
+    /// separate flag: it is exactly `count > 1` at every call site, and a parameter
+    /// the caller could disagree with is a drift the compiler cannot catch.
+    static func participantIndices(pressed: Int, selection: Set<Int>) -> [Int] {
+        if selection.count > 1 && selection.contains(pressed) {
+            return selection.sorted()
         }
         return [pressed]
     }

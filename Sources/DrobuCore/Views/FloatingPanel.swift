@@ -15,7 +15,7 @@ final class FloatingPanel: NSPanel {
     private var shiftDownWithoutKey = false
     private var lastRelevantFlags: NSEvent.ModifierFlags = []
     private var flagsMonitor: Any?
-    private var keyDownMonitor: Any?
+    private var disarmMonitor: Any?
     var onShiftTap: (() -> Void)?
 
     /// True while a drag-out session started from a history row is in flight.
@@ -69,7 +69,16 @@ final class FloatingPanel: NSPanel {
             self?.handleFlagsChanged(event)
             return event
         }
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // Any keystroke OR left click cancels a pending shift-tap: both mean the user
+        // is doing something other than tapping Shift alone.
+        //
+        // The click half is deliberately PANEL-WIDE, not a per-row hook (KTD9). It
+        // fixes a live shipped bug that has nothing to do with rows — Shift+Clicking
+        // the search field or a filter tab armed the detector, so releasing Shift
+        // toggled the large preview. (Row clicks only escaped it because pasting
+        // closes the panel.) Do NOT narrow this to the row gesture; that reopens the
+        // search-field / filter-tab misfire.
+        disarmMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
             self?.shiftDownWithoutKey = false
             return event
         }
@@ -84,9 +93,9 @@ final class FloatingPanel: NSPanel {
             NSEvent.removeMonitor(monitor)
             flagsMonitor = nil
         }
-        if let monitor = keyDownMonitor {
+        if let monitor = disarmMonitor {
             NSEvent.removeMonitor(monitor)
-            keyDownMonitor = nil
+            disarmMonitor = nil
         }
         // Close child windows (e.g. large preview) before closing self
         childWindows?.forEach { $0.close() }
