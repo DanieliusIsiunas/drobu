@@ -3,13 +3,13 @@ import SwiftUI
 struct ClipboardRowView: View {
     let item: ClipboardRecord
     let isSelected: Bool
-    /// Whether this row shows the `↵` glyph — i.e. whether pressing Return acts on THIS
-    /// row. Not the same as "is the keyboard-focus row" (R13): with cherry-picking, the
-    /// cursor can sit on a row the user Shift+Clicked *out* of the selection, and Return
-    /// then pastes the other selected rows. The caller (`PanelView`) owns the rule —
-    /// cursor row AND inside the effective selection — because only it knows the
-    /// selection; this view just renders the answer. A row that is the cursor but
-    /// deselected falls through to its `⌘N` label below, which is still accurate.
+    /// Whether this row shows the `↵` glyph — the row Return acts on. Not simply "is the
+    /// keyboard-focus row" (R13): with cherry-picking the cursor can sit on a row the user
+    /// Shift+Clicked *out* of the selection, and Return then pastes the remaining selected
+    /// rows, so the glyph moves to the leading one rather than lying about that row. The
+    /// caller (`PanelView`) owns the rule, because only it knows the selection; this view
+    /// just renders the answer. A row that loses the glyph falls through to its `⌘N`
+    /// label below, which is still accurate.
     let showsReturnAffordance: Bool
     let shortcutIndex: Int? // 0-8 for Cmd+1 through Cmd+9, nil if beyond range
     let editVerb: String?   // "edit"/"crop"/"trim" when ⌘→ acts on this kind, else nil (kind-only; see EditAction.swift)
