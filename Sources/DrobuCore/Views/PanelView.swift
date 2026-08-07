@@ -461,15 +461,21 @@ struct PanelView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                     }
+                    // Scrolling follows the CURSOR — that is the thing the user is moving.
                     .onChange(of: selection.cursor) { _, newValue in
                         guard panelMode == .clipboard, newValue < items.count else { return }
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(items[newValue].id, anchor: .center)
                         }
-                        // Scroll follows the cursor, but the large preview shows what
-                        // the inline preview shows — same resolution, or the two
-                        // surfaces disagree once the cursor leaves the selection.
-                        if let item = previewItem { largePreviewPanel?.update(for: item) }
+                    }
+                    // The large preview follows the PREVIEWED ROW, which is not always the
+                    // cursor: Shift+Clicking the cursor row out of a multi-selection moves
+                    // the preview to the first remaining row while leaving the cursor put,
+                    // so a cursor-keyed observer never fires and the large preview would
+                    // keep showing the row the user just deselected.
+                    .onChange(of: previewItem?.id) { _, _ in
+                        guard panelMode == .clipboard, let item = previewItem else { return }
+                        largePreviewPanel?.update(for: item)
                     }
                 }
             }
@@ -713,9 +719,10 @@ struct PanelView: View {
         // Mirror the ⌘→ entry gate, which ignores Cmd+Right while more than one row is
         // selected (guard !hasMultiSelection): don't advertise a shortcut that no-ops
         // mid-multiselect.
-        let cursor = selection.cursor
-        guard !isEditing, !hasMultiSelection, !items.isEmpty, cursor >= 0, cursor < items.count else { return hint }
-        let item = items[cursor]
+        // Resolve the same row ⌘→ will actually act on (the previewed one), or the hint
+        // could advertise "crop" for a row the shortcut isn't going to touch.
+        guard !isEditing, !hasMultiSelection, let index = previewIndex else { return hint }
+        let item = items[index]
         // Kind-scope the impure facts so a non-video selection doesn't stat a video path and
         // a non-image selection doesn't build a CGImageSource — this recomputes on every body
         // render (e.g. per search keystroke), so keep it to the fact each kind actually needs.
@@ -740,9 +747,12 @@ struct PanelView: View {
         case .rightArrow:
             // Cmd+Right → enter edit mode (edit text / crop image·gif / trim video)
             if press.modifiers.contains(.command) {
-                guard !items.isEmpty, !hasMultiSelection,
-                      items.indices.contains(selection.cursor) else { return .ignored }
-                let item = items[selection.cursor]
+                // Edit what the preview shows, not what the cursor indexes. Shift+Clicking
+                // the cursor row OFF leaves one other row selected — so the gate opens
+                // (count == 1) while the cursor still names the deselected row, and a save
+                // would rewrite a record the user just removed from the selection.
+                guard !items.isEmpty, !hasMultiSelection, let index = previewIndex else { return .ignored }
+                let item = items[index]
                 // Single source of truth for "is this editable via ⌘→" — see EditAction.swift.
                 // Kind-scope the impure facts so ⌘→ on a non-video item doesn't stat a video path.
                 let isBitmapImage = item.kind == ClipboardRecord.kindImage && (item.imageData.map(ImageCrop.isBitmapData) ?? false)
@@ -1055,7 +1065,9 @@ struct PanelView: View {
     // MARK: - Edit Mode
 
     private func enterEditMode() {
-        let item = items[selection.cursor]
+        // Same subject as the ⌘→ gate and the preview: the effectively selected row.
+        guard let index = previewIndex else { return }
+        let item = items[index]
         editingText = item.plainText ?? ""
         originalText = editingText
         editingItemId = item.id
