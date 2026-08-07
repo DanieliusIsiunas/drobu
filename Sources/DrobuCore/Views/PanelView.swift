@@ -404,6 +404,9 @@ struct PanelView: View {
                 // rendering O(n²) — the model's doc comment calls this out explicitly.
                 let ids = itemIDs
                 let selectedIndices = Set(selection.selectedIndices(ids: ids))
+                // Also resolved once — `previewIndex` scans the selection too, so a
+                // per-row call would reintroduce the O(n²) the line above avoids.
+                let returnRow = previewIndex
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
@@ -411,14 +414,23 @@ struct PanelView: View {
                                 ClipboardRowView(
                                     item: item,
                                     isSelected: selectedIndices.contains(index),
-                                    // R13: the Return glyph is advertised only where
-                                    // Return actually acts — the cursor row AND inside
-                                    // the effective selection. A plain `index == cursor`
-                                    // rule would keep the arrow on a row the user just
-                                    // Shift+Clicked OFF, promising a paste of itself
-                                    // while Return pastes the other selected rows.
-                                    showsReturnAffordance: index == selection.cursor
-                                        && selectedIndices.contains(index),
+                                    // R13: the glyph sits on the same row the preview shows
+                                    // and ⌘→ edits, so the three surfaces never name
+                                    // different rows. That is the cursor while it is part
+                                    // of the selection, and the leading selected row once
+                                    // the cursor is Shift+Clicked OUT of it. (With several
+                                    // rows selected Return pastes all of them — the
+                                    // preview pane says so — and the glyph just marks
+                                    // where the cursor is.) A plain `index == cursor` rule
+                                    // would leave the arrow on the row the user just
+                                    // deselected, promising a paste of itself while Return
+                                    // pastes the others.
+                                    //
+                                    // Nothing gets the glyph while editing: Return there
+                                    // inserts a newline (only ⌘Return saves), so the arrow
+                                    // would name an action Return will not perform. The
+                                    // footer's ⌘→ verb already gates the same way.
+                                    showsReturnAffordance: !isEditing && index == returnRow,
                                     shortcutIndex: index < 9 ? index : nil,
                                     editVerb: editVerb(forKind: item.kind)
                                 )
