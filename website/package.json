@@ -16,7 +16,7 @@
     "tailwindcss": "^4.2.1"
   },
   "overrides": {
-    "devalue": ">=5.8.1",
+    "devalue": ">=5.9.2",
     "esbuild": ">=0.28.1"
   }
 }
