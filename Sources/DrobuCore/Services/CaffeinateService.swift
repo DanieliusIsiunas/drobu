@@ -53,9 +53,16 @@ final class CaffeinateService {
         expiryTimer = nil
 
         // A non-positive duration is already expired by wall-clock math, so there
-        // is nothing to hold the Mac awake *for*. Still open the session so the
-        // state machine behaves uniformly (`isActive` reports false via the
-        // wall-clock check, and the deadline path tears it down).
+        // is nothing to hold the Mac awake *for*, and a kernel timeout of 0 means
+        // "never time out" — so taking an assertion here would hold the Mac awake
+        // forever. The session is still opened so the state machine behaves
+        // uniformly, and that is safe because `isActive` is wall-clock derived:
+        // it reports false immediately, the badge (gated on isActive && remaining
+        // > 0) never lights, and the 0-interval expiry timer reconciles to `.idle`
+        // on the next run-loop turn. Both halves of that invariant are pinned by
+        // tests — a zero-duration session never reports active and never holds an
+        // assertion. No production caller can reach it today (every `/sleep`
+        // duration is positive, and `extend` requires `remainingTime > 0`).
         if duration > 0 {
             guard assertion.hold(duration: duration, reason: "Drobu Keep Awake") else {
                 Log.error("CaffeinateService: power assertion refused — not entering active state")

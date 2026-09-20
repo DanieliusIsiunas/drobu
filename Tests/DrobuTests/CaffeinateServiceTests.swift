@@ -333,4 +333,19 @@ struct CaffeinateServiceTests {
         #expect(!real.hold(duration: 0, reason: "Drobu test"))
         #expect(!real.isHeld)
     }
+
+    /// Regression: a session allowed to run to its deadline is released by powerd
+    /// at the kernel timeout, so the app's own release lands on an ID the kernel
+    /// already dropped and gets `kIOReturnBadArgument` back. Logging that as an
+    /// error put two ERROR lines in `app.log` for every *healthy* session while
+    /// early-stopped sessions stayed silent — inverted signal in the file this
+    /// project's runbook says to read first. Verified live: post-timeout release
+    /// returns 0xE00002C2.
+    @Test func alreadyReleasedCodesAreNotTreatedAsFailures() {
+        #expect(IOPMPowerAssertion.isAlreadyReleased(kIOReturnBadArgument))
+        #expect(IOPMPowerAssertion.isAlreadyReleased(kIOReturnNotFound))
+        // A genuine failure must still be reported.
+        #expect(!IOPMPowerAssertion.isAlreadyReleased(kIOReturnNoMemory))
+        #expect(!IOPMPowerAssertion.isAlreadyReleased(kIOReturnNotPermitted))
+    }
 }

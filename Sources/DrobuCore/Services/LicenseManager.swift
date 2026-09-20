@@ -348,7 +348,8 @@ public final class LicenseManager: ObservableObject {
     /// Returns `nil` when a newer mutation superseded this call (drop the result).
     @discardableResult
     public func activate(keyString: String) async throws -> ActivationVerdict? {
-        try await unlock.activate(keyString: keyString)
+        defer { recomputeStatus() }
+        return try await unlock.activate(keyString: keyString)
     }
 
     /// Free THIS Mac's seat on the server, then clear the local license so the
@@ -361,13 +362,15 @@ public final class LicenseManager: ObservableObject {
     /// (still active server-side) with no local state to retry the release.
     @discardableResult
     public func deactivateThisDevice() async -> Bool {
-        await unlock.deactivateThisDevice()
+        defer { recomputeStatus() }
+        return await unlock.deactivateThisDevice()
     }
 
     /// Clear the active license + all device-activation cache (e.g. for support
     /// / testing). Status reverts to the underlying trial state.
     public func deactivate() {
         unlock.deactivateLocally()
+        recomputeStatus()
     }
 
     /// Re-validate the stored license against the cap when the cached verdict is
@@ -379,6 +382,7 @@ public final class LicenseManager: ObservableObject {
     /// it bypasses the cadence throttle — the throttle only paces background
     /// polling, never a deliberate tap.
     public func revalidateIfNeeded(force: Bool = false) async {
+        defer { recomputeStatus() }
         await unlock.revalidateIfNeeded(force: force)
     }
 
@@ -391,7 +395,27 @@ public final class LicenseManager: ObservableObject {
 
     // MARK: - Internal
 
+    /// Recompute and publish. Assigns only on an actual change so the belt-and-braces
+    /// recompute each public mutator performs (see below) costs no redundant SwiftUI
+    /// invalidation when `onChange` already published the same result.
+    ///
+    /// Every public mutator recomputes after forwarding, rather than trusting the
+    /// provider to have called `onChange`. `UnlockProviding` cannot enforce that call,
+    /// and the whole point of the protocol is that a second conformer will exist — a
+    /// conformer that persists an entitlement but misses one `onChange` on one branch
+    /// would leave `status` stale until the hourly refresh, which is exactly the
+    /// "correct on disk, still gated in the UI" shape this codebase has shipped before.
+    /// Recomputing here is idempotent and makes that class of bug unreachable.
     private func recomputeStatus() {
+        let next = computedStatus()
+        guard next != status else { return }
+        status = next
+    }
+
+    /// NOT pure: the `.none` and blocked branches run `trialStatus()`, which advances
+    /// the clock-rollback anchor. The `.unlocked` / `.indeterminate` branches
+    /// deliberately do not, so a paying customer's Keychain sees no anchor churn.
+    private func computedStatus() -> LicenseStatus {
         switch unlock.currentState() {
         case .indeterminate:
             // FAIL OPEN. The entitlement could not be read (Keychain auth/ACL
@@ -399,19 +423,19 @@ public final class LicenseManager: ObservableObject {
             // Never gate a (likely paying) user on data we couldn't read; treat
             // as activated until the read recovers.
             // See `.claude/rules/keychain-and-crypto.md`.
-            status = .activated
+            return .activated
         case .unlocked:
-            status = .activated
+            return .activated
         case .limitReached(let devices):
             // A blocked verdict must NOT degrade a still-running trial — prefer
             // the trial while days remain; only gate once it has also expired.
-            status = trialPreferredOver(.activationLimitReached(devices: devices))
+            return trialPreferredOver(.activationLimitReached(devices: devices))
         case .revoked:
-            status = trialPreferredOver(.licenseRevoked)
+            return trialPreferredOver(.licenseRevoked)
         case .none:
             // No entitlement (or a stored key that failed verification) — the
             // trial clock decides.
-            status = trialStatus()
+            return trialStatus()
         }
     }
 
