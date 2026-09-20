@@ -335,6 +335,101 @@ struct CaffeinateServiceTests {
         #expect(!real.isHeld)
     }
 
+    // MARK: - IOKit failure paths
+    //
+    // Neither a partial create nor a refused release can be provoked against the
+    // real kernel, and this bookkeeping has already carried two separate defects
+    // that a green suite did not catch. The IOKit primitives are injected so both
+    // paths are reachable here.
+
+    /// A create that fails partway must release everything it already took, and
+    /// report failure — never leave a subset held while claiming success.
+    @Test func partialCreateFailureUnwindsEverythingItTook() {
+        var created: [IOPMAssertionID] = []
+        var released: [IOPMAssertionID] = []
+        var next: UInt32 = 100
+
+        let assertion = IOPMPowerAssertion(
+            create: { _, _, _ in
+                // Fail on the third of the four types.
+                guard created.count < 2 else { return nil }
+                next += 1
+                created.append(IOPMAssertionID(next))
+                return IOPMAssertionID(next)
+            },
+            release: { id in released.append(id); return kIOReturnSuccess }
+        )
+
+        #expect(!assertion.hold(duration: 600, reason: "Drobu test"))
+        #expect(created.count == 2)
+        #expect(released.sorted() == created.sorted())   // both taken IDs given back
+        #expect(!assertion.isHeld)
+    }
+
+    /// An ID the kernel refuses to release stays tracked so a later attempt can
+    /// retry it. Dropping it would strand a live assertion with no owner — the
+    /// Mac stays awake and nothing says so.
+    @Test func refusedReleaseRetainsTheIDForRetry() {
+        var releaseAttempts: [IOPMAssertionID] = []
+        var refuse = true
+        var next: UInt32 = 200
+
+        let assertion = IOPMPowerAssertion(
+            create: { _, _, _ in next += 1; return IOPMAssertionID(next) },
+            release: { id in
+                releaseAttempts.append(id)
+                return refuse ? kIOReturnNotPermitted : kIOReturnSuccess
+            }
+        )
+
+        #expect(assertion.hold(duration: 600, reason: "Drobu test"))
+        assertion.release()
+        #expect(assertion.isHeld)            // refused — still tracked, not discarded
+
+        refuse = false
+        releaseAttempts.removeAll()
+        assertion.release()
+        #expect(!assertion.isHeld)           // retry succeeded
+        #expect(releaseAttempts.count == 4)  // all four retried, none lost
+    }
+
+    /// Regression (found by the cross-model reviewer on PR #119): `release()`
+    /// deliberately keeps IDs it could not free, but `hold()` then overwrote the
+    /// array with only the newly created IDs — silently discarding them and
+    /// defeating the retry contract. A new session must carry stranded IDs forward.
+    @Test func startingANewSessionDoesNotDiscardStrandedIDs() {
+        var refuse = true
+        var next: UInt32 = 300
+        var releaseAttempts: [IOPMAssertionID] = []
+
+        let assertion = IOPMPowerAssertion(
+            create: { _, _, _ in next += 1; return IOPMAssertionID(next) },
+            release: { id in
+                releaseAttempts.append(id)
+                return refuse ? kIOReturnNotPermitted : kIOReturnSuccess
+            }
+        )
+
+        #expect(assertion.hold(duration: 600, reason: "Drobu test"))
+        let firstSession = Array(301...304).map { IOPMAssertionID(UInt32($0)) }
+
+        // A new session starts while the first session's IDs cannot be released.
+        releaseAttempts.removeAll()
+        #expect(assertion.hold(duration: 600, reason: "Drobu test"))
+
+        // Now everything releases. All EIGHT ids must be attempted — the four
+        // stranded ones plus the four new. Before the fix only the new four were
+        // tracked and the stranded four were unreachable forever.
+        refuse = false
+        releaseAttempts.removeAll()
+        assertion.release()
+        #expect(releaseAttempts.count == 8)
+        for id in firstSession {
+            #expect(releaseAttempts.contains(id))
+        }
+        #expect(!assertion.isHeld)
+    }
+
     /// Regression: a session allowed to run to its deadline is released by powerd
     /// at the kernel timeout, so the app's own release lands on an ID the kernel
     /// already dropped and gets `kIOReturnBadArgument` back. Logging that as an

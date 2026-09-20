@@ -55,6 +55,21 @@ protocol PowerAssertionHolding: AnyObject {
 final class IOPMPowerAssertion: PowerAssertionHolding {
     private var assertionIDs: [IOPMAssertionID] = []
 
+    /// The two IOKit primitives, injected so the failure paths — a partial create
+    /// and a refused release — are reachable from tests. They cannot be provoked
+    /// against the real kernel, and this bookkeeping has now carried two separate
+    /// defects that a green suite did not catch.
+    private let createAssertion: (_ type: String, _ duration: TimeInterval, _ reason: String) -> IOPMAssertionID?
+    private let releaseAssertion: (IOPMAssertionID) -> IOReturn
+
+    init(
+        create: @escaping (String, TimeInterval, String) -> IOPMAssertionID? = IOPMPowerAssertion.systemCreate,
+        release: @escaping (IOPMAssertionID) -> IOReturn = IOPMAssertionRelease
+    ) {
+        self.createAssertion = create
+        self.releaseAssertion = release
+    }
+
     private static let types: [String] = [
         kIOPMAssertionTypePreventUserIdleDisplaySleep as String,
         kIOPMAssertionTypePreventUserIdleSystemSleep as String,
@@ -72,29 +87,32 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
 
     func hold(duration: TimeInterval, reason: String) -> Bool {
         release()
+        // INVARIANT: whatever `release()` could not free is still live in the
+        // kernel and stays tracked so a later attempt retries it. EVERY assignment
+        // to `assertionIDs` below must carry it forward — overwriting the array
+        // with only the new IDs silently defeats that retry contract and strands a
+        // live assertion with no owner, which is exactly the bug this guards.
+        let stranded = assertionIDs
         guard duration > 0 else { return false }
 
         var created: [IOPMAssertionID] = []
         for type in Self.types {
-            guard let id = Self.create(type: type, duration: duration, reason: reason) else {
+            guard let id = createAssertion(type, duration, reason) else {
                 // All-or-nothing: partial coverage (e.g. the display sleeps while
                 // the system stays up) is a confusing half-feature, and
                 // `caffeinate -dims` was all-or-nothing too. Unwind and fail.
                 //
                 // Adopt what we created before unwinding so the unwind goes through
-                // `release()` and inherits its retry rule. Dropping these IDs on the
-                // floor here would mean a release that genuinely failed leaves an
-                // assertion live with no owner left to retry it, while the session
-                // reports idle — the Mac stays awake and nothing says so.
+                // `release()` and inherits its retry rule.
                 Log.error("IOPMPowerAssertion: failed to create \(type) — releasing partial assertions")
-                assertionIDs = created
+                assertionIDs = stranded + created
                 release()
                 return false
             }
             created.append(id)
         }
 
-        assertionIDs = created
+        assertionIDs = stranded + created
         Log.debug("IOPMPowerAssertion: held \(created.count) assertions for \(Int(duration))s")
         return true
     }
@@ -107,7 +125,7 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
         guard !assertionIDs.isEmpty else { return }
         var unreleased: [IOPMAssertionID] = []
         for id in assertionIDs {
-            let rc = IOPMAssertionRelease(id)
+            let rc = releaseAssertion(id)
             if rc == kIOReturnSuccess || Self.isAlreadyReleased(rc) { continue }
             Log.error("IOPMPowerAssertion: release failed for id \(id): \(rc) — retaining for retry")
             unreleased.append(id)
@@ -131,7 +149,8 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
         rc == kIOReturnBadArgument || rc == kIOReturnNotFound
     }
 
-    private static func create(type: String, duration: TimeInterval, reason: String) -> IOPMAssertionID? {
+    /// The production `create`: one real IOKit assertion with a kernel timeout.
+    static func systemCreate(type: String, duration: TimeInterval, reason: String) -> IOPMAssertionID? {
         let properties: [String: Any] = [
             kIOPMAssertionTypeKey as String: type,
             kIOPMAssertionNameKey as String: reason,
@@ -149,6 +168,6 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
         // Not strictly required (the kernel reaps assertions with the process, and
         // stop()/cleanup() already release), but keeps a discarded holder from
         // leaving rows in `pmset -g assertions`.
-        for id in assertionIDs { _ = IOPMAssertionRelease(id) }
+        for id in assertionIDs { _ = releaseAssertion(id) }
     }
 }
