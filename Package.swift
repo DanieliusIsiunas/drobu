@@ -26,14 +26,24 @@ let package = Package(
                 "DrobuShared",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "HotKey", package: "HotKey"),
-                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/DrobuCore",
             exclude: ["Info.plist", "Drobu.entitlements"]
         ),
+        // Sparkle lives HERE, not in DrobuCore, so an App Store build can link
+        // the core without linking an updater it is forbidden to ship
+        // (Guideline 2.4.5(vii)). Only the direct-sale executable depends on it.
+        .target(
+            name: "DrobuUpdater",
+            dependencies: [
+                "DrobuCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            path: "Sources/DrobuUpdater"
+        ),
         .executableTarget(
             name: "Drobu",
-            dependencies: ["DrobuCore"],
+            dependencies: ["DrobuCore", "DrobuUpdater"],
             path: "Sources/Drobu"
         ),
         // Privileged root daemon. Thin wiring over DrobuShared; SPM does not

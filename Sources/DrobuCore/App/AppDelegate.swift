@@ -1,18 +1,9 @@
 import AppKit
 import ApplicationServices
 import HotKey
-import Sparkle
-
-/// Ferries Sparkle's non-Sendable install block across the `nonisolated` →
-/// main-actor hop in `updater(_:willInstallUpdateOnQuit:…)`. Safe as
-/// `@unchecked Sendable` because the block is received, stored, and invoked
-/// only on the main thread (Sparkle's installer driver dispatches to main).
-private struct InstallBlockBox: @unchecked Sendable {
-    let run: () -> Void
-}
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUStandardUserDriverDelegate, SPUUpdaterDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
@@ -31,17 +22,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private let closedLidService = ClosedLidService()
     private var statusItem: NSStatusItem?
     private var badgeDotView: NSView?
-    /// Top-right blue down-arrow glyph shown when a Sparkle update is waiting.
+    /// Top-right blue down-arrow glyph shown when an update is waiting.
     /// Independent of badgeDotView (bottom-right sleep dot) so both can coexist.
     private var updateArrowView: NSView?
     /// Non-nil when a gentle (background) update is downloaded and waiting; drives
-    /// the status-menu items and the icon arrow. Cleared when the user engages.
+    /// the status-menu items and the icon arrow. Mirrored from the updater's
+    /// `onPendingUpdateChange`, so it is `nil` for a build with no updater at all.
     private var pendingUpdateVersion: String?
-    /// Set on the automatic-download path (willInstallUpdateOnQuit): invoking it
-    /// installs the already-staged update and relaunches with no UI — what powers
-    /// an instant "Restart to Update". Nil on the alert paths (fall back to
-    /// resuming via the updater).
-    private var immediateInstallBlock: (() -> Void)?
     /// The injected "update available" + "Restart to Update" items, tracked so
     /// they can be rebuilt independently of the sleep status items.
     private var updateMenuItems: [NSMenuItem] = []
@@ -51,7 +38,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private var sleepStatusTimer: Timer?
     private var isMenuOpen = false
     private var signalSources: [DispatchSourceSignal] = []
-    private var updaterController: SPUStandardUpdaterController?
+    /// In-app updater, or `nil` when this build has none. The Mac App Store build
+    /// leaves `UpdaterFactory.make` unset, which is the supported configuration —
+    /// Apple owns updates there — so every use site below is optional-chained
+    /// rather than force-unwrapped.
+    ///
+    /// **This is the only strong reference to the updater in the whole graph.**
+    /// Sparkle holds its delegates weakly ("you are responsible for keeping them
+    /// alive"), and the coordinator IS both delegates, so nilling this silently
+    /// reverts updates to Sparkle's default modal presentation — no crash, no log,
+    /// nothing to point at. Do not make it weak or clear it.
+    private var updater: UpdateCoordinating?
     public private(set) var licenseManager: LicenseManager?
     private var licenseRefreshTimer: Timer?
     private var activationPanel: ActivationPanel?
@@ -190,18 +187,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
             self?.stopActiveRecording()
         }
 
-        // Start Sparkle auto-update checks. We are BOTH delegates so updates are
-        // surfaced gently (status menu + icon arrow) instead of a modal, on both
-        // Sparkle paths: the updater delegate catches the common silent
-        // auto-download (install-on-quit), and the user-driver delegate catches
-        // the alert paths (impatient/critical/authorization). See the conformances
-        // below.
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: self,
-            userDriverDelegate: self
-        )
-        Log.info("AppDelegate: Sparkle updater started")
+        // Start in-app update checks, if this build has an updater at all. The
+        // direct build installs a Sparkle-backed one; the Mac App Store build
+        // deliberately installs none, and every update surface below simply stays
+        // hidden. The updater PUSHES pending-update state to us — a background
+        // download can stage an update with no user interaction — so we mirror it
+        // rather than poll.
+        updater = UpdaterFactory.make?()
+        if updater == nil {
+            // Log BOTH branches. The old code constructed the updater
+            // unconditionally and logged every launch, so silence used to be
+            // impossible. Without this line a direct-sale build whose injection
+            // broke is runtime-indistinguishable from the (intended) App Store
+            // build: no updater, no menu item, no background checks, and nothing
+            // in app.log to say so — the silent-update-outage class that
+            // `.claude/rules/sparkle-macos-gotchas.md` opens with.
+            Log.info("AppDelegate: no in-app updater configured (App Store build, or injection missing)")
+        }
+        updater?.onPendingUpdateChange = { [weak self] version in
+            guard let self else { return }
+            self.pendingUpdateVersion = version
+            self.refreshUpdateUI()
+        }
+        updater?.start()
 
         // Set up menu bar status item with custom icon
         setupStatusItem()
@@ -407,13 +415,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         // Dynamic sleep status items need menuWillOpen/menuDidClose
         menu.delegate = self
         menu.addItem(withTitle: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
-        if let controller = updaterController {
+        // Only offered when this build has an updater — an App Store build must
+        // not advertise an update path it does not own.
+        if updater != nil {
             let checkForUpdatesItem = NSMenuItem(
                 title: "Check for Updates...",
-                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                action: #selector(checkForUpdates),
                 keyEquivalent: ""
             )
-            checkForUpdatesItem.target = controller
+            checkForUpdatesItem.target = self
             menu.addItem(checkForUpdatesItem)
         }
         menu.addItem(.separator())
@@ -699,97 +709,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         refreshSleepStatusItems()
     }
 
-    // MARK: - Gentle Update Reminders (Sparkle)
-
-    // The protocol is not `@MainActor`-isolated, so each witness is declared
-    // `nonisolated` and hops onto the main actor inside — keeping the conformance
-    // off the @MainActor class's isolation boundary. `assumeIsolated` is safe
-    // because Sparkle 2.9.1 invokes every SPUStandardUserDriverDelegate method on
-    // the main thread (the suppressed-update callback is dispatched to the main
-    // queue; the synchronous ones run inside main-thread-asserted driver methods).
-
-    /// Required to opt into Sparkle's gentle scheduled-update reminders for a
-    /// background (`.accessory`) app — without it Sparkle warns and falls back
-    /// to its standard modal presentation.
-    public nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
-
-    /// Decide whether Sparkle shows its standard modal for a *scheduled* update.
-    /// Returning `false` suppresses it so we surface the update gently (menu +
-    /// icon) instead. We defer to Sparkle (`true`) only when it proposes
-    /// immediate focus — Sparkle sets this when the app launched recently or the
-    /// system has been idle, i.e. a moment the user is plausibly attentive.
-    /// User-initiated "Check for Updates…" never reaches this method — it always
-    /// shows the standard dialog.
-    public nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
-        _ update: SUAppcastItem,
-        andInImmediateFocus immediateFocus: Bool
-    ) -> Bool {
-        immediateFocus
-    }
-
-    /// Fires just before any update is presented. We light up the gentle
-    /// surfaces only when WE are handling the presentation (`!handleShowingUpdate`)
-    /// for a non-user-initiated update — otherwise Sparkle is already showing its
-    /// own dialog (user-initiated check, or the immediate-focus scheduled path),
-    /// and a second gentle indicator behind it would be redundant.
-    public nonisolated func standardUserDriverWillHandleShowingUpdate(
-        _ handleShowingUpdate: Bool,
-        forUpdate update: SUAppcastItem,
-        state: SPUUserUpdateState
-    ) {
-        MainActor.assumeIsolated {
-            guard !state.userInitiated, !handleShowingUpdate else { return }
-            pendingUpdateVersion = update.displayVersionString
-            Log.info("AppDelegate: gentle update pending (v\(update.displayVersionString))")
-            refreshUpdateUI()
-        }
-    }
-
-    /// The user engaged with the update (e.g. via our menu item resuming the
-    /// install) — clear the gentle indicators.
-    public nonisolated func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
-        MainActor.assumeIsolated { clearPendingUpdate() }
-    }
-
-    /// The update session ended. Clear the indicators; if the update is still
-    /// uninstalled, the next scheduled check re-surfaces it.
-    public nonisolated func standardUserDriverWillFinishUpdateSession() {
-        MainActor.assumeIsolated { clearPendingUpdate() }
-    }
-
-    private func clearPendingUpdate() {
-        guard pendingUpdateVersion != nil else { return }
-        pendingUpdateVersion = nil
-        immediateInstallBlock = nil
-        Log.info("AppDelegate: gentle update indicator cleared")
-        refreshUpdateUI()
-    }
-
-    // MARK: - SPUUpdaterDelegate (automatic-download path)
-
-    /// Fires when a background auto-download (SUAutomaticallyUpdate) has staged an
-    /// update for install-on-quit. This is the COMMON gentle path — it bypasses
-    /// the user-driver alert callbacks above, so without it the menu row/arrow
-    /// would only ever appear on the rarer alert paths. Returning `true` takes
-    /// control of install timing: we keep the staged update and either install it
-    /// now (user clicks "Restart to Update" → immediateInstallBlock) or on quit.
-    /// Called on the main thread (Sparkle's installer driver dispatches to main).
-    public nonisolated func updater(
-        _ updater: SPUUpdater,
-        willInstallUpdateOnQuit item: SUAppcastItem,
-        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
-    ) -> Bool {
-        let box = InstallBlockBox(run: immediateInstallHandler)
-        let version = item.displayVersionString
-        MainActor.assumeIsolated {
-            immediateInstallBlock = box.run
-            pendingUpdateVersion = version
-            Log.info("AppDelegate: gentle update staged for install (v\(version))")
-            refreshUpdateUI()
-        }
-        return true
-    }
-
     /// Refresh both gentle-update surfaces from `pendingUpdateVersion`: the
     /// status-menu items and the menu-bar icon arrow.
     private func refreshUpdateUI() {
@@ -835,25 +754,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     }
 
     @objc private func restartToUpdate() {
-        // Guard against a stale item: if the session ended while the menu was
-        // held open, the item can linger one cycle. Without this, a click would
-        // start a fresh user-initiated check (the "Checking for Updates" modal
-        // this feature exists to suppress) instead of resuming.
-        guard pendingUpdateVersion != nil else {
-            Log.info("AppDelegate: Restart to Update ignored — no pending update")
-            return
-        }
-        if let installNow = immediateInstallBlock {
-            // Automatic-download path: the update is already staged — install and
-            // relaunch immediately, no UI (Sparkle's immediate-install handler).
-            Log.info("AppDelegate: installing staged update immediately")
-            installNow()
-        } else {
-            // Alert path (impatient/critical/authorization): resume via the updater,
-            // which re-presents Sparkle's Install & Relaunch.
-            Log.info("AppDelegate: user chose Restart to Update — resuming via updater")
-            updaterController?.checkForUpdates(nil)
-        }
+        // The stale-click guard lives in the updater (it owns whether anything is
+        // actually staged); this is only the menu action.
+        updater?.installPendingUpdate()
+    }
+
+    @objc private func checkForUpdates() {
+        updater?.checkForUpdates()
+    }
+
+    /// Restores the menu validation we lost by targeting "Check for Updates…" at
+    /// this delegate rather than at Sparkle's own controller, whose
+    /// `validateMenuItem:` greys the item out when a check cannot run.
+    ///
+    /// Without this the item is unconditionally enabled (the menu uses AppKit's
+    /// default `autoenablesItems`), and clicking it while an update is staged does
+    /// **nothing** — no dialog, no error, not even a line in `app.log`. That is
+    /// the state a user is most likely to click it in: taking control of install
+    /// timing keeps the update session open for exactly as long as the arrow and
+    /// "Restart to Update" are on screen.
+    ///
+    /// The `true` default is load-bearing: this delegate is also the target for
+    /// Settings, Quit, Restart to Update and the sleep items, and returning
+    /// anything else here would disable them.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates) else { return true }
+        return updater?.canCheckForUpdates ?? false
     }
 
     @objc private func openPreferences() {

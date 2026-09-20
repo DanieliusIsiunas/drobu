@@ -1,6 +1,9 @@
 import Foundation
 
-enum Log {
+/// Public so the sibling `DrobuUpdater` target logs into the SAME `app.log`.
+/// CLAUDE.md makes that file the first step of any bug investigation, so a second
+/// logger would fragment exactly the thing it tells you to read.
+public enum Log {
     #if DEBUG
     static let debugEnabled = true
     #else
@@ -74,13 +77,13 @@ enum Log {
         try? fileManager.moveItem(at: current, to: previous)
     }
 
-    static func debug(_ message: @autoclosure () -> String) {
+    public static func debug(_ message: @autoclosure () -> String) {
         guard debugEnabled else { return }
         write("DEBUG \(message())")
     }
 
-    static func info(_ message: @autoclosure () -> String)  { write("INFO  \(message())") }
-    static func error(_ message: @autoclosure () -> String) { write("ERROR \(message())") }
+    public static func info(_ message: @autoclosure () -> String)  { write("INFO  \(message())") }
+    public static func error(_ message: @autoclosure () -> String) { write("ERROR \(message())") }
 
     private static func write(_ message: String) {
         let line = "\(df.string(from: Date())) \(message)\n"
