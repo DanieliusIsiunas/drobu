@@ -53,6 +53,16 @@ public final class SparkleUpdateCoordinator: NSObject, UpdateCoordinating,
 
     // MARK: - UpdateCoordinating
 
+    /// Mirrors Sparkle's own menu validation, which we lose by targeting the menu
+    /// item at our delegate instead of `SPUStandardUpdaterController` (whose
+    /// `validateMenuItem:` returns exactly this). Sparkle's header calls this
+    /// property "more suited for menu item validation" than the check method.
+    /// `false` while an update session is open — including the whole time a staged
+    /// update is waiting for "Restart to Update".
+    public var canCheckForUpdates: Bool {
+        controller?.updater.canCheckForUpdates ?? false
+    }
+
     public func start() {
         // We are BOTH delegates so updates are surfaced gently (status menu +
         // icon arrow) instead of a modal, on both Sparkle paths: the updater
@@ -95,6 +105,11 @@ public final class SparkleUpdateCoordinator: NSObject, UpdateCoordinating,
 
     private func clearPendingUpdate() {
         guard pendingVersion != nil else { return }
+        // Order matters: nilling `pendingVersion` fires `onPendingUpdateChange`
+        // synchronously, so the owner's UI refresh runs BEFORE the install block
+        // is dropped. Safe because `installPendingUpdate()` guards on
+        // `pendingVersion`, which is already nil by then — do not reorder these
+        // two lines without re-reading that guard.
         pendingVersion = nil
         immediateInstallBlock = nil
         Log.info("SparkleUpdateCoordinator: gentle update indicator cleared")

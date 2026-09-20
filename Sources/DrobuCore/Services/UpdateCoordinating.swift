@@ -25,8 +25,16 @@ public protocol UpdateCoordinating: AnyObject {
     /// download with no user interaction at all.
     var onPendingUpdateChange: ((String?) -> Void)? { get set }
 
-    /// The version of the update currently waiting, or `nil`.
-    var pendingVersion: String? { get }
+    /// Whether a user-initiated check can actually do something right now.
+    ///
+    /// Drives menu-item validation, and it is **not** decoration. Taking control
+    /// of install timing (returning `true` from Sparkle's `willInstallUpdateOnQuit`)
+    /// keeps an update session open for the entire window the "Restart to Update"
+    /// item is visible, and a check started during that window returns early and
+    /// does nothing at all. Without this, the "Check for Updates…" item stays
+    /// enabled and silently no-ops in exactly the state a user is most likely to
+    /// click it.
+    var canCheckForUpdates: Bool { get }
 
     /// Begin background update checking. Called once, at launch.
     func start()

@@ -3,7 +3,7 @@ import ApplicationServices
 import HotKey
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     private(set) var database: AppDatabase?
     private(set) var monitor: ClipboardMonitor?
     private var panel: FloatingPanel?
@@ -42,6 +42,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     /// leaves `UpdaterFactory.make` unset, which is the supported configuration —
     /// Apple owns updates there — so every use site below is optional-chained
     /// rather than force-unwrapped.
+    ///
+    /// **This is the only strong reference to the updater in the whole graph.**
+    /// Sparkle holds its delegates weakly ("you are responsible for keeping them
+    /// alive"), and the coordinator IS both delegates, so nilling this silently
+    /// reverts updates to Sparkle's default modal presentation — no crash, no log,
+    /// nothing to point at. Do not make it weak or clear it.
     private var updater: UpdateCoordinating?
     public private(set) var licenseManager: LicenseManager?
     private var licenseRefreshTimer: Timer?
@@ -188,6 +194,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         // download can stage an update with no user interaction — so we mirror it
         // rather than poll.
         updater = UpdaterFactory.make?()
+        if updater == nil {
+            // Log BOTH branches. The old code constructed the updater
+            // unconditionally and logged every launch, so silence used to be
+            // impossible. Without this line a direct-sale build whose injection
+            // broke is runtime-indistinguishable from the (intended) App Store
+            // build: no updater, no menu item, no background checks, and nothing
+            // in app.log to say so — the silent-update-outage class that
+            // `.claude/rules/sparkle-macos-gotchas.md` opens with.
+            Log.info("AppDelegate: no in-app updater configured (App Store build, or injection missing)")
+        }
         updater?.onPendingUpdateChange = { [weak self] version in
             guard let self else { return }
             self.pendingUpdateVersion = version
@@ -745,6 +761,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     @objc private func checkForUpdates() {
         updater?.checkForUpdates()
+    }
+
+    /// Restores the menu validation we lost by targeting "Check for Updates…" at
+    /// this delegate rather than at Sparkle's own controller, whose
+    /// `validateMenuItem:` greys the item out when a check cannot run.
+    ///
+    /// Without this the item is unconditionally enabled (the menu uses AppKit's
+    /// default `autoenablesItems`), and clicking it while an update is staged does
+    /// **nothing** — no dialog, no error, not even a line in `app.log`. That is
+    /// the state a user is most likely to click it in: taking control of install
+    /// timing keeps the update session open for exactly as long as the arrow and
+    /// "Restart to Update" are on screen.
+    ///
+    /// The `true` default is load-bearing: this delegate is also the target for
+    /// Settings, Quit, Restart to Update and the sleep items, and returning
+    /// anything else here would disable them.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates) else { return true }
+        return updater?.canCheckForUpdates ?? false
     }
 
     @objc private func openPreferences() {
