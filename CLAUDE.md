@@ -17,6 +17,7 @@ The proactive-append discipline only works if it fires on specific moments. Capt
 - You hit a macOS / Keychain / framework quirk that took more than ~10 minutes to diagnose
 - You catch yourself thinking *"I keep forgetting this"* or *"that's surprising"* or *"why is this even like this"*
 - A multi-round thread (5+ iterations of a single problem) yielded a meta-lesson worth a future-self note
+- A refactor claimed behavioural parity ("no behaviour change", "moved verbatim") and the evidence was an argument rather than an artifact — a diff, a linkage check, an untouched passing suite (v1.11.x: two of `caffeinate -dims`'s four assertions were dropped on reasoning, survived review twice, and a live run would have settled it in seconds)
 
 Cost of capture: ~5 minutes. Cost of skipping: re-discovery on the next iteration, every future similar event.
 
