@@ -46,7 +46,7 @@ xcrun notarytool store-credentials "notary-profile" \
 ```
 The app-specific password comes from appleid.apple.com → Sign-In and Security → App-Specific Passwords (NOT your Apple ID password). The first notarized release migrates installed self-signed clients over Sparkle's EdDSA path — safe **only** because `SUPublicEDKey` stays unchanged; never rotate the EdDSA key and the signing cert in the same release.
 
-**Tests:** `swift test` — runs ~73 tests across 5 suites in ~0.2s. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
+**Tests:** `swift test` — runs ~520 tests across ~41 suites in well under a second. CI runs this on every PR and push to main. Run locally with `swift test` before pushing.
 
 ## Testing
 
@@ -55,7 +55,7 @@ The app-specific password comes from appleid.apple.com → Sign-In and Security 
 **What to test:**
 - Database operations (queries, migrations, CRUD) — use `makeTestDatabase()` for temp-file DatabasePool
 - Content extraction logic — use `MockPasteboardItem` with factory methods (`.text()`, `.gif()`, `.image()`)
-- Service state machines — test with real dependencies when harmless (e.g., CaffeinateService with real `/usr/bin/caffeinate`)
+- Service state machines — inject a protocol seam for the OS dependency and assert against a fake (e.g. `CaffeinateService` + `PowerAssertionHolding`/`FakePowerAssertion`), keeping one test against the real implementation so an SDK change still fails loudly
 - Pure functions (text processing, hash computation, type filtering)
 
 **What NOT to test:**

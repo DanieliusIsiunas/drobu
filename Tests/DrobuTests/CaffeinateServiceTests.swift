@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import IOKit.pwr_mgt
 @testable import DrobuCore
 
 /// Records assertion lifecycle so the service's state machine can be tested

@@ -61,9 +61,9 @@ expensive. Classify `kIOReturnBadArgument` / `kIOReturnNotFound` as
 
 Double-release is likewise harmless — it returns the same code and does nothing.
 
-## `caffeinate -dims` is FOUR assertions, not two — and `-s` is load-bearing
+## `caffeinate -dims` is FOUR assertions — port all four
 
-Observed from a live `caffeinate -dims`:
+Observed from a live `caffeinate -dims` in `pmset -g assertions`:
 
 ```
 PreventUserIdleSystemSleep    (-i)
@@ -72,7 +72,8 @@ PreventSystemSleep            (-s)
 PreventDiskIdle               (-m)
 ```
 
-Porting only `-d` + `-i` looks equivalent and is not:
+Porting a subset looks equivalent and is not. Two of these were nearly dropped on
+reasoning that did not survive checking:
 
 - **`PreventSystemSleep` (`-s`)** is the **AC-only** assertion that keeps the Mac
   running in dark wake through a **lid close** or demand sleep. Drop it and a user
@@ -80,12 +81,59 @@ Porting only `-d` + `-i` looks equivalent and is not:
   transfer. Zero difference on battery (the assertion is inert there).
   `ClosedLidService` independently depends on it — it spawns `caffeinate -ims`,
   deliberately keeping `-s` while dropping `-d`.
-- **`PreventDiskIdle` (`-m`)** is genuinely unobservable on an SSD Mac; dropping
-  it is free.
+- **`PreventDiskIdle` (`-m`)** is only free if you assume an SSD. An external
+  **spinning** volume can still idle mid-session, so dropping it is a real (if
+  niche) behaviour change, not a no-op.
 
 Do not reason "the display is held on, so the system can't sleep anyway" — that
 argues `-i` is redundant with `-d`, and says nothing about `-s`, which governs
-**non-idle** sleep.
+**non-idle** sleep. Check a live `caffeinate -dims` before trusting any claim
+about which assertions matter.
+
+## `kIOPMAssertPreventDiskIdle` does NOT import into Swift — use the literal
+
+Same class of trap as `IOPMAssertionSetTimeout`. Three of the four types import
+fine as `kIOPMAssertionTypePrevent…`, but the disk one is spelled differently in
+the SDK (`kIOPMAssert**PreventDiskIdle**` — no `ion`, no `Type`) and that symbol
+is **not visible from Swift**, even though all four are plain `CFSTR` defines:
+
+```
+error: cannot find 'kIOPMAssertionTypePreventDiskIdle' in scope
+error: cannot find 'kIOPMAssertPreventDiskIdle' in scope
+```
+
+`IOPMLib.h` expands it to `CFSTR("PreventDiskIdle")`, so pass the literal
+`"PreventDiskIdle"` and say why in a comment. Confirm against the header rather
+than guessing the symbol:
+
+```bash
+grep -rn "DiskIdle" "$(xcrun --show-sdk-path)/System/Library/Frameworks/IOKit.framework/Headers/pwr_mgt/"*.h
+```
+
+## Never discard an assertion ID whose release FAILED
+
+`IOPMAssertionRelease` can return a genuine error (distinct from the benign
+already-timed-out code above). If you clear your tracked IDs unconditionally, that
+assertion stays live with **no owner left to retry it**, while your state machine
+reports idle — the Mac stays awake and nothing says so. It is bounded by the
+kernel timeout, so it self-heals eventually, which is exactly what makes it hard
+to notice.
+
+Keep the failures and retry them later:
+
+```swift
+var unreleased: [IOPMAssertionID] = []
+for id in assertionIDs {
+    let rc = IOPMAssertionRelease(id)
+    if rc == kIOReturnSuccess || Self.isAlreadyReleased(rc) { continue }
+    unreleased.append(id)              // deinit / next hold() retries
+}
+assertionIDs = unreleased
+```
+
+The same applies to the **partial-create unwind**: when assertion 3 of 4 fails, route
+the already-created IDs through that same `release()` rather than a fire-and-forget
+`forEach { _ = IOPMAssertionRelease($0) }`, so the retry rule covers them too.
 
 ## Assertion IDs are globally monotonic, so a stale ID cannot collide
 

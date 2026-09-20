@@ -30,21 +30,22 @@ protocol PowerAssertionHolding: AnyObject {
 
 /// Real implementation over IOKit power management.
 ///
-/// Holds the three assertions that `caffeinate -dims` registered and that are
-/// observable on a modern Mac:
+/// Holds **all four** assertions `caffeinate -dims` registered, so Keep Awake is
+/// unchanged from the user's point of view:
 /// - `PreventUserIdleDisplaySleep` (`-d`) keeps the screen lit,
 /// - `PreventUserIdleSystemSleep` (`-i`) blocks idle system sleep,
 /// - `PreventSystemSleep` (`-s`) keeps the machine running in dark wake through
-///   a lid close or demand sleep **while on AC**.
+///   a lid close or demand sleep **while on AC**,
+/// - `PreventDiskIdle` (`-m`) keeps attached disks spun up.
 ///
-/// `-s` is deliberately included: dropping it would silently change behaviour for
-/// a user who starts Keep Awake on AC for a long transfer and then closes the lid
-/// — the old build kept running, and this is a refactor, not a product decision.
-/// It costs nothing on battery, where the assertion is inert. `ClosedLidService`
-/// independently relies on the same assertion via `caffeinate -ims`.
-///
-/// `-m` (`PreventDiskIdle`) is the one flag not reproduced: it is unobservable on
-/// an SSD Mac.
+/// The full set is deliberate. This is a refactor, so any omission would be a
+/// silent product change, and two of these were nearly dropped on reasoning that
+/// did not survive checking: `-s` is what keeps a long transfer alive when a user
+/// on AC shuts the lid (and `ClosedLidService` depends on the same assertion via
+/// `caffeinate -ims`), while `-m` looks free only if you assume an SSD — an
+/// external spinning volume can still idle mid-transfer. Verify against a live
+/// `caffeinate -dims` in `pmset -g assertions` before changing this list; it
+/// registers four rows, not two.
 ///
 /// Each assertion also carries a **kernel-enforced timeout** equal to the session
 /// duration. That is a backstop, not the primary mechanism —
@@ -58,6 +59,13 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
         kIOPMAssertionTypePreventUserIdleDisplaySleep as String,
         kIOPMAssertionTypePreventUserIdleSystemSleep as String,
         kIOPMAssertionTypePreventSystemSleep as String,
+        // Spelled literally on purpose. The SDK defines this one as
+        // `kIOPMAssertPreventDiskIdle` (note: no `ion`/`Type`), and unlike its
+        // three siblings that symbol does NOT import into Swift even though all
+        // four are plain `CFSTR` defines. `IOPMLib.h` expands it to exactly this
+        // string, and a live assertion using it shows up in `pmset -g assertions`
+        // as `PreventDiskIdle`.
+        "PreventDiskIdle",
     ]
 
     var isHeld: Bool { !assertionIDs.isEmpty }
@@ -72,8 +80,15 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
                 // All-or-nothing: partial coverage (e.g. the display sleeps while
                 // the system stays up) is a confusing half-feature, and
                 // `caffeinate -dims` was all-or-nothing too. Unwind and fail.
+                //
+                // Adopt what we created before unwinding so the unwind goes through
+                // `release()` and inherits its retry rule. Dropping these IDs on the
+                // floor here would mean a release that genuinely failed leaves an
+                // assertion live with no owner left to retry it, while the session
+                // reports idle — the Mac stays awake and nothing says so.
                 Log.error("IOPMPowerAssertion: failed to create \(type) — releasing partial assertions")
-                created.forEach { _ = IOPMAssertionRelease($0) }
+                assertionIDs = created
+                release()
                 return false
             }
             created.append(id)
@@ -84,15 +99,21 @@ final class IOPMPowerAssertion: PowerAssertionHolding {
         return true
     }
 
+    /// Releases every held assertion, **keeping any the kernel genuinely refused to
+    /// release** so a later `release()`, the next `hold()`, or `deinit` can retry.
+    /// Discarding a failed ID would strand a live OS assertion with no owner —
+    /// bounded by the kernel timeout, but invisible until it expires.
     func release() {
         guard !assertionIDs.isEmpty else { return }
+        var unreleased: [IOPMAssertionID] = []
         for id in assertionIDs {
             let rc = IOPMAssertionRelease(id)
             if rc == kIOReturnSuccess || Self.isAlreadyReleased(rc) { continue }
-            Log.error("IOPMPowerAssertion: release failed for id \(id): \(rc)")
+            Log.error("IOPMPowerAssertion: release failed for id \(id): \(rc) — retaining for retry")
+            unreleased.append(id)
         }
-        Log.debug("IOPMPowerAssertion: released \(assertionIDs.count) assertions")
-        assertionIDs = []
+        Log.debug("IOPMPowerAssertion: released \(assertionIDs.count - unreleased.count) assertions")
+        assertionIDs = unreleased
     }
 
     /// `kIOReturnBadArgument` is what the kernel returns for an assertion ID it has

@@ -206,17 +206,6 @@ public final class LicenseManager: ObservableObject {
     /// 14 days in seconds. Matches the website's advertised trial.
     public static let trialDuration: TimeInterval = 14 * 24 * 60 * 60
 
-    /// How long a positive activation verdict is trusted offline before a
-    /// re-validation is attempted (R5). Generous so a no-Wi-Fi user is never
-    /// inconvenienced; expiry only schedules a re-check — it never blocks
-    /// (R6/KTD6: only an affirmative negative verdict blocks). Independent of
-    /// `trialDuration`: the trial length is a marketing commitment, this is a
-    /// network-tolerance budget — they happen to be equal today, don't couple them.
-    public static let activationGracePeriod: TimeInterval = 14 * 24 * 60 * 60
-    /// Shorter cadence for re-checking a NEGATIVE verdict (over_cap/revoked) so
-    /// freeing a seat or reversing a refund unblocks quickly.
-    public static let negativeRecheckCadence: TimeInterval = 60 * 60
-
     private static let trialStartKey = "trial-start"
     /// Monotonic clock anchor: the latest moment this manager has ever
     /// observed. Clamps trial math so rolling the system clock back
@@ -273,7 +262,17 @@ public final class LicenseManager: ObservableObject {
 
     /// The buyer email tied to the active license, if the channel supplies one.
     /// Powers the Settings "Licensed to {email}" row (R11).
-    public var licensedEmail: String? { unlock.licensedEmail }
+    ///
+    /// Published rather than computed, because it is derived state that can change
+    /// **without `status` changing**. Concretely: activate while offline (verdict
+    /// `.unreachable`, key stored, no email yet, status `.activated`), then a later
+    /// background re-validation returns `.activated(email:)`. Status is `.activated`
+    /// both times, so the equality guard in `recomputeStatus` publishes nothing —
+    /// and a computed passthrough would leave the "Licensed to …" row missing for
+    /// as long as that pane stayed open. Refreshing it alongside every recompute
+    /// keeps it observable; it also takes the Keychain read out of the view's
+    /// render path.
+    @Published public private(set) var licensedEmail: String?
 
     /// Convenience: read the embedded public key from `Info.plist` and
     /// use the Keychain store. Throws `LicenseError.publicKeyMissing`
@@ -407,19 +406,25 @@ public final class LicenseManager: ObservableObject {
     /// "correct on disk, still gated in the UI" shape this codebase has shipped before.
     /// Recomputing here is idempotent and makes that class of bug unreachable.
     private func recomputeStatus() {
+        // Refresh derived state BEFORE the equality guard below: `licensedEmail`
+        // can change while `status` does not (see its doc comment), so gating it
+        // on a status change would make it unobservable in exactly that case.
+        let email = unlock.licensedEmail
+        if licensedEmail != email { licensedEmail = email }
+
         let next = computedStatus()
         guard next != status else { return }
         status = next
     }
 
-    /// NOT pure: the `.none` and blocked branches run `trialStatus()`, which advances
+    /// NOT pure: the `.unlicensed` and blocked branches run `trialStatus()`, which advances
     /// the clock-rollback anchor. The `.unlocked` / `.indeterminate` branches
     /// deliberately do not, so a paying customer's Keychain sees no anchor churn.
     private func computedStatus() -> LicenseStatus {
         switch unlock.currentState() {
         case .indeterminate:
             // FAIL OPEN. The entitlement could not be read (Keychain auth/ACL
-            // denial). That is NOT evidence of "no license" — only `.none` is.
+            // denial). That is NOT evidence of "no license" — only `.unlicensed` is.
             // Never gate a (likely paying) user on data we couldn't read; treat
             // as activated until the read recovers.
             // See `.claude/rules/keychain-and-crypto.md`.
@@ -432,7 +437,7 @@ public final class LicenseManager: ObservableObject {
             return trialPreferredOver(.activationLimitReached(devices: devices))
         case .revoked:
             return trialPreferredOver(.licenseRevoked)
-        case .none:
+        case .unlicensed:
             // No entitlement (or a stored key that failed verification) — the
             // trial clock decides.
             return trialStatus()
@@ -525,6 +530,10 @@ public final class LicenseManager: ObservableObject {
     }()
 
     /// Decode the URL-safe base64 dialect used by issue-license-key.sh.
+    /// Kept here rather than moved into `DirectUnlockProvider` with the device-cap
+    /// constants: it is a pure codec with its own tests, and relocating it would
+    /// edit the very test file whose untouched state is this refactor's evidence
+    /// of behaviour preservation.
     /// Differs from standard base64: `+` → `-`, `/` → `_`, no `=` padding.
     static func base64URLDecode(_ s: String) -> Data? {
         var normalized = s.replacingOccurrences(of: "-", with: "+")

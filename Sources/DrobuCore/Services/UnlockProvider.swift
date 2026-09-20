@@ -10,7 +10,13 @@ import Foundation
 /// gate logic must not care which.
 public enum UnlockState: Equatable, Sendable {
     /// No paid entitlement on this Mac — fall through to the trial clock.
-    case none
+    ///
+    /// Deliberately NOT named `none`: stored in an `UnlockState?` (as a test
+    /// double or a cached value naturally is), `= .none` silently resolves to
+    /// `Optional.none` — i.e. nil — instead of this case, and the resulting
+    /// no-op is invisible at the call site. That trap cost a wrong test result
+    /// before the rename.
+    case unlicensed
     /// Entitled and usable.
     case unlocked
     /// Entitlement exists but this Mac is over the device-activation cap.
@@ -23,6 +29,16 @@ public enum UnlockState: Equatable, Sendable {
     /// "no entitlement" — only `.none` is. Gating a likely-paying customer on
     /// data we could not read is the failure mode that produced the v1.10.1
     /// bug. See `.claude/rules/keychain-and-crypto.md`.
+    ///
+    /// **Conformers: this is a narrow state, not a general "I don't know".**
+    /// Because callers grant full access on it, returning it too readily is a
+    /// licence bypass. Return it ONLY when local, already-granted entitlement
+    /// state exists but is temporarily unreadable. Do NOT return it because a
+    /// remote service is unreachable: an offline App Store or activation backend
+    /// is not evidence of a purchase, and treating it as one would unlock the app
+    /// for someone who never bought it. The direct channel's unreachable-backend
+    /// path deliberately keeps its **last known** verdict instead of reporting
+    /// indeterminate — mirror that.
     case indeterminate
 }
 
@@ -80,6 +96,17 @@ public final class DirectUnlockProvider: UnlockProviding {
     private static let activationAttemptedAtKey = "activation-attempted-at" // time of last attempt incl. unreachable (drives retry throttle)
     private static let activationDevicesKey = "activation-devices"      // JSON [ActivatedDevice]
     private static let activationEmailKey = "activation-email"          // "Licensed to {email}"
+
+    /// How long a positive activation verdict is trusted offline before a
+    /// re-validation is attempted (R5). Generous so a no-Wi-Fi user is never
+    /// inconvenienced; expiry only schedules a re-check — it never blocks
+    /// (R6/KTD6: only an affirmative negative verdict blocks). Independent of
+    /// the trial length: that is a marketing commitment, this is a
+    /// network-tolerance budget — they happen to be equal today, don't couple them.
+    public static let activationGracePeriod: TimeInterval = 14 * 24 * 60 * 60
+    /// Shorter cadence for re-checking a NEGATIVE verdict (over_cap/revoked) so
+    /// freeing a seat or reversing a refund unblocks quickly.
+    public static let negativeRecheckCadence: TimeInterval = 60 * 60
 
     public var onChange: (() -> Void)?
 
@@ -153,7 +180,7 @@ public final class DirectUnlockProvider: UnlockProviding {
                 // (bitrot, truncated write, public-key change). Never log the
                 // key material itself — the error carries no key bytes.
                 Log.error("DirectUnlockProvider: stored active-license failed verification (\(error)) — falling back to trial state")
-                return .none
+                return .unlicensed
             }
             // Map the cached device-cap verdict. A positive OR absent verdict is
             // usable (absent = grandfathered/optimistic — R7/KTD6: only an
@@ -165,7 +192,7 @@ public final class DirectUnlockProvider: UnlockProviding {
             default: return .unlocked
             }
         case .absent:
-            return .none
+            return .unlicensed
         }
     }
 
@@ -346,8 +373,8 @@ public final class DirectUnlockProvider: UnlockProviding {
            let checkedAt = LicenseManager.isoFormatter.date(from: checkedIso) {
             let age = now().timeIntervalSince(checkedAt)
             if store.get(Self.activationVerdictKey) == "activated" {
-                if age < LicenseManager.activationGracePeriod { return false }
-            } else if age < LicenseManager.negativeRecheckCadence {
+                if age < Self.activationGracePeriod { return false }
+            } else if age < Self.negativeRecheckCadence {
                 return false
             }
         }
@@ -355,7 +382,7 @@ public final class DirectUnlockProvider: UnlockProviding {
         // throttle repeated attempts (esp. while unreachable) to the short cadence.
         if let attemptedIso = store.get(Self.activationAttemptedAtKey),
            let attemptedAt = LicenseManager.isoFormatter.date(from: attemptedIso) {
-            return now().timeIntervalSince(attemptedAt) >= LicenseManager.negativeRecheckCadence
+            return now().timeIntervalSince(attemptedAt) >= Self.negativeRecheckCadence
         }
         return true
     }
