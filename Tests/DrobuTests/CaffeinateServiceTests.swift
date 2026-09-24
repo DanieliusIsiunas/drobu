@@ -119,6 +119,31 @@ struct CaffeinateServiceTests {
         #expect(service.state != .idle)
     }
 
+    // Regression: a single one-shot deadline timer was deferred for hours (system
+    // sleep, App Nap). The session must keep a repeating reconcile tick armed for
+    // its whole life, and drop it when the session ends.
+    @Test func activeSessionKeepsReconcileTickArmedUntilItEnds() {
+        let (service, _) = makeService()
+        defer { service.cleanup() }
+
+        #expect(!service.isReconcileScheduled)
+        service.start(duration: 600)
+        #expect(service.isReconcileScheduled)
+        service.stop()
+        #expect(!service.isReconcileScheduled)
+    }
+
+    // End-to-end against a real run loop: the tick actually ends the session.
+    @Test func reconcileTickEndsSessionAtDeadline() {
+        let (service, _) = makeService()
+        defer { service.cleanup() }
+
+        service.start(duration: 0.2)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        #expect(service.state == .idle)
+        #expect(!service.isReconcileScheduled)
+    }
+
     @Test func reconcileExpiryIsNoOpWhenIdle() {
         let (service, _) = makeService()
         defer { service.cleanup() }

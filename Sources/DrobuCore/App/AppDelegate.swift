@@ -223,6 +223,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
             self?.refreshStatusIcon()
             self?.refreshSleepStatusItems()
         }
+        // Reconcile the keep-awake deadline immediately on wake instead of waiting
+        // for the next (possibly throttled) reconcile tick.
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.caffeinateService.reconcileExpiry() }
+        }
 
         // First launch: welcome the user and let them set up permissions up
         // front (replaces the old every-launch Accessibility modal — the Set Up
@@ -678,6 +685,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
 
     public func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusItem?.menu else { return }
+        // Belt-and-braces with the wake re-sync: never open the menu over a
+        // session whose deadline has passed.
+        caffeinateService.reconcileExpiry()
         // Rebuild while still safe (isMenuOpen not yet set), so the menu
         // opens with current state even if a change arrived while closed.
         // Update items first so the sleep items offset below them.
