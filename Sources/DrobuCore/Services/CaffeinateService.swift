@@ -75,16 +75,26 @@ final class CaffeinateService {
         scheduleExpiry(after: duration)
     }
 
+    /// How often the session re-checks its wall-clock deadline.
+    static let reconcileInterval: TimeInterval = 10
+
     /// Schedule the deadline check. The menu-bar badge is driven by `state`
     /// transitions (`onStateChange`), and nothing else flips `state` back to
     /// `.idle` when a session simply runs out. Without this, the "keep awake" dot
-    /// persists after the session has expired. `.common` mode so it still fires
-    /// while an NSMenu is tracking (default-mode timers don't — the ClipboardMonitor
-    /// idiom); a one-shot whose fire date passed during sleep fires on wake, which
-    /// is exactly when we want to reconcile.
+    /// persists after the session has expired.
+    ///
+    /// A single one-shot timer at the deadline is NOT enough (observed live, twice):
+    /// it was deferred for hours both across system sleep (run-loop timers don't
+    /// count slept time) and with the Mac awake the whole time (Drobu is a
+    /// windowless `.accessory` app, so App Nap may defer a long-interval timer
+    /// indefinitely). So this is a short repeating tick that reconciles against the
+    /// wall clock — the same shape as `ClosedLidService`'s `reconcileTick`. The
+    /// first fire is at the deadline when that is sooner than one interval.
+    /// `.common` mode so it still fires while an NSMenu is tracking.
     private func scheduleExpiry(after duration: TimeInterval) {
         expiryTimer?.invalidate()
-        let timer = Timer(timeInterval: max(0, duration), repeats: false) { [weak self] _ in
+        let firstFire = Date().addingTimeInterval(min(max(0, duration), Self.reconcileInterval))
+        let timer = Timer(fire: firstFire, interval: Self.reconcileInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.reconcileExpiry() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -94,12 +104,15 @@ final class CaffeinateService {
     /// Idempotent deadline reconciliation: if the session reached its deadline but
     /// `state` is still `.active`, end it now so `state`, `isActive`, and the badge
     /// all agree. No-op unless active-and-expired, so it is safe to call any time
-    /// (timer fire or a wake re-check). Mirrors `ClosedLidService.reconcileTick`.
+    /// (reconcile tick, system wake, menu open). Mirrors `ClosedLidService.reconcileTick`.
     func reconcileExpiry() {
         guard case .active = state, let remaining = remainingTime, remaining <= 0 else { return }
         Log.info("CaffeinateService: deadline reached — ending session")
         stop()
     }
+
+    /// Whether the deadline reconcile tick is armed, for tests.
+    var isReconcileScheduled: Bool { expiryTimer?.isValid == true }
 
     func stop() {
         expiryTimer?.invalidate()

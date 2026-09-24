@@ -28,6 +28,19 @@ wake**, which is when you want to reconcile. `reconcileExpiry` is guarded
 already had this shape (its 30 s `reconcileTick`); `CaffeinateService` did not —
 that asymmetry was the bug.
 
+**Correction (v1.11.x): a one-shot deadline timer is NOT reliable — use a repeating
+reconcile tick.** Observed live twice: (1) 30-min Keep Awake, lid closed overnight,
+woken → no "deadline reached" in `app.log`, dot lit (run-loop timers don't count
+slept time); (2) 15-min Keep Awake, Mac **awake the whole time** — `pmset -g log`
+shows powerd timing the assertions out exactly at the deadline, yet the app's
+one-shot never fired for 2.5 h, until a menu open reconciled it. Likely App Nap:
+Drobu is a windowless `.accessory` app, so a long-interval timer can be deferred
+indefinitely. A 0.3s one-shot fires fine in `swift test`, so a short test proves
+nothing here. Fix: `CaffeinateService.scheduleExpiry` arms a **10 s repeating**
+`.common` tick (first fire at the deadline if sooner) — the `ClosedLidService`
+`reconcileTick` shape — plus `reconcileExpiry()` on `NSWorkspace.didWakeNotification`
+and in `menuWillOpen`. Never drive a user-visible deadline off one long timer.
+
 ## Live-updating an open NSMenu: `.common`-mode timer + title-only mutations
 
 NSMenu tracking runs the run loop in `.eventTracking` mode. `Timer.scheduledTimer` registers in `.default` only, so it **does not fire while a menu is open** — countdowns and live status text freeze the moment the user opens the menu.
