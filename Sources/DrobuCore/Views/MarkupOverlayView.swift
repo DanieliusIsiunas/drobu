@@ -107,6 +107,9 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     var onSelectionChange: ((UUID?) -> Void)?
     var onRequestSave: (([MarkupAnnotation]) -> Void)?
 
+    private static let commentPlaceholder = "Comment (optional)"
+    private static let notePlaceholder = "Note"
+
     /// Screen-space gesture thresholds, converted to content pixels per gesture.
     private let clickThresholdPoints: CGFloat = 4
     private let hitTolerancePoints: CGFloat = 6
@@ -250,7 +253,7 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         textField.backgroundColor = NSColor(cgColor: annotation.color.cgColor()) ?? .systemRed
         textField.textColor = annotation.color.usesDarkLabelText ? .black : .white
         textField.font = .systemFont(ofSize: max(11, metrics.fontSize / contentPerPoint), weight: .bold)
-        textField.placeholderString = annotation.shape.isNote ? "Note" : "Comment (optional)"
+        textField.placeholderString = annotation.shape.isNote ? Self.notePlaceholder : Self.commentPlaceholder
         textField.cell?.isScrollable = true
         textField.cell?.wraps = false
         textField.setAccessibilityLabel(annotation.shape.isNote ? "Note text" : "Highlight comment")
@@ -265,7 +268,8 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     private func repositionField() {
         guard let field, let id = editingID,
               var annotation = annotations.first(where: { $0.id == id }) else { return }
-        if annotation.text.isEmpty { annotation.text = "Comment (optional)" }
+        // Size an empty field for its placeholder.
+        if annotation.text.isEmpty { annotation.text = Self.commentPlaceholder }
         guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect) else { return }
         var frame = viewRect(fromContent: pill)
         frame.size.width = max(frame.width, 160)
@@ -347,7 +351,7 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         context.saveGState()
         context.clip(to: f)
         context.translateBy(x: f.minX, y: f.minY)
-        let k = f.width / CGFloat(geometry.contentWidth)
+        let k = 1 / contentPerPoint
         context.scaleBy(x: k, y: k)
         var all = annotations
         if let draft { all.append(draft) }
@@ -379,17 +383,5 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         path.setLineDash([4, 3], count: 2, phase: 0)
         NSColor.white.setStroke()
         path.stroke()
-    }
-}
-
-private extension MarkupAnnotation.Shape {
-    var isNote: Bool {
-        if case .note = self { return true }
-        return false
-    }
-
-    var acceptsText: Bool {
-        if case .arrow = self { return false }
-        return true
     }
 }

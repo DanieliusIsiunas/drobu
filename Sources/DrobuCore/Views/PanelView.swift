@@ -278,6 +278,7 @@ struct PanelView: View {
             searchText = ""
             isEditing = false
             editingItemId = nil
+            followItemId = nil
             editingText = ""
             originalText = ""
             selection.reset()
@@ -288,6 +289,8 @@ struct PanelView: View {
         }
         .onChange(of: searchText) { _, newValue in
             if isEditing { discardEdit() }
+            // A pending follow only applies to the list it was saved into.
+            followItemId = nil
 
             if newValue.hasPrefix("/") {
                 if case .commandOptions = panelMode {

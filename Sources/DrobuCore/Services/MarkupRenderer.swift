@@ -100,23 +100,24 @@ enum MarkupRenderer {
     ) {
         context.saveGState()
         defer { context.restoreGState() }
+        let solid = annotation.color.cgColor()
 
         switch annotation.shape {
         case .box(let rect):
             context.setFillColor(annotation.color.cgColor(alpha: MarkupMetrics.boxFillAlpha))
             context.fill(rect)
-            context.setStrokeColor(annotation.color.cgColor())
+            context.setStrokeColor(solid)
             context.setLineWidth(metrics.strokeWidth)
             context.stroke(rect)
         case .arrow(let tail, let head):
             let geo = ImageMarkup.arrowHead(tail: tail, head: head, metrics: metrics)
-            context.setStrokeColor(annotation.color.cgColor())
+            context.setStrokeColor(solid)
             context.setLineWidth(metrics.arrowShaftWidth)
             context.setLineCap(.round)
             context.move(to: tail)
             context.addLine(to: geo.shaftEnd)
             context.strokePath()
-            context.setFillColor(annotation.color.cgColor())
+            context.setFillColor(solid)
             context.move(to: geo.tip)
             context.addLine(to: geo.left)
             context.addLine(to: geo.right)
@@ -131,7 +132,7 @@ enum MarkupRenderer {
         guard let pill = pillRect(for: annotation, pillSize: text.pillSize, metrics: metrics, bounds: bounds) else { return }
 
         let radius = min(metrics.pillCornerRadius, pill.height / 2)
-        context.setFillColor(annotation.color.cgColor())
+        context.setFillColor(solid)
         context.addPath(CGPath(roundedRect: pill, cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
 
@@ -161,30 +162,29 @@ enum MarkupRenderer {
 
     // MARK: - Flatten, crop, encode
 
-    /// Composite `annotations` onto the full `image`, then crop to `crop` (content
-    /// pixels, top-left) and encode PNG. Nil on any CG failure.
+    /// Composite `annotations` onto `image` and encode the `crop` region (content
+    /// pixels, top-left) as PNG. The bitmap is only crop-sized: the image is drawn
+    /// offset so just the crop lands in it. Nil on any CG failure.
     static func renderPNG(image: CGImage, annotations: [MarkupAnnotation], crop: CGRect, metrics: MarkupMetrics) -> Data? {
-        let width = image.width
-        let height = image.height
+        let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let region = crop.intersection(full).integral
+        guard !region.isEmpty else { return nil }
         let colorSpace = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
             ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            data: nil, width: Int(region.width), height: Int(region.height), bitsPerComponent: 8, bytesPerRow: 0,
             space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
-        let full = CGRect(x: 0, y: 0, width: width, height: height)
         // Draw the image in the context's native y-up space FIRST — flipping before
         // this would save the screenshot upside down — then flip for the markup.
-        context.draw(image, in: full)
-        context.translateBy(x: 0, y: CGFloat(height))
+        // In y-up space the crop's bottom edge sits at full.height - region.maxY.
+        context.draw(image, in: full.offsetBy(dx: -region.minX, dy: -(full.height - region.maxY)))
+        context.translateBy(x: -region.minX, y: region.maxY)
         context.scaleBy(x: 1, y: -1)
-        draw(annotations, in: context, metrics: metrics, bounds: crop)
+        draw(annotations, in: context, metrics: metrics, bounds: region)
 
         guard let flattened = context.makeImage() else { return nil }
-        if crop.integral == full {
-            return ImageCrop.encodePNG(flattened)
-        }
-        return ImageCrop.cropAndEncodePNG(flattened, to: crop)
+        return ImageCrop.encodePNG(flattened)
     }
 }

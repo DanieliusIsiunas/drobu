@@ -41,10 +41,7 @@ struct ImageCropView: View {
                         focus: focus,
                         onSave: { save() },
                         onDiscard: { discard() },
-                        onColorKey: { number in
-                            guard let picked = MarkupColor.allCases.first(where: { $0.keyNumber == number }) else { return }
-                            pick(picked)
-                        },
+                        onColorKey: { pick($0) },
                         onDeleteSelected: { deleteSelected() },
                         onUndo: { undoLast() }
                     )
@@ -192,7 +189,9 @@ struct ImageCropView: View {
         Task {
             // Decode off the main actor — a large Retina screenshot can take hundreds
             // of milliseconds to decode, and the gate (isBitmapData) is header-only.
-            let decoded = await Task.detached { ImageCrop.decodeBitmap(from: imageData) }.value
+            let (decoded, fileDensity) = await Task.detached {
+                (ImageCrop.decodeBitmap(from: imageData), ImageCrop.pixelDensityScale(of: imageData))
+            }.value
 
             // Header-valid but undecodable (e.g., truncated PNG): exit edit mode
             // instead of stranding the user on a spinner with no key handler.
@@ -205,8 +204,7 @@ struct ImageCropView: View {
             // Most pasteboard images report 72 DPI even when captured on Retina, so
             // an unknown density falls back to this display's scale (screenshots are
             // nearly always taken on the Mac they're edited on).
-            let density = ImageCrop.pixelDensityScale(of: imageData)
-                ?? NSScreen.main?.backingScaleFactor ?? 2
+            let density = fileDensity ?? NSScreen.main?.backingScaleFactor ?? 2
             metrics = MarkupMetrics(densityScale: density)
             // Initialise crop state from the TRUE pixel size (never NSImage.size, which
             // is in points and under-reports Retina media).
@@ -286,7 +284,7 @@ struct ImageCropKeyView: NSViewRepresentable {
     let focus: EditorFocusHandle
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
-    var onColorKey: ((Int) -> Void)?
+    var onColorKey: ((MarkupColor) -> Void)?
     var onDeleteSelected: (() -> Void)?
     var onUndo: (() -> Void)?
 
@@ -321,14 +319,16 @@ struct ImageCropKeyView: NSViewRepresentable {
 /// `EditorKeyNSView` plus the markup keys: 1–4 pick a colour, Delete/Backspace
 /// removes the selected annotation, ⌘Z removes the last one.
 final class ImageEditorKeyNSView: EditorKeyNSView {
-    var onColorKey: ((Int) -> Void)?
+    var onColorKey: ((MarkupColor) -> Void)?
     var onDeleteSelected: (() -> Void)?
     var onUndo: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags.isEmpty, let digit = event.charactersIgnoringModifiers.flatMap(Int.init), (1...4).contains(digit) {
-            onColorKey?(digit)
+        let palette = MarkupColor.allCases
+        if flags.isEmpty, let digit = event.charactersIgnoringModifiers.flatMap(Int.init),
+           (1...palette.count).contains(digit) {
+            onColorKey?(palette[digit - 1])
             return
         }
         // 51 = Delete (backspace), 117 = Forward Delete.

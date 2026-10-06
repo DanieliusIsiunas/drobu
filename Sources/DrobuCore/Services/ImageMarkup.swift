@@ -1,13 +1,13 @@
 import CoreGraphics
 import Foundation
 
-/// Pure model and geometry for the image editor's hand-drawn markup (box, arrow,
-/// note). Lives in Services/ next to `CropGeometry` so it is testable without a view.
-///
-/// Every coordinate is in **content pixels with a top-left origin** — the same space
-/// `CropGeometry.cropRect` uses — so panel resizes never move an annotation (only the
-/// view mapping changes). Thresholds that are naturally defined on screen (click vs.
-/// drag, hit tolerance) are passed in already converted to content pixels by the view.
+// Pure model and geometry for the image editor's hand-drawn markup (box, arrow,
+// note). Lives in Services/ next to `CropGeometry` so it is testable without a view.
+//
+// Every coordinate is in **content pixels with a top-left origin** — the same space
+// `CropGeometry.cropRect` uses — so panel resizes never move an annotation (only the
+// view mapping changes). Thresholds that are naturally defined on screen (click vs.
+// drag, hit tolerance) are passed in already converted to content pixels by the view.
 
 enum MarkupTool: String, CaseIterable, Sendable {
     case box, arrow, note
@@ -54,6 +54,17 @@ struct MarkupAnnotation: Identifiable, Equatable, Sendable {
         case arrow(tail: CGPoint, head: CGPoint)
         /// Free-standing text pill; the point is the pill's top-left corner.
         case note(CGPoint)
+
+        var isNote: Bool {
+            if case .note = self { return true }
+            return false
+        }
+
+        /// Boxes and notes carry text; arrows don't.
+        var acceptsText: Bool {
+            if case .arrow = self { return false }
+            return true
+        }
     }
 
     let id: UUID
@@ -71,11 +82,7 @@ struct MarkupAnnotation: Identifiable, Equatable, Sendable {
 
     /// Whether this annotation renders a text pill at all.
     var hasPill: Bool {
-        switch shape {
-        case .box: return !text.isEmpty
-        case .note: return true
-        case .arrow: return false
-        }
+        shape.isNote || (shape.acceptsText && !text.isEmpty)
     }
 }
 
@@ -201,7 +208,7 @@ enum ImageMarkup {
             case .box(let rect):
                 let outer = rect.insetBy(dx: -tolerance, dy: -tolerance)
                 let inner = rect.insetBy(dx: tolerance, dy: tolerance)
-                if outer.contains(point) && (inner.isNull || inner.isEmpty || !inner.contains(point)) {
+                if outer.contains(point) && !inner.contains(point) {
                     return annotation.id
                 }
             case .arrow(let tail, let head):
