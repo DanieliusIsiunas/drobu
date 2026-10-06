@@ -248,6 +248,11 @@ struct LargePreviewContent: View {
                 .padding(16)
         }
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10))
+        // A colour picked inside the editor is saved to defaults; show it again
+        // when the preview drops back to view mode.
+        .onChange(of: session == nil) { _, isViewMode in
+            if isViewMode { markupColor = MarkupDefaults.loadColor() }
+        }
     }
 
     @ViewBuilder
@@ -299,7 +304,7 @@ struct LargePreviewContent: View {
         if let onBeginMarkup, let data = item.imageData, ImageCrop.isBitmapData(data) {
             HStack {
                 MarkupToolbar(
-                    tools: MarkupTool.allCases,
+                    tools: ImageAnalyzer.isSupported ? MarkupTool.allCases : MarkupTool.drawingTools,
                     selectedTool: .select,
                     color: markupColor,
                     onTool: { tool in if tool.draws { onBeginMarkup(tool) } },

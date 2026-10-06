@@ -62,10 +62,17 @@ struct ImageCropView: View {
             }
         }
         .onAppear {
-            // The inline pane has no Live Text, so Select text has no meaning there.
-            if presentation == .inline, !session.tool.draws { session.tool = .box }
+            // Backstop for the panel's own clamp: without Live Text here, Select
+            // text would leave the image inert.
+            if !offersSelectText, !session.tool.draws { session.tool = .box }
             session.load()
         }
+    }
+
+    /// Select text needs Live Text: only the large presentation has it, and only
+    /// where VisionKit supports image analysis.
+    private var offersSelectText: Bool {
+        presentation == .large && ImageAnalyzer.isSupported
     }
 
     @ViewBuilder
@@ -77,7 +84,6 @@ struct ImageCropView: View {
                 isInteractive: !session.tool.draws
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityLabel("Image being edited, with selectable text")
         } else {
             Image(decorative: cgImage, scale: 1)
                 .resizable()
@@ -102,7 +108,7 @@ struct ImageCropView: View {
                 Spacer()
             } else {
                 MarkupToolbar(
-                    tools: presentation == .large ? MarkupTool.allCases : MarkupTool.drawingTools,
+                    tools: offersSelectText ? MarkupTool.allCases : MarkupTool.drawingTools,
                     selectedTool: session.tool,
                     color: session.color,
                     // Restore focus FIRST: it commits an open label, which writes the
@@ -197,12 +203,12 @@ final class ImageEditorKeyNSView: EditorKeyNSView {
         flags(of: event) == .command && event.charactersIgnoringModifiers?.lowercased() == "z"
     }
 
-    /// Every key this editor handles, including the base contract (Esc = 53,
-    /// Cmd+Return = 36). The large preview uses it to hand these keys back to the
-    /// editor when Live Text has taken focus.
+    /// Every key this editor handles, including the base save/discard contract.
+    /// The large preview uses it to hand these keys back to the editor when Live
+    /// Text has taken focus.
     static func ownsKey(_ event: NSEvent) -> Bool {
-        event.keyCode == 53
-            || (event.keyCode == 36 && flags(of: event) == .command)
+        isSaveKey(event)
+            || isDiscardKey(event)
             || paletteColor(for: event) != nil
             || isDeleteKey(event)
             || isUndoKey(event)

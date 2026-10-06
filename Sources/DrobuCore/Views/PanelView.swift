@@ -270,8 +270,10 @@ struct PanelView: View {
                     return
                 }
                 // An image edit can move into the large preview; other edits (text,
-                // GIF, video) keep the large preview closed.
-                guard panelMode == .clipboard, !isEditing || imageSession != nil else { return }
+                // GIF, video) keep the large preview closed. Never mid-drag: moving
+                // the editor would destroy the surface holding the unfinished shape.
+                guard panelMode == .clipboard, !isEditing || imageSession != nil,
+                      NSEvent.pressedMouseButtons == 0 else { return }
                 toggleLargePreview()
             }
         }
@@ -1096,6 +1098,9 @@ struct PanelView: View {
         let wasHostingEditor = largePreviewPanel?.isHostingEditor == true
         largePreviewPanel?.close()
         largePreviewPanel = nil
+        // The inline editor has no Live Text: an edit coming back on Select text
+        // continues with Box.
+        if let imageSession, !imageSession.tool.draws { imageSession.tool = .box }
         // The edit moves back inline: give the panel the keys again so the inline
         // editor's key view and label field receive input.
         if wasHostingEditor, let panel, panel.isVisible { panel.makeKey() }

@@ -93,7 +93,9 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     var selectedID: UUID? {
         didSet { if selectedID != oldValue { needsDisplay = true } }
     }
-    var tool: MarkupTool = .box
+    var tool: MarkupTool = .box {
+        didSet { if tool != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
     var color: MarkupColor = .red
     var metrics = MarkupMetrics(densityScale: 1) {
         didSet { if metrics != oldValue { needsDisplay = true } }
@@ -365,7 +367,8 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     // MARK: Cursor
 
     override func resetCursorRects() {
-        guard isInteractionEnabled else { return }
+        // Select text hands the image to Live Text, which shows its own cursors.
+        guard isInteractionEnabled, tool.draws else { return }
         addCursorRect(fitted.intersection(bounds), cursor: .crosshair)
     }
 

@@ -105,6 +105,21 @@ struct ImageEditSessionTests {
         #expect(session.annotations.isEmpty && session.selectedID == nil)
     }
 
+    @Test func secondSaveWhileSavingIsIgnored() async {
+        let (session, outcome, defaults, suite) = await makeSession()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        session.annotations = [MarkupAnnotation(shape: .box(CGRect(x: 10, y: 10, width: 50, height: 50)), color: .red)]
+        var newItems = 0
+        session.onSaveAsNew = { _ in newItems += 1 }
+        let first = session.save()
+        #expect(session.isSaving)
+        #expect(session.save() == nil)   // re-entrant ⌘↩ while encoding
+        session.discard()                // Esc while encoding is ignored too
+        await first?.value
+        #expect(newItems == 1)
+        #expect(!outcome.discarded)
+    }
+
     @Test func undecodableImageDiscards() async {
         let session = ImageEditSession(data: Data("not an image".utf8), contentHash: "x", fallbackDensity: { 1 })
         var discarded = false
