@@ -112,9 +112,7 @@ struct ImageCropView: View {
                     onColor: { swatch in focus.restore(); session.pick(swatch) }
                 )
                 Spacer(minLength: 8)
-                Text(presentation == .large
-                     ? "\u{2318}\u{21A9} save  esc discard  \u{21E7} smaller"
-                     : "\u{2318}\u{21A9} save  esc discard  \u{21E7} larger")
+                Text("\u{2318}\u{21A9} save  esc discard  \u{21E7} " + (presentation == .large ? "smaller" : "larger"))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -175,16 +173,47 @@ final class ImageEditorKeyNSView: EditorKeyNSView {
     var onDeleteSelected: (() -> Void)?
     var onUndo: (() -> Void)?
 
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+    // MARK: Key contract (single source of truth)
+
+    private static func flags(of event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection([.command, .option, .control, .shift])
+    }
+
+    /// The palette colour a bare digit key selects (1 = first swatch), if any.
+    static func paletteColor(for event: NSEvent) -> MarkupColor? {
         let palette = MarkupColor.allCases
-        if flags.isEmpty, let digit = event.charactersIgnoringModifiers.flatMap(Int.init),
-           (1...palette.count).contains(digit) {
-            onColorKey?(palette[digit - 1])
+        guard flags(of: event).isEmpty,
+              let digit = event.charactersIgnoringModifiers.flatMap(Int.init),
+              (1...palette.count).contains(digit) else { return nil }
+        return palette[digit - 1]
+    }
+
+    /// Bare Delete (backspace, 51) or Forward Delete (117).
+    static func isDeleteKey(_ event: NSEvent) -> Bool {
+        flags(of: event).isEmpty && (event.keyCode == 51 || event.keyCode == 117)
+    }
+
+    static func isUndoKey(_ event: NSEvent) -> Bool {
+        flags(of: event) == .command && event.charactersIgnoringModifiers?.lowercased() == "z"
+    }
+
+    /// Every key this editor handles, including the base contract (Esc = 53,
+    /// Cmd+Return = 36). The large preview uses it to hand these keys back to the
+    /// editor when Live Text has taken focus.
+    static func ownsKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 53
+            || (event.keyCode == 36 && flags(of: event) == .command)
+            || paletteColor(for: event) != nil
+            || isDeleteKey(event)
+            || isUndoKey(event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let color = Self.paletteColor(for: event) {
+            onColorKey?(color)
             return
         }
-        // 51 = Delete (backspace), 117 = Forward Delete.
-        if flags.isEmpty, event.keyCode == 51 || event.keyCode == 117 {
+        if Self.isDeleteKey(event) {
             onDeleteSelected?()
             return
         }
@@ -195,9 +224,7 @@ final class ImageEditorKeyNSView: EditorKeyNSView {
     /// keyDown. Claim it only while this view has focus, so a label field keeps its
     /// own text undo.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "z",
-           window?.firstResponder === self {
+        if Self.isUndoKey(event), window?.firstResponder === self {
             onUndo?()
             return true
         }

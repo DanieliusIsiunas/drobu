@@ -162,7 +162,7 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         guard isInteractionEnabled else { return nil }
         if !tool.draws {
             guard let field else { return nil }
-            return field.hitTest(convert(point, from: superview)) ?? nil
+            return field.hitTest(convert(point, from: superview))
         }
         let local = convert(point, from: superview)
         guard fitted.contains(local) else { return nil }

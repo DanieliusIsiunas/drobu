@@ -53,7 +53,7 @@ struct MarkupToolbar: View {
         }
     }
 
-    static func symbol(for tool: MarkupTool) -> String {
+    private static func symbol(for tool: MarkupTool) -> String {
         switch tool {
         case .select: return "character.cursor.ibeam"
         case .box: return "rectangle"

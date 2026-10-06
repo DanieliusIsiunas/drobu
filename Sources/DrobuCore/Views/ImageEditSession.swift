@@ -119,9 +119,10 @@ final class ImageEditSession {
     func save(annotations latest: [MarkupAnnotation]? = nil) -> Task<Void, Never>? {
         guard !isSaving, let cgImage else { return nil }
         let markup = latest ?? annotations
+        let annotated = !markup.isEmpty
         let rect = cropGeometry.cropRect
 
-        if markup.isEmpty && cropGeometry.isFullFrame {
+        if !annotated && cropGeometry.isFullFrame {
             onDiscard()
             return nil
         }
@@ -131,21 +132,21 @@ final class ImageEditSession {
         let metrics = metrics
         return Task { [weak self] in
             let pngData = await Task.detached {
-                markup.isEmpty
-                    ? ImageCrop.cropAndEncodePNG(cgImage, to: rect)
-                    : MarkupRenderer.renderPNG(image: cgImage, annotations: markup, crop: rect, metrics: metrics)
+                annotated
+                    ? MarkupRenderer.renderPNG(image: cgImage, annotations: markup, crop: rect, metrics: metrics)
+                    : ImageCrop.cropAndEncodePNG(cgImage, to: rect)
             }.value
             guard let self else { return }
             guard let pngData else {
-                Log.error("ImageEditSession: \(markup.isEmpty ? "crop" : "markup render")/PNG encode failed")
+                Log.error("ImageEditSession: \(annotated ? "markup render" : "crop")/PNG encode failed")
                 self.isSaving = false
                 self.errorMessage = "Save failed — try again"
                 return
             }
-            if markup.isEmpty {
-                self.onSave(pngData)
-            } else {
+            if annotated {
                 self.onSaveAsNew(pngData)
+            } else {
+                self.onSave(pngData)
             }
         }
     }

@@ -1057,12 +1057,8 @@ struct PanelView: View {
             preview.onNavigationKey = { keyCode in
                 self.handleLargePreviewKey(keyCode)
             }
-            preview.show(
-                for: item,
-                session: largePreviewSession,
-                onBeginMarkup: { tool in beginMarkupFromLargePreview(tool) },
-                on: screen
-            )
+            preview.onBeginMarkup = { tool in self.beginMarkupFromLargePreview(tool) }
+            preview.show(for: item, session: largePreviewSession, on: screen)
             parentPanel.addChildWindow(preview, ordered: .above)
             largePreviewPanel = preview
         }
@@ -1113,11 +1109,7 @@ struct PanelView: View {
     /// Refresh the large preview for the previewed row (and the edit it hosts).
     private func refreshLargePreview() {
         guard panelMode == .clipboard, let item = previewItem else { return }
-        largePreviewPanel?.update(
-            for: item,
-            session: largePreviewSession,
-            onBeginMarkup: { tool in beginMarkupFromLargePreview(tool) }
-        )
+        largePreviewPanel?.update(for: item, session: largePreviewSession)
     }
 
     /// A drawing tool picked in the large preview starts editing the previewed image

@@ -79,21 +79,11 @@ final class LargePreviewPanel: NSPanel {
     /// notably ⌘C for selected text — stays with whoever has focus, and a label
     /// being typed (field editor) is never interrupted.
     private func reclaimEditorFocusIfNeeded(for event: NSEvent) {
-        guard !(firstResponder is NSText),
+        guard ImageEditorKeyNSView.ownsKey(event),
+              !(firstResponder is NSText),
               let keyView = contentView.flatMap(Self.editorKeyView(in:)),
               firstResponder !== keyView else { return }
-        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let ownsKey: Bool
-        switch Int(event.keyCode) {
-        case kVK_Escape: ownsKey = true
-        case kVK_Return: ownsKey = flags == .command
-        case kVK_Delete, kVK_ForwardDelete: ownsKey = flags.isEmpty
-        default:
-            ownsKey = (flags.isEmpty && ["1", "2", "3", "4"].contains(chars))
-                || (flags == .command && chars == "z")
-        }
-        if ownsKey { makeFirstResponder(keyView) }
+        makeFirstResponder(keyView)
     }
 
     private static func editorKeyView(in view: NSView) -> ImageEditorKeyNSView? {
@@ -108,14 +98,16 @@ final class LargePreviewPanel: NSPanel {
 
     // MARK: - Show / Update
 
-    func show(
-        for item: ClipboardRecord,
-        session: ImageEditSession?,
-        onBeginMarkup: ((MarkupTool) -> Void)?,
-        on screen: NSScreen
-    ) {
+    /// Picking a drawing tool on a still image asks the owner to start an edit.
+    var onBeginMarkup: ((MarkupTool) -> Void)?
+
+    private func content(for item: ClipboardRecord, session: ImageEditSession?) -> LargePreviewContent {
         isHostingEditor = session != nil
-        let hosting = NSHostingView(rootView: LargePreviewContent(item: item, session: session, onBeginMarkup: onBeginMarkup))
+        return LargePreviewContent(item: item, session: session, onBeginMarkup: onBeginMarkup)
+    }
+
+    func show(for item: ClipboardRecord, session: ImageEditSession?, on screen: NSScreen) {
+        let hosting = NSHostingView(rootView: content(for: item, session: session))
         hosting.rootView = hosting.rootView  // force initial layout
         contentView = hosting
         hostingView = hosting
@@ -134,10 +126,9 @@ final class LargePreviewPanel: NSPanel {
 
     /// Refresh the content. Taking over an edit makes this panel key so the editor's
     /// keys and label field receive input.
-    func update(for item: ClipboardRecord, session: ImageEditSession?, onBeginMarkup: ((MarkupTool) -> Void)?) {
+    func update(for item: ClipboardRecord, session: ImageEditSession?) {
         let wasHostingEditor = isHostingEditor
-        isHostingEditor = session != nil
-        hostingView?.rootView = LargePreviewContent(item: item, session: session, onBeginMarkup: onBeginMarkup)
+        hostingView?.rootView = content(for: item, session: session)
         if isHostingEditor, !wasHostingEditor { makeKey() }
     }
 }
