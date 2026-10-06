@@ -23,20 +23,20 @@ struct ImageCropView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let cgImage = session.cgImage {
-                ZStack {
-                    // Invisible key handler in the background so it never blocks the overlay.
-                    ImageCropKeyView(
-                        focus: focus,
-                        onSave: { session.save() },
-                        onDiscard: { session.discard() },
-                        onColorKey: { session.pick($0) },
-                        onDeleteSelected: { session.deleteSelected() },
-                        onUndo: { session.undoLast() }
-                    )
+            ZStack {
+                // Invisible key handler in the background so it never blocks the overlay.
+                ImageCropKeyView(
+                    focus: focus,
+                    onSave: { session.save() },
+                    onDiscard: { session.discard() },
+                    onColorKey: { session.pick($0) },
+                    onDeleteSelected: { session.deleteSelected() },
+                    onUndo: { session.undoLast() }
+                )
 
-                    baseImage(cgImage)
+                baseImage
 
+                if session.cgImage != nil {
                     MarkupOverlayView(
                         annotations: $session.annotations,
                         selectedID: $session.selectedID,
@@ -50,15 +50,12 @@ struct ImageCropView: View {
 
                     CropOverlayView(geometry: $session.cropGeometry, isInteractionEnabled: !session.isSaving)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-
-                infoBar
-            } else {
-                ProgressView("Loading image...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, layout.imageInset)
+            .padding(.top, layout.imageInset)
+
+            infoBar
         }
         .onAppear {
             // Backstop for the panel's own clamp: without Live Text here, Select
@@ -74,8 +71,18 @@ struct ImageCropView: View {
         presentation == .large && ImageAnalyzer.isSupported
     }
 
+    /// Spacing per presentation. The large one matches the large preview's view
+    /// mode exactly (image edge to edge, bar 10pt below), so picking a drawing tool
+    /// doesn't shift the image or the tool bar.
+    private var layout: (imageInset: CGFloat, barTop: CGFloat, barSide: CGFloat, barBottom: CGFloat) {
+        presentation == .large ? (0, 10, 0, 0) : (12, 6, 12, 4)
+    }
+
+    /// The image under the overlays. The large presentation's Live Text view reads
+    /// the data itself, so it shows immediately — no "Loading" flash between view
+    /// mode and edit mode; the inline one waits for the decoded bitmap.
     @ViewBuilder
-    private func baseImage(_ cgImage: CGImage) -> some View {
+    private var baseImage: some View {
         if presentation == .large, ImageAnalyzer.isSupported {
             LiveTextImageView(
                 imageData: session.data,
@@ -83,10 +90,13 @@ struct ImageCropView: View {
                 isInteractive: !session.tool.draws
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        } else if let cgImage = session.cgImage {
             Image(decorative: cgImage, scale: 1)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView("Loading image...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -124,9 +134,9 @@ struct ImageCropView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.horizontal, layout.barSide)
+        .padding(.top, layout.barTop)
+        .padding(.bottom, layout.barBottom)
     }
 }
 

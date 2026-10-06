@@ -94,7 +94,7 @@ final class LargePreviewPanel: NSPanel {
         return nil
     }
 
-    private var hostingView: NSHostingView<LargePreviewContent>?
+    private var hostingView: FirstClickHostingView<LargePreviewContent>?
 
     // MARK: - Show / Update
 
@@ -107,7 +107,7 @@ final class LargePreviewPanel: NSPanel {
     }
 
     func show(for item: ClipboardRecord, session: ImageEditSession?, on screen: NSScreen) {
-        let hosting = NSHostingView(rootView: content(for: item, session: session))
+        let hosting = FirstClickHostingView(rootView: content(for: item, session: session))
         hosting.rootView = hosting.rootView  // force initial layout
         contentView = hosting
         hostingView = hosting
@@ -131,6 +131,13 @@ final class LargePreviewPanel: NSPanel {
         hostingView?.rootView = content(for: item, session: session)
         if isHostingEditor, !wasHostingEditor { makeKey() }
     }
+}
+
+/// The large preview opens without keyboard focus, and `NSHostingView` declines a
+/// click that only focuses its window (`acceptsFirstMouse` is false by default) —
+/// so its tool bar needed two clicks. Accept the first one.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // MARK: - Live Text Image View
