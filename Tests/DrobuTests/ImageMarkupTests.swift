@@ -110,6 +110,17 @@ struct ImageMarkupTests {
         #expect(ImageMarkup.isClick(from: start, to: end, threshold: threshold) == isClick)
     }
 
+    @Test(arguments: [
+        (MarkupAnnotation.Shape.box(CGRect(x: 0, y: 10, width: 0, height: 80)), true),
+        (MarkupAnnotation.Shape.box(CGRect(x: 0, y: 10, width: 30, height: 0.5)), true),
+        (MarkupAnnotation.Shape.box(CGRect(x: 0, y: 10, width: 30, height: 40)), false),
+        (MarkupAnnotation.Shape.arrow(tail: CGPoint(x: 0, y: 5), head: CGPoint(x: 0, y: 8)), true),
+        (MarkupAnnotation.Shape.arrow(tail: CGPoint(x: 0, y: 5), head: CGPoint(x: 40, y: 5)), false),
+    ])
+    func degenerateShapes(shape: MarkupAnnotation.Shape, isDegenerate: Bool) {
+        #expect(ImageMarkup.isDegenerate(shape, minimumLength: 4) == isDegenerate)
+    }
+
     // MARK: - Hit testing
 
     @Test func boxIsHitOnBorderNotInterior() {

@@ -136,6 +136,22 @@ enum ImageMarkup {
         return clamped.isNull ? .zero : clamped
     }
 
+    /// True when a drawn shape would render as nothing — a box collapsed to a line or
+    /// an arrow shorter than `minimumLength` (content pixels). Checked on the
+    /// committed, edge-clamped geometry: a drag can move on screen yet clamp to a
+    /// single edge, and an invisible shape must not turn a crop-only save into a
+    /// save-as-new-item.
+    static func isDegenerate(_ shape: MarkupAnnotation.Shape, minimumLength: CGFloat) -> Bool {
+        switch shape {
+        case .box(let rect):
+            return rect.width < 1 || rect.height < 1
+        case .arrow(let tail, let head):
+            return hypot(head.x - tail.x, head.y - tail.y) < minimumLength
+        case .note:
+            return false
+        }
+    }
+
     // MARK: - Label placement
 
     /// Pill rect for a box label: just above the box, below it when there is no room

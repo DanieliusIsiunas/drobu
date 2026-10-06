@@ -47,6 +47,8 @@ struct MarkupOverlayView: NSViewRepresentable {
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.group)
         view.setAccessibilityLabel("Markup canvas")
+        // The didSet below only fires on a change, so seed the empty-canvas value.
+        view.setAccessibilityValue(MarkupOverlayNSView.accessibilityValue(count: annotations.count))
         apply(to: view)
         return view
     }
@@ -81,9 +83,13 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         didSet {
             guard annotations != oldValue else { return }
             needsDisplay = true
-            setAccessibilityValue(annotations.count == 1 ? "1 annotation" : "\(annotations.count) annotations")
+            setAccessibilityValue(Self.accessibilityValue(count: annotations.count))
         }
     }
+    static func accessibilityValue(count: Int) -> String {
+        count == 1 ? "1 annotation" : "\(count) annotations"
+    }
+
     var selectedID: UUID? {
         didSet { if selectedID != oldValue { needsDisplay = true } }
     }
@@ -207,6 +213,8 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
             // a plain ⌘↩ crop save into a save-as-new-item.
             let end = convert(event.locationInWindow, from: nil)
             if ImageMarkup.isClick(from: start, to: end, threshold: clickThresholdPoints) { return }
+            // ...or that moved on screen but clamped to a single image edge.
+            if ImageMarkup.isDegenerate(committed.shape, minimumLength: clickThresholdPoints * contentPerPoint) { return }
             update(annotations + [committed])
             if case .box = committed.shape { beginEditing(committed.id, isNew: true) }
             return
