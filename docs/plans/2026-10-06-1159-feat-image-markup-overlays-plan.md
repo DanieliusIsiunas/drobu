@@ -293,6 +293,48 @@ Save branching inside `ImageCropView.save()`:
 - **Test scenarios:** `Test expectation: none -- view/panel wiring; the save branch's data effects are covered by U2 (pixels) and U4 (DB). Live-validated.`
 - **Verification:** live in the installed app: draw each tool, label, recolour, delete, ⌘Z, crop + markup save → new top item with markup and the original kept; crop-only save still replaces in place; Esc discards.
 
+### U7. Shared editor session (state out of the view)
+
+- **Goal:** One editing state that both the inline pane and the large preview display, so an edit survives moving between them.
+- **Requirements:** R19, R21, R14–R16 (unchanged save routing)
+- **Dependencies:** U6
+- **Files:** `Sources/DrobuCore/Views/ImageEditSession.swift` (new), `Sources/DrobuCore/Views/ImageCropView.swift`, `Sources/DrobuCore/Views/MarkupToolbar.swift` (new), `Tests/DrobuTests/ImageEditSessionTests.swift` (new)
+- **Approach:** A `@MainActor @Observable` session owns the decoded image, crop geometry, annotations, selection, tool, colour, metrics, saving/error state, and the save/discard callbacks. `ImageCropView` becomes a presentation of a session (inline or large). The tool bar is extracted so the large preview's view mode can reuse it.
+- **Test scenarios:**
+  - Save with markup calls the save-as-new callback with a PNG and not the in-place one.
+  - Save with only a crop calls the in-place callback with a PNG of the crop size.
+  - Save with nothing changed calls discard.
+  - Picking a colour recolours only an explicitly selected annotation and persists the colour.
+  - Undo removes the last annotation and clears a selection that pointed at it.
+- **Verification:** tests pass; the inline editor behaves exactly as before.
+
+### U8. Markup in the large preview
+
+- **Goal:** The Shift large preview gains the markup bar for images, with Live Text as the default Select text tool.
+- **Requirements:** R19–R22
+- **Dependencies:** U7
+- **Files:** `Sources/DrobuCore/Views/LargePreviewPanel.swift`, `Sources/DrobuCore/Services/ImageMarkup.swift` (`MarkupTool.select`), `Sources/DrobuCore/Views/MarkupOverlayView.swift`
+- **Approach:** View mode shows Live Text plus the bar; picking a drawing tool asks the panel to start editing that item. Edit mode hosts the same editor with `LiveTextImageView` as its base layer; Live Text interaction is on only while the tool is Select text, when the drawing layer passes clicks through. While editing, the panel stops intercepting Return/Esc/arrows so keys reach the editor and label field.
+- **Test expectation:** none — AppKit/SwiftUI wiring; covered by U7's session tests and live validation.
+
+### U9. Shift moves an active edit between inline and large
+
+- **Goal:** Shift during an image edit opens the large preview with the same session; Shift again returns inline.
+- **Requirements:** R20, R21, R23
+- **Dependencies:** U7, U8
+- **Files:** `Sources/DrobuCore/Views/PanelView.swift`, `Sources/DrobuCore/Views/PreviewPanel.swift`
+- **Approach:** `PanelView` owns the session for an image edit and passes it to whichever surface shows the editor; the inline pane shows a placeholder while the large preview holds it. Keyboard focus follows the editor: the large preview becomes key when it takes an edit, and the main panel takes it back when the large preview closes. A label being typed is committed when its surface goes away.
+- **Test expectation:** none — panel wiring; live validation.
+
+#### Follow-up requirements (large-preview markup)
+
+- R19. For images, the Shift large preview shows the markup bar: Select text (default, Live Text as today), Box, Arrow, Note, and the colours.
+- R20. Picking a drawing tool in the large preview starts editing that image in place; Shift during an inline image edit moves the edit into the large preview, and Shift again moves it back.
+- R21. Shapes, crop, selection, tool, and colour carry over unchanged between the two surfaces; only one surface shows the editor at a time, and the inline pane says the edit is in the large preview.
+- R22. In large-preview edit mode, Live Text works only while Select text is the tool; drawing tools draw instead.
+- R23. In large-preview edit mode ⌘↩ saves, Esc discards (a second Esc closes the preview), and 1–4, Delete and ⌘Z behave as inline; saving keeps today's routing (R14, R15).
+- R24. Out of scope: GIF and video editing in the large preview; snapping boxes to Live Text words (deferred).
+
 ---
 
 ## Verification Contract

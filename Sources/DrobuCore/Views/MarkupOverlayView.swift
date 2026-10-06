@@ -156,8 +156,14 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     // MARK: Hit testing
 
     /// Claim presses on the image; the letterbox margin still drags the window.
+    /// With the Select text tool, presses fall through to Live Text below — except
+    /// onto an open label field, which must stay clickable.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isInteractionEnabled else { return nil }
+        if !tool.draws {
+            guard let field else { return nil }
+            return field.hitTest(convert(point, from: superview)) ?? nil
+        }
         let local = convert(point, from: superview)
         guard fitted.contains(local) else { return nil }
         return super.hitTest(point)
@@ -193,8 +199,8 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
             )
         case .arrow:
             draft = MarkupAnnotation(id: draft?.id ?? UUID(), shape: .arrow(tail: a, head: b), color: color)
-        case .note:
-            draft = nil // notes are placed by a click, not a drag
+        case .note, .select:
+            draft = nil // notes are placed by a click, not a drag; select never draws
         }
         needsDisplay = true
     }
@@ -248,6 +254,13 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     private func setSelection(_ id: UUID?) {
         selectedID = id
         onSelectionChange?(id)
+    }
+
+    /// The editor is moving to the other surface (or closing): commit a label being
+    /// typed so it isn't lost with this view.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, editingID != nil { endEditing(commit: true) }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     // MARK: Inline label field

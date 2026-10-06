@@ -10,10 +10,18 @@ import Foundation
 // drag, hit tolerance) are passed in already converted to content pixels by the view.
 
 enum MarkupTool: String, CaseIterable, Sendable {
+    /// Large preview only: Live Text selection; the drawing layer passes clicks through.
+    case select
     case box, arrow, note
+
+    /// The tools the inline editor offers (it has no Live Text to select).
+    static let drawingTools: [MarkupTool] = [.box, .arrow, .note]
+
+    var draws: Bool { self != .select }
 
     var accessibilityName: String {
         switch self {
+        case .select: return "Select text"
         case .box: return "Highlight box"
         case .arrow: return "Arrow"
         case .note: return "Text note"
