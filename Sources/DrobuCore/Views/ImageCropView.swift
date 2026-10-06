@@ -78,6 +78,14 @@ struct ImageCropView: View {
         presentation == .large ? (0, 10, 0, 0) : (12, 6, 12, 4)
     }
 
+    /// For a rotation-tagged file, show the decoded bitmap the overlays, crop, and
+    /// export all use — `NSImage(data:)` would rotate it and misplace every shape.
+    /// Untagged images (nearly every screenshot) keep the data path, so Live Text
+    /// isn't analysed twice.
+    private var displayBitmap: CGImage? {
+        session.hasOrientationTag ? session.cgImage : nil
+    }
+
     /// The image under the overlays. The large presentation's Live Text view reads
     /// the data itself, so it shows immediately — no "Loading" flash between view
     /// mode and edit mode; the inline one waits for the decoded bitmap.
@@ -87,6 +95,7 @@ struct ImageCropView: View {
             LiveTextImageView(
                 imageData: session.data,
                 contentHash: session.contentHash,
+                bitmap: displayBitmap,
                 isInteractive: !session.tool.draws
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

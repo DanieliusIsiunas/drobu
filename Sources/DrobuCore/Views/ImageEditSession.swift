@@ -26,6 +26,9 @@ final class ImageEditSession {
     private(set) var color: MarkupColor
     private(set) var metrics = MarkupMetrics(densityScale: 1)
     private(set) var isSaving = false
+    /// The file carries an EXIF/TIFF rotation that `NSImage` would apply on display
+    /// but the raw bitmap (what's edited and saved) doesn't have.
+    private(set) var hasOrientationTag = false
     private(set) var errorMessage: String?
 
     @ObservationIgnored var onSave: (Data) -> Void = { _ in }
@@ -62,8 +65,10 @@ final class ImageEditSession {
         if let loadTask { return loadTask }
         let imageData = data
         let task = Task { [weak self] in
-            let (decoded, fileDensity) = await Task.detached {
-                (ImageCrop.decodeBitmap(from: imageData), ImageCrop.pixelDensityScale(of: imageData))
+            let (decoded, fileDensity, oriented) = await Task.detached {
+                (ImageCrop.decodeBitmap(from: imageData),
+                 ImageCrop.pixelDensityScale(of: imageData),
+                 ImageCrop.hasOrientationTag(imageData))
             }.value
             guard let self else { return }
             guard let decoded else {
@@ -78,6 +83,7 @@ final class ImageEditSession {
             // Crop state from the TRUE pixel size (never NSImage.size, which is in
             // points and under-reports Retina media).
             self.cropGeometry = CropGeometry(contentWidth: decoded.width, contentHeight: decoded.height)
+            self.hasOrientationTag = oriented
             self.cgImage = decoded
         }
         loadTask = task

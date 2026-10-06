@@ -47,6 +47,12 @@ struct ImageMarkupTests {
         #expect(ImageCrop.pixelDensityScale(of: Self.makePNG(dpi: 144)) == 2)
     }
 
+    @Test func orientationTagIsDetected() {
+        #expect(ImageCrop.hasOrientationTag(Self.makePNG(dpi: 72, orientation: 6)))
+        #expect(!ImageCrop.hasOrientationTag(Self.makePNG(dpi: 72, orientation: 1)))
+        #expect(!ImageCrop.hasOrientationTag(Self.makePNG(dpi: 72)))
+    }
+
     @Test func densityScaleIsUnknownAt72() {
         #expect(ImageCrop.pixelDensityScale(of: Self.makePNG(dpi: 72)) == nil)
     }
@@ -233,7 +239,7 @@ struct ImageMarkupTests {
 
     // MARK: - Helpers
 
-    static func makePNG(dpi: Double) -> Data {
+    static func makePNG(dpi: Double, orientation: Int? = nil) -> Data {
         let context = CGContext(
             data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(),
@@ -242,7 +248,8 @@ struct ImageMarkupTests {
         let image = context.makeImage()!
         let data = NSMutableData()
         let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)!
-        let props: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
+        var props: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
+        if let orientation { props[kCGImagePropertyOrientation] = orientation }
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
         _ = CGImageDestinationFinalize(dest)
         return data as Data

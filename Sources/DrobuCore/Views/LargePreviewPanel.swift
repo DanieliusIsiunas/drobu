@@ -156,10 +156,17 @@ private final class FlexibleImageView: NSImageView {
 struct LiveTextImageView: NSViewRepresentable {
     let imageData: Data
     let contentHash: String
+    /// Shown instead of decoding `imageData` when set (the editor's raw bitmap for a
+    /// rotation-tagged file). Analysed under its own cache key.
+    var bitmap: CGImage? = nil
     /// Off while a markup drawing tool is active, so drags draw instead of selecting.
     var isInteractive: Bool = true
 
     private static let interactionTypes: ImageAnalysisOverlayView.InteractionTypes = [.textSelection, .dataDetectors]
+
+    /// Distinct key for the bitmap path: its pixels (and Live Text layout) differ
+    /// from the rotated image the data path shows.
+    private var cacheKey: String { bitmap == nil ? contentHash : contentHash + "#bitmap" }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -177,7 +184,7 @@ struct LiveTextImageView: NSViewRepresentable {
         context.coordinator.overlay = overlay
 
         context.coordinator.imageView = imageView
-        context.coordinator.setImage(from: imageData, hash: contentHash)
+        context.coordinator.setImage(from: imageData, bitmap: bitmap, hash: cacheKey)
         return imageView
     }
 
@@ -186,8 +193,8 @@ struct LiveTextImageView: NSViewRepresentable {
         if context.coordinator.overlay?.preferredInteractionTypes != types {
             context.coordinator.overlay?.preferredInteractionTypes = types
         }
-        guard context.coordinator.currentHash != contentHash else { return }
-        context.coordinator.setImage(from: imageData, hash: contentHash)
+        guard context.coordinator.currentHash != cacheKey else { return }
+        context.coordinator.setImage(from: imageData, bitmap: bitmap, hash: cacheKey)
     }
 
     @MainActor
@@ -208,12 +215,12 @@ struct LiveTextImageView: NSViewRepresentable {
             analysisTask?.cancel()
         }
 
-        func setImage(from data: Data, hash: String) {
+        func setImage(from data: Data, bitmap: CGImage?, hash: String) {
             currentHash = hash
             analysisTask?.cancel()
             overlay?.analysis = nil  // Clear stale overlay immediately — prevents ghost icon on navigate
 
-            guard let nsImage = NSImage(data: data) else { return }
+            guard let nsImage = bitmap.map({ NSImage(cgImage: $0, size: .zero) }) ?? NSImage(data: data) else { return }
             imageView?.image = nsImage
 
             if let cached = Self.cache.object(forKey: hash as NSString) {

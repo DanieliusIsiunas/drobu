@@ -471,6 +471,8 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         if let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect) {
             content = content.isNull ? pill : content.union(pill)
         }
+        // A note cropped out entirely has no pill and no shape to outline.
+        guard !content.isNull else { return }
         let rect = viewRect(fromContent: content).insetBy(dx: -4, dy: -4)
         let path = NSBezierPath(rect: rect)
         path.lineWidth = 1.5
