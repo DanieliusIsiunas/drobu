@@ -33,8 +33,6 @@ struct MarkupOverlayView: NSViewRepresentable {
     let geometry: CropGeometry
     var isInteractionEnabled: Bool = true
     let focus: EditorFocusHandle
-    /// Commit any open label, then save — ⌘↩ while typing a label.
-    var onRequestSave: (([MarkupAnnotation]) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -43,7 +41,6 @@ struct MarkupOverlayView: NSViewRepresentable {
         let coordinator = context.coordinator
         view.onAnnotationsChange = { coordinator.parent.annotations = $0 }
         view.onSelectionChange = { coordinator.parent.selectedID = $0 }
-        view.onRequestSave = { coordinator.parent.onRequestSave?($0) }
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.group)
         view.setAccessibilityLabel("Markup canvas")
@@ -78,7 +75,7 @@ struct MarkupOverlayView: NSViewRepresentable {
 
 // MARK: - Native view
 
-final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
+final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
     var annotations: [MarkupAnnotation] = [] {
         didSet {
             guard annotations != oldValue else { return }
@@ -113,8 +110,6 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
 
     var onAnnotationsChange: (([MarkupAnnotation]) -> Void)?
     var onSelectionChange: ((UUID?) -> Void)?
-    var onRequestSave: (([MarkupAnnotation]) -> Void)?
-
     private static let commentPlaceholder = "Comment (optional)"
     private static let notePlaceholder = "Note"
 
@@ -127,8 +122,9 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     private var draft: MarkupAnnotation?
 
     private var editingID: UUID?
-    private var editingIsNew = false
-    private var field: NSTextField?
+    private var field: LabelTextView?
+    /// A note being dragged: its id and the annotation as it was at mouseDown.
+    private var movingNote: MarkupAnnotation?
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -176,10 +172,19 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         guard isInteractionEnabled else { return }
         // Clicking anywhere else on the canvas commits an open label first.
-        if editingID != nil { endEditing(commit: true) }
-        pressStartView = convert(event.locationInWindow, from: nil)
+        if editingID != nil { finishEditing() }
+        let start = convert(event.locationInWindow, from: nil)
+        pressStartView = start
         isDragging = false
         draft = nil
+        // A press on a note's pill drags the note instead of drawing.
+        movingNote = nil
+        let pills = MarkupRenderer.pillRects(for: annotations, metrics: metrics, bounds: geometry.cropRect)
+        if let hit = ImageMarkup.hitTest(contentPoint(start), annotations: annotations, pillRects: pills,
+                                         tolerance: hitTolerancePoints * contentPerPoint),
+           let note = annotations.first(where: { $0.id == hit }), note.shape.isNote {
+            movingNote = note
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -188,10 +193,15 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         if !isDragging {
             guard !ImageMarkup.isClick(from: start, to: location, threshold: clickThresholdPoints) else { return }
             isDragging = true
-            setSelection(nil)
+            setSelection(movingNote?.id)
         }
         let a = contentPoint(start)
         let b = contentPoint(location)
+        if let original = movingNote, let index = annotations.firstIndex(where: { $0.id == original.id }) {
+            let delta = CGSize(width: b.x - a.x, height: b.y - a.y)
+            annotations[index] = ImageMarkup.moved(original, by: delta, within: geometry.cropRect)
+            return
+        }
         switch tool {
         case .box:
             draft = MarkupAnnotation(
@@ -212,6 +222,14 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         pressStartView = nil
         defer { needsDisplay = true }
 
+        if isDragging, movingNote != nil {
+            isDragging = false
+            movingNote = nil
+            update(annotations)  // publish the moved note
+            return
+        }
+        movingNote = nil
+
         if isDragging {
             isDragging = false
             guard let committed = draft else { return }
@@ -224,7 +242,7 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
             // ...or that moved on screen but clamped to a single image edge.
             if ImageMarkup.isDegenerate(committed.shape, minimumLength: clickThresholdPoints * contentPerPoint) { return }
             update(annotations + [committed])
-            if case .box = committed.shape { beginEditing(committed.id, isNew: true) }
+            if case .box = committed.shape { beginEditing(committed.id) }
             return
         }
 
@@ -236,13 +254,13 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
             setSelection(hit)
             if event.clickCount >= 2, let annotation = annotations.first(where: { $0.id == hit }),
                annotation.shape.acceptsText {
-                beginEditing(hit, isNew: false)
+                beginEditing(hit)
             }
         } else if tool == .note {
             setSelection(nil)
             let note = MarkupAnnotation(shape: .note(point), color: color)
             update(annotations + [note])
-            beginEditing(note.id, isNew: true)
+            beginEditing(note.id)
         } else {
             setSelection(nil)
         }
@@ -261,68 +279,84 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
     /// The editor is moving to the other surface (or closing): commit a label being
     /// typed so it isn't lost with this view.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil, editingID != nil { endEditing(commit: true) }
+        if newWindow == nil, editingID != nil { finishEditing() }
         super.viewWillMove(toWindow: newWindow)
     }
 
-    // MARK: Inline label field
+    // MARK: Inline label editor
 
-    private func beginEditing(_ id: UUID, isNew: Bool) {
+    private func beginEditing(_ id: UUID) {
         guard let annotation = annotations.first(where: { $0.id == id }) else { return }
         editingID = id
-        editingIsNew = isNew
 
-        let textField = NSTextField(string: annotation.text)
-        textField.delegate = self
-        textField.isBezeled = false
-        textField.isBordered = false
-        textField.focusRingType = .none
-        textField.drawsBackground = true
-        textField.backgroundColor = NSColor(cgColor: annotation.color.cgColor()) ?? .systemRed
-        textField.textColor = annotation.color.usesDarkLabelText ? .black : .white
-        textField.font = .systemFont(ofSize: max(11, metrics.fontSize / contentPerPoint), weight: .bold)
-        textField.placeholderString = annotation.shape.isNote ? Self.notePlaceholder : Self.commentPlaceholder
-        textField.cell?.isScrollable = true
-        textField.cell?.wraps = false
-        textField.setAccessibilityLabel(annotation.shape.isNote ? "Note text" : "Highlight comment")
-        addSubview(textField)
-        field = textField
+        let k = contentPerPoint
+        let textColor: NSColor = annotation.color.usesDarkLabelText ? .black : .white
+        let textView = LabelTextView(frame: .zero)
+        textView.delegate = self
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.font = .systemFont(ofSize: max(11, metrics.fontSize / k), weight: .bold)
+        textView.textColor = textColor
+        textView.insertionPointColor = textColor
+        textView.drawsBackground = true
+        textView.backgroundColor = NSColor(cgColor: annotation.color.cgColor()) ?? .systemRed
+        textView.textContainerInset = NSSize(width: metrics.pillPaddingX / k, height: metrics.pillPaddingY / k)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
+        textView.focusRingType = .none
+        textView.wantsLayer = true
+        textView.layer?.cornerRadius = metrics.pillCornerRadius / k
+        textView.layer?.masksToBounds = true
+        textView.placeholder = annotation.shape.isNote ? Self.notePlaceholder : Self.commentPlaceholder
+        textView.string = annotation.text
+        textView.setAccessibilityLabel(annotation.shape.isNote ? "Note text" : "Highlight comment")
+        textView.setAccessibilityHelp("Return adds a line. Escape or Command-Return finishes.")
+        addSubview(textView)
+        field = textView
         repositionField()
         needsDisplay = true
-        window?.makeFirstResponder(textField)
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
     }
 
-    /// Place the field where the annotation's pill will render.
+    /// Size and place the editor exactly where — and as large as — the finished pill
+    /// will render for the text typed so far (the placeholder while empty), so the
+    /// label doesn't jump when editing ends.
     private func repositionField() {
         guard let field, let id = editingID,
               var annotation = annotations.first(where: { $0.id == id }) else { return }
-        // Size an empty field for its placeholder.
-        if annotation.text.isEmpty { annotation.text = Self.commentPlaceholder }
-        // A shape outside the crop has no pill there; still show the field at its
+        annotation.text = field.string.isEmpty ? field.placeholder : field.string
+        // A shape outside the crop has no pill there; still show the editor at its
         // image position so typing stays visible.
         guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect)
             ?? MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.contentBounds) else { return }
-        var frame = viewRect(fromContent: pill)
-        frame.size.width = max(frame.width, 160)
-        frame.size.height = max(frame.height, 20)
-        field.frame = frame
+        // A little slack so AppKit's line breaking never wraps earlier than CoreText's.
+        field.frame = viewRect(fromContent: pill).insetBy(dx: -2, dy: -1).integral
     }
 
-    private func endEditing(commit: Bool) {
+    /// Finish editing and keep the text — Esc, ⌘↩, a click elsewhere, a tool or
+    /// colour change, and the editor moving surfaces all end here, as in Preview,
+    /// Figma and Excalidraw. An empty note is removed; an empty box comment just
+    /// leaves the box unlabelled.
+    private func finishEditing() {
         guard let id = editingID, let field else { return }
-        // Clear state first: removing the field ends editing, which re-enters the
-        // delegate's controlTextDidEndEditing.
+        // Clear state first: removing the editor ends editing, which re-enters
+        // textDidEndEditing.
         editingID = nil
         self.field = nil
-        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ImageMarkup.normalizedLabel(field.string)
         field.delegate = nil
         field.removeFromSuperview()
 
         if let index = annotations.firstIndex(where: { $0.id == id }) {
             var next = annotations
-            if commit { next[index].text = text }
-            // An empty note is discarded (committed empty, or a new note cancelled).
-            if next[index].shape.isNote && next[index].text.isEmpty {
+            next[index].text = text
+            if next[index].shape.isNote && text.isEmpty {
                 next.remove(at: index)
             }
             update(next)
@@ -331,34 +365,30 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         focus?.restore()
     }
 
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
-            let saveAfter = NSApp.currentEvent?.modifierFlags.contains(.command) == true
-            endEditing(commit: true)
-            if saveAfter { onRequestSave?(annotations) }
+    func textDidChange(_ notification: Notification) {
+        repositionField()
+    }
+
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        // Return / Shift-Return insert a line break (the text view's default).
+        // Esc finishes and keeps the text instead of showing word completion.
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            finishEditing()
             return true
-        case #selector(NSResponder.cancelOperation(_:)):
-            // Esc cancels only the label edit (otherwise the field editor would show
-            // word completion); a second Esc reaches the editor and discards all.
-            endEditing(commit: false)
-            return true
-        default:
-            return false
         }
+        return false
     }
 
-    func controlTextDidEndEditing(_ obj: Notification) {
-        // Focus left the field some other way (e.g. a click on the info bar).
-        if editingID != nil { endEditing(commit: true) }
+    func textDidEndEditing(_ notification: Notification) {
+        // Focus left the editor some other way (e.g. a click on the info bar).
+        if editingID != nil { finishEditing() }
     }
 
-    /// ⌘↩ may arrive as a key equivalent before the field editor sees it.
+    /// ⌘↩ while typing finishes the note; a second ⌘↩ (now at the editor's key
+    /// view) saves the image. It arrives as a key equivalent before the text view.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if editingID != nil, event.keyCode == 36,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-            endEditing(commit: true)
-            onRequestSave?(annotations)
+        if editingID != nil, EditorKeyNSView.isSaveKey(event) {
+            finishEditing()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -415,5 +445,26 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
         path.setLineDash([4, 3], count: 2, phase: 0)
         NSColor.white.setStroke()
         path.stroke()
+    }
+}
+
+/// The in-place label editor, styled like the finished pill (colour, bold font,
+/// padding, rounded corners) so nothing jumps when editing ends. Return adds a
+/// line; the placeholder is drawn while the text is empty.
+final class LabelTextView: NSTextView {
+    var placeholder = ""
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty, let font else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: (textColor ?? .white).withAlphaComponent(0.55),
+        ]
+        let origin = NSPoint(
+            x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0),
+            y: textContainerInset.height
+        )
+        (placeholder as NSString).draw(at: origin, withAttributes: attributes)
     }
 }

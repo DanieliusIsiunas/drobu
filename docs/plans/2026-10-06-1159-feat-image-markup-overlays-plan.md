@@ -44,7 +44,7 @@ Nothing is detected automatically. The user draws every shape by hand, like in P
 
 **Text**
 
-- R6. After a box is drawn, an inline text field opens at the box's label position; Return confirms, and an empty confirmation leaves the box without a label.
+- R6. After a box is drawn, an inline text editor opens at the box's label position, styled like the finished pill. Return adds a line; Esc, ⌘↩, or clicking elsewhere finishes and keeps the text (as in Preview, Figma and Excalidraw), and an empty comment leaves the box without a label.
 - R7. A box label renders as a solid pill of the box colour, placed just above the box, below it when there is no room above, inside the top of the box when neither fits, and kept inside the visible (cropped) image so the comment always survives the save.
 - R8. A note confirmed empty is discarded.
 - R9. Double-clicking a box or note re-opens text entry for its label.
@@ -333,6 +333,9 @@ Save branching inside `ImageCropView.save()`:
 - R21. Shapes, crop, selection, tool, and colour carry over unchanged between the two surfaces; only one surface shows the editor at a time, and the inline pane says the edit is in the large preview.
 - R22. In large-preview edit mode, Live Text works only while Select text is the tool; drawing tools draw instead.
 - R23. In large-preview edit mode ⌘↩ saves, Esc discards (a second Esc closes the preview), and 1–4, Delete and ⌘Z behave as inline; saving keeps today's routing (R14, R15).
+- R25. Notes and comments can span several lines; the editor grows as you type and wraps at the label's maximum width, matching the saved pill.
+- R26. ⌘↩ while typing finishes the note; a second ⌘↩ saves the image. A second Esc likewise discards the edit.
+- R27. Dragging a note's pill moves the note, kept inside the visible crop; a click still selects it and a double-click edits it.
 - R24. Out of scope: GIF and video editing in the large preview; snapping boxes to Live Text words (deferred).
 
 ---

@@ -121,6 +121,31 @@ struct ImageMarkupTests {
         #expect(ImageMarkup.isDegenerate(shape, minimumLength: 4) == isDegenerate)
     }
 
+    // MARK: - Label text and moving notes
+
+    @Test func labelTextKeepsInnerLineBreaks() {
+        #expect(ImageMarkup.normalizedLabel("  Cost spike\nafter resize \n\n") == "Cost spike\nafter resize")
+        #expect(ImageMarkup.normalizedLabel(" \n \t") == "")
+    }
+
+    @Test func movingANoteShiftsItsAnchor() {
+        let note = MarkupAnnotation(shape: .note(CGPoint(x: 100, y: 100)), color: .red, text: "Hi")
+        let moved = ImageMarkup.moved(note, by: CGSize(width: 30, height: -20), within: bounds)
+        #expect(moved.shape == .note(CGPoint(x: 130, y: 80)))
+        #expect(moved.id == note.id && moved.text == "Hi")
+    }
+
+    @Test func movingANoteStaysInsideTheVisibleImage() {
+        let note = MarkupAnnotation(shape: .note(CGPoint(x: 10, y: 10)), color: .red, text: "Hi")
+        let moved = ImageMarkup.moved(note, by: CGSize(width: -500, height: 5000), within: bounds)
+        #expect(moved.shape == .note(CGPoint(x: bounds.minX, y: bounds.maxY)))
+    }
+
+    @Test func onlyNotesMove() {
+        let box = MarkupAnnotation(shape: .box(CGRect(x: 0, y: 0, width: 20, height: 20)), color: .red)
+        #expect(ImageMarkup.moved(box, by: CGSize(width: 50, height: 50), within: bounds) == box)
+    }
+
     // MARK: - Hit testing
 
     @Test func boxIsHitOnBorderNotInterior() {

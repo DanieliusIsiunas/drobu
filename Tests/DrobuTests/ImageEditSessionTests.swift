@@ -67,15 +67,6 @@ struct ImageEditSessionTests {
         #expect(outcome.saved == nil && !outcome.discarded)
     }
 
-    @Test func latestAnnotationsOverrideStaleState() async {
-        let (session, outcome, defaults, suite) = await makeSession()
-        defer { defaults.removePersistentDomain(forName: suite) }
-        // ⌘↩ from an open label passes the just-committed list before the binding lands.
-        let latest = [MarkupAnnotation(shape: .note(CGPoint(x: 20, y: 20)), color: .blue, text: "Spike")]
-        await session.save(annotations: latest)?.value
-        #expect(outcome.savedAsNew != nil)
-    }
-
     @Test func pickRecoloursOnlyTheSelectionAndPersists() async {
         let (session, _, defaults, suite) = await makeSession()
         defer { defaults.removePersistentDomain(forName: suite) }

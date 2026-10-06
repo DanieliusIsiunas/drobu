@@ -45,8 +45,7 @@ struct ImageCropView: View {
                         metrics: session.metrics,
                         geometry: session.cropGeometry,
                         isInteractionEnabled: !session.isSaving,
-                        focus: focus,
-                        onRequestSave: { latest in session.save(annotations: latest) }
+                        focus: focus
                     )
 
                     CropOverlayView(geometry: $session.cropGeometry, isInteractionEnabled: !session.isSaving)

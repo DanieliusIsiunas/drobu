@@ -112,13 +112,12 @@ final class ImageEditSession {
         onDiscard()
     }
 
-    /// Route the save (see type docs). `latest` lets ⌘↩ from an open label field
-    /// pass the just-committed annotations without waiting on a binding round-trip.
-    /// Returns the encode task (nil when nothing is encoded) so tests can await it.
+    /// Route the save (see type docs). Returns the encode task (nil when nothing is
+    /// encoded) so tests can await it.
     @discardableResult
-    func save(annotations latest: [MarkupAnnotation]? = nil) -> Task<Void, Never>? {
+    func save() -> Task<Void, Never>? {
         guard !isSaving, let cgImage else { return nil }
-        let markup = latest ?? annotations
+        let markup = annotations
         let annotated = !markup.isEmpty
         let rect = cropGeometry.cropRect
 

@@ -160,6 +160,27 @@ enum ImageMarkup {
         }
     }
 
+    // MARK: - Label text and moving notes
+
+    /// Label text as committed: outer whitespace and blank lines trimmed, line
+    /// breaks the user typed inside the text kept.
+    static func normalizedLabel(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A note dragged by `delta` (content pixels), its anchor kept inside `bounds`
+    /// (the visible crop) so it can't be dragged out of the saved image. Other
+    /// shapes don't move — they are redrawn instead.
+    static func moved(_ annotation: MarkupAnnotation, by delta: CGSize, within bounds: CGRect) -> MarkupAnnotation {
+        guard case .note(let point) = annotation.shape else { return annotation }
+        var moved = annotation
+        moved.shape = .note(CGPoint(
+            x: min(max(point.x + delta.width, bounds.minX), bounds.maxX),
+            y: min(max(point.y + delta.height, bounds.minY), bounds.maxY)
+        ))
+        return moved
+    }
+
     // MARK: - Label placement
 
     /// Pill rect for a box label: just above the box, below it when there is no room
