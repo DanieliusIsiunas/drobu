@@ -168,15 +168,23 @@ enum ImageMarkup {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// A note dragged by `delta` (content pixels), its anchor kept inside `bounds`
-    /// (the visible crop) so it can't be dragged out of the saved image. Other
-    /// shapes don't move — they are redrawn instead.
-    static func moved(_ annotation: MarkupAnnotation, by delta: CGSize, within bounds: CGRect) -> MarkupAnnotation {
+    /// A note dragged by `delta` (content pixels), kept so its whole pill of
+    /// `pillSize` stays inside `bounds` (the visible crop). Clamping the anchor to
+    /// where the pill can actually be drawn means there's no dead zone where the
+    /// pointer moves but the note doesn't. Other shapes don't move — they are
+    /// redrawn instead.
+    static func moved(
+        _ annotation: MarkupAnnotation,
+        by delta: CGSize,
+        within bounds: CGRect,
+        pillSize: CGSize = .zero
+    ) -> MarkupAnnotation {
         guard case .note(let point) = annotation.shape else { return annotation }
         var moved = annotation
-        moved.shape = .note(CGPoint(
-            x: min(max(point.x + delta.width, bounds.minX), bounds.maxX),
-            y: min(max(point.y + delta.height, bounds.minY), bounds.maxY)
+        moved.shape = .note(clamp(
+            CGPoint(x: point.x + delta.width, y: point.y + delta.height),
+            size: pillSize,
+            to: bounds
         ))
         return moved
     }

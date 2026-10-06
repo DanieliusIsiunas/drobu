@@ -123,8 +123,9 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
 
     private var editingID: UUID?
     private var field: LabelTextView?
-    /// A note being dragged: its id and the annotation as it was at mouseDown.
-    private var movingNote: MarkupAnnotation?
+    /// A note being dragged: the annotation as it was at mouseDown (anchored at its
+    /// drawn pill origin) and that pill's size, which bounds where it can go.
+    private var movingNote: (original: MarkupAnnotation, pillSize: CGSize)?
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -177,9 +178,15 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         pressStartView = start
         isDragging = false
         draft = nil
-        // A press on a note's pill drags the note instead of drawing.
-        let notes = annotations.filter { $0.shape.isNote }
-        movingNote = notes.isEmpty ? nil : hitAnnotation(at: start, among: notes)
+        // A press on a note's pill drags the note instead of drawing — only when the
+        // note is the topmost thing there, so a drag never grabs a hidden note.
+        movingNote = nil
+        if let hit = hitAnnotation(at: start, among: annotations), hit.shape.isNote,
+           let pill = MarkupRenderer.pillRect(for: hit, metrics: metrics, bounds: geometry.cropRect) {
+            var original = hit
+            original.shape = .note(pill.origin)  // where it's drawn, after edge clamping
+            movingNote = (original, pill.size)
+        }
     }
 
     /// The topmost annotation under a view point (borders, arrow shafts, pills).
@@ -196,13 +203,18 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         if !isDragging {
             guard !ImageMarkup.isClick(from: start, to: location, threshold: clickThresholdPoints) else { return }
             isDragging = true
-            setSelection(movingNote?.id)
+            setSelection(movingNote?.original.id)
         }
         let a = contentPoint(start)
         let b = contentPoint(location)
-        if let original = movingNote, let index = annotations.firstIndex(where: { $0.id == original.id }) {
+        if let (original, pillSize) = movingNote,
+           let index = annotations.firstIndex(where: { $0.id == original.id }) {
             let delta = CGSize(width: b.x - a.x, height: b.y - a.y)
-            annotations[index] = ImageMarkup.moved(original, by: delta, within: geometry.cropRect)
+            var next = annotations
+            next[index] = ImageMarkup.moved(original, by: delta, within: geometry.cropRect, pillSize: pillSize)
+            // Publish every step: a save (or a SwiftUI refresh) mid-drag must see
+            // where the note is now, not where it started.
+            update(next)
             return
         }
         switch tool {
@@ -230,8 +242,7 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         }
 
         if isDragging, wasMovingNote {
-            isDragging = false
-            update(annotations)  // publish the moved note
+            isDragging = false  // each step was already published
             return
         }
 
@@ -287,11 +298,19 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
 
     // MARK: Inline label editor
 
+    /// Below 11pt the label editor is hard to read (a large image shown small), so
+    /// the editing pill is scaled up uniformly until its text reaches 11pt.
+    private var editorScale: CGFloat {
+        let pointSize = metrics.fontSize / contentPerPoint
+        return pointSize > 0 ? max(1, 11 / pointSize) : 1
+    }
+
     private func beginEditing(_ id: UUID) {
         guard let annotation = annotations.first(where: { $0.id == id }) else { return }
         editingID = id
 
         let k = contentPerPoint
+        let scale = editorScale
         let textColor: NSColor = annotation.color.usesDarkLabelText ? .black : .white
         let textView = LabelTextView(frame: .zero)
         textView.delegate = self
@@ -300,19 +319,19 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        textView.font = .systemFont(ofSize: max(11, metrics.fontSize / k), weight: .bold)
+        textView.font = .systemFont(ofSize: metrics.fontSize / k * scale, weight: .bold)
         textView.textColor = textColor
         textView.insertionPointColor = textColor
         textView.drawsBackground = true
         textView.backgroundColor = NSColor(cgColor: annotation.color.cgColor()) ?? .systemRed
-        textView.textContainerInset = NSSize(width: metrics.pillPaddingX / k, height: metrics.pillPaddingY / k)
+        textView.textContainerInset = NSSize(width: metrics.pillPaddingX / k * scale, height: metrics.pillPaddingY / k * scale)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.focusRingType = .none
         textView.wantsLayer = true
-        textView.layer?.cornerRadius = metrics.pillCornerRadius / k
+        textView.layer?.cornerRadius = metrics.pillCornerRadius / k * scale
         textView.layer?.masksToBounds = true
         textView.placeholder = annotation.shape.isNote ? Self.notePlaceholder : Self.commentPlaceholder
         textView.string = annotation.text
@@ -332,13 +351,25 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
     private func repositionField() {
         guard let field, let id = editingID,
               var annotation = annotations.first(where: { $0.id == id }) else { return }
-        annotation.text = field.string.isEmpty ? field.placeholder : field.string
+        // Measure a trailing line break with a character after it, so the editor
+        // grows the moment Return is pressed (the committed text is still trimmed).
+        let text = field.string
+        annotation.text = text.isEmpty ? field.placeholder : (text.hasSuffix("\n") ? text + " " : text)
         // A shape outside the crop has no pill there; still show the editor at its
         // image position so typing stays visible.
         guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect)
             ?? MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.contentBounds) else { return }
+        // Zoomed far out, the pill is scaled up by `editorScale` (from its origin) so
+        // the text stays readable; font, padding and frame scale together, so the
+        // wrapping still matches the saved pill.
+        let pillView = viewRect(fromContent: pill)
+        let scale = editorScale
+        var frame = CGRect(origin: pillView.origin,
+                           size: CGSize(width: pillView.width * scale, height: pillView.height * scale))
+        frame.origin.x = min(frame.origin.x, bounds.maxX - frame.width)
+        frame.origin.y = min(frame.origin.y, bounds.maxY - frame.height)
         // A little slack so AppKit's line breaking never wraps earlier than CoreText's.
-        let frame = viewRect(fromContent: pill).insetBy(dx: -2, dy: -1).integral
+        frame = frame.insetBy(dx: -2, dy: -1).integral
         if field.frame != frame { field.frame = frame }
     }
 

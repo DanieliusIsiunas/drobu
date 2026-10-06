@@ -141,6 +141,21 @@ struct ImageMarkupTests {
         #expect(moved.shape == .note(CGPoint(x: bounds.minX, y: bounds.maxY)))
     }
 
+    @Test func movingANoteKeepsItsWholePillVisible() {
+        // No dead zone: the anchor can't sit where the pill would be pushed back in.
+        let note = MarkupAnnotation(shape: .note(CGPoint(x: 100, y: 100)), color: .red, text: "Hi")
+        let pill = CGSize(width: 120, height: 30)
+        let moved = ImageMarkup.moved(note, by: CGSize(width: 5000, height: 5000), within: bounds, pillSize: pill)
+        #expect(moved.shape == .note(CGPoint(x: bounds.maxX - 120, y: bounds.maxY - 30)))
+    }
+
+    @Test func movingANoteRespectsAnOffsetCrop() {
+        let crop = CGRect(x: 200, y: 100, width: 300, height: 200)
+        let note = MarkupAnnotation(shape: .note(CGPoint(x: 250, y: 150)), color: .red, text: "Hi")
+        let moved = ImageMarkup.moved(note, by: CGSize(width: -1000, height: -1000), within: crop, pillSize: CGSize(width: 50, height: 20))
+        #expect(moved.shape == .note(CGPoint(x: 200, y: 100)))
+    }
+
     @Test func onlyNotesMove() {
         let box = MarkupAnnotation(shape: .box(CGRect(x: 0, y: 0, width: 20, height: 20)), color: .red)
         #expect(ImageMarkup.moved(box, by: CGSize(width: 50, height: 50), within: bounds) == box)
