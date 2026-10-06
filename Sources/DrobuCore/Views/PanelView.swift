@@ -43,6 +43,9 @@ struct PanelView: View {
     @State private var selection = PanelSelection()
     @State private var observation: AnyDatabaseCancellable?
     @State private var isEditing = false
+    /// A row inserted by an edit (marked-up image copy) that the selection should
+    /// land on once the observation delivers it.
+    @State private var followItemId: Int64?
     @State private var editingText = ""
     @State private var originalText = ""
     @State private var editingItemId: Int64?   // track edited item across list refreshes
@@ -368,6 +371,7 @@ struct PanelView: View {
                 onDiscard: { discardEdit() },
                 onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
                 onImageSave: { croppedData in saveImageCrop(data: croppedData) },
+                onImageSaveAsNew: { annotatedData in saveAnnotatedImage(data: annotatedData) },
                 onVideoSave: { trimmedURL in saveVideoTrim(url: trimmedURL) },
                 onCleanup: { cleanupText() }
             )
@@ -999,6 +1003,10 @@ struct PanelView: View {
             if isEditing, let targetId = editingItemId,
                let newIndex = items.firstIndex(where: { $0.id == targetId }) {
                 selection.collapse(to: newIndex, ids: itemIDs)
+            } else if let followId = followItemId,
+                      let newIndex = items.firstIndex(where: { $0.id == followId }) {
+                selection.collapse(to: newIndex, ids: itemIDs)
+                followItemId = nil
             }
         })
     }
@@ -1146,6 +1154,39 @@ struct PanelView: View {
     private func saveImageCrop(data: Data) {
         commitMediaEdit(logTag: "saveImageCrop") { db, itemId in
             try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+        }
+    }
+
+    /// Marked-up image → a NEW history item; the original screenshot stays as it was.
+    /// Selection follows the new row once the observation delivers it, so Return
+    /// pastes the marked-up copy even when a search reorders the list by rank.
+    private func saveAnnotatedImage(data: Data) {
+        guard isEditing, let originalId = editingItemId else { return }
+        isEditing = false
+        editingItemId = nil
+        isSearchFocused = true
+        selection.reset()
+
+        Task.detached {
+            do {
+                let inserted = try await database.pool.write { db in
+                    try ClipboardRecord.insertAnnotatedImage(data, derivedFrom: originalId, in: db)
+                }
+                await MainActor.run { follow(insertedId: inserted.id) }
+            } catch {
+                Log.error("PanelView: saveAnnotatedImage failed: \(error)")
+            }
+        }
+    }
+
+    /// The observation can deliver the new row before or after the insert returns its
+    /// id: select it now if it's already listed, otherwise when it arrives.
+    private func follow(insertedId: Int64?) {
+        guard let insertedId else { return }
+        if let index = items.firstIndex(where: { $0.id == insertedId }) {
+            selection.collapse(to: index, ids: itemIDs)
+        } else {
+            followItemId = insertedId
         }
     }
 

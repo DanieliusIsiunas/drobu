@@ -11,6 +11,7 @@ struct PreviewPanel: View {
     var onDiscard: (() -> Void)?
     var onGifSave: ((Data) -> Void)?
     var onImageSave: ((Data) -> Void)?
+    var onImageSaveAsNew: ((Data) -> Void)?
     var onVideoSave: ((URL) -> Void)?
     var onCleanup: (() -> Void)?
 
@@ -97,6 +98,7 @@ struct PreviewPanel: View {
             ImageCropView(
                 data: data,
                 onSave: { croppedData in onImageSave?(croppedData) },
+                onSaveAsNew: { annotatedData in onImageSaveAsNew?(annotatedData) },
                 onDiscard: { onDiscard?() }
             )
         } else if let data = item.imageData, let nsImage = NSImage(data: data) {
