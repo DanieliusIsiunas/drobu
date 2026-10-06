@@ -178,13 +178,16 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         isDragging = false
         draft = nil
         // A press on a note's pill drags the note instead of drawing.
-        movingNote = nil
-        let pills = MarkupRenderer.pillRects(for: annotations, metrics: metrics, bounds: geometry.cropRect)
-        if let hit = ImageMarkup.hitTest(contentPoint(start), annotations: annotations, pillRects: pills,
-                                         tolerance: hitTolerancePoints * contentPerPoint),
-           let note = annotations.first(where: { $0.id == hit }), note.shape.isNote {
-            movingNote = note
-        }
+        let notes = annotations.filter { $0.shape.isNote }
+        movingNote = notes.isEmpty ? nil : hitAnnotation(at: start, among: notes)
+    }
+
+    /// The topmost annotation under a view point (borders, arrow shafts, pills).
+    private func hitAnnotation(at viewPoint: CGPoint, among candidates: [MarkupAnnotation]) -> MarkupAnnotation? {
+        let pills = MarkupRenderer.pillRects(for: candidates, metrics: metrics, bounds: geometry.cropRect)
+        let id = ImageMarkup.hitTest(contentPoint(viewPoint), annotations: candidates, pillRects: pills,
+                                     tolerance: hitTolerancePoints * contentPerPoint)
+        return candidates.first { $0.id == id }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -220,15 +223,17 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
     override func mouseUp(with event: NSEvent) {
         guard let start = pressStartView else { return }
         pressStartView = nil
-        defer { needsDisplay = true }
-
-        if isDragging, movingNote != nil {
-            isDragging = false
+        let wasMovingNote = movingNote != nil
+        defer {
             movingNote = nil
+            needsDisplay = true
+        }
+
+        if isDragging, wasMovingNote {
+            isDragging = false
             update(annotations)  // publish the moved note
             return
         }
-        movingNote = nil
 
         if isDragging {
             isDragging = false
@@ -248,13 +253,10 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
 
         // A click: select what's under it, place a note, or clear the selection.
         let point = contentPoint(start)
-        let pills = MarkupRenderer.pillRects(for: annotations, metrics: metrics, bounds: geometry.cropRect)
-        if let hit = ImageMarkup.hitTest(point, annotations: annotations, pillRects: pills,
-                                         tolerance: hitTolerancePoints * contentPerPoint) {
-            setSelection(hit)
-            if event.clickCount >= 2, let annotation = annotations.first(where: { $0.id == hit }),
-               annotation.shape.acceptsText {
-                beginEditing(hit)
+        if let hit = hitAnnotation(at: start, among: annotations) {
+            setSelection(hit.id)
+            if event.clickCount >= 2, hit.shape.acceptsText {
+                beginEditing(hit.id)
             }
         } else if tool == .note {
             setSelection(nil)
@@ -336,7 +338,8 @@ final class MarkupOverlayNSView: NSView, NSTextViewDelegate {
         guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect)
             ?? MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.contentBounds) else { return }
         // A little slack so AppKit's line breaking never wraps earlier than CoreText's.
-        field.frame = viewRect(fromContent: pill).insetBy(dx: -2, dy: -1).integral
+        let frame = viewRect(fromContent: pill).insetBy(dx: -2, dy: -1).integral
+        if field.frame != frame { field.frame = frame }
     }
 
     /// Finish editing and keep the text — Esc, ⌘↩, a click elsewhere, a tool or
