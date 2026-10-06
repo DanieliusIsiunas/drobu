@@ -27,6 +27,17 @@ enum ImageCrop {
         return CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
     }
 
+    /// Header-only pixel density: DPI / 72 when the container records a density
+    /// above 72, else nil. Most pasteboard images report 72 even when captured on a
+    /// Retina display, so nil means "unknown", not "1x" — the caller picks a fallback.
+    static func pixelDensityScale(of data: Data) -> CGFloat? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let dpi = props[kCGImagePropertyDPIWidth] as? Double,
+              dpi > 72 else { return nil }
+        return CGFloat(dpi / 72)
+    }
+
     /// Decode `data`, crop to `rect` (top-left origin, content pixels — the
     /// `CropGeometry.cropRect` space), and re-encode as PNG. Returns nil if the data
     /// is not a decodable bitmap or the PNG encode fails. The crop rect is clamped to
