@@ -55,10 +55,15 @@ enum MarkupRenderer {
     }
 
     private static func pillRect(for annotation: MarkupAnnotation, pillSize: CGSize, metrics: MarkupMetrics, bounds: CGRect) -> CGRect? {
+        // A shape cropped out entirely keeps no label: clamping its pill into the
+        // crop would leave an orphaned comment on the saved image.
         switch annotation.shape {
         case .box(let rect):
+            guard rect.intersects(bounds) else { return nil }
             return ImageMarkup.boxLabelRect(box: rect, pillSize: pillSize, bounds: bounds, gap: metrics.labelGap)
         case .note(let point):
+            guard point.x >= bounds.minX, point.x <= bounds.maxX,
+                  point.y >= bounds.minY, point.y <= bounds.maxY else { return nil }
             return ImageMarkup.noteRect(at: point, pillSize: pillSize, bounds: bounds)
         case .arrow:
             return nil

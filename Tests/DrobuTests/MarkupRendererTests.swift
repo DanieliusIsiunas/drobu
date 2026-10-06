@@ -113,6 +113,26 @@ struct MarkupRendererTests {
         #expect(marked.pixels == plain.pixels)
     }
 
+    @Test func croppedOutAnnotationsGetNoPill() {
+        let crop = CGRect(x: 0, y: 100, width: 200, height: 100)
+        let box = MarkupAnnotation(shape: .box(CGRect(x: 20, y: 10, width: 60, height: 40)), color: .red, text: "Gone")
+        let note = MarkupAnnotation(shape: .note(CGPoint(x: 30, y: 20)), color: .red, text: "Gone too")
+        #expect(MarkupRenderer.pillRect(for: box, metrics: metrics, bounds: crop) == nil)
+        #expect(MarkupRenderer.pillRect(for: note, metrics: metrics, bounds: crop) == nil)
+    }
+
+    @Test func labelledAnnotationOutsideCropLeavesNoOrphanLabel() throws {
+        let source = Self.splitImage(width: 100, height: 100)
+        let crop = CGRect(x: 0, y: 50, width: 100, height: 50)
+        let outside = [
+            MarkupAnnotation(shape: .box(CGRect(x: 10, y: 5, width: 20, height: 20)), color: .green, text: "Gone"),
+            MarkupAnnotation(shape: .note(CGPoint(x: 40, y: 10)), color: .red, text: "Gone"),
+        ]
+        let marked = try render(source, outside, crop: crop)
+        let plain = try Bitmap(png: #require(ImageCrop.cropAndEncodePNG(source, to: crop)))
+        #expect(marked.pixels == plain.pixels)
+    }
+
     // MARK: - Helpers
 
     private func render(_ image: CGImage, _ annotations: [MarkupAnnotation], crop: CGRect? = nil) throws -> Bitmap {

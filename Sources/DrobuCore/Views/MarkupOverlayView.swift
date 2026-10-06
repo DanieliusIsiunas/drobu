@@ -270,7 +270,10 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
               var annotation = annotations.first(where: { $0.id == id }) else { return }
         // Size an empty field for its placeholder.
         if annotation.text.isEmpty { annotation.text = Self.commentPlaceholder }
-        guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect) else { return }
+        // A shape outside the crop has no pill there; still show the field at its
+        // image position so typing stays visible.
+        guard let pill = MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.cropRect)
+            ?? MarkupRenderer.pillRect(for: annotation, metrics: metrics, bounds: geometry.contentBounds) else { return }
         var frame = viewRect(fromContent: pill)
         frame.size.width = max(frame.width, 160)
         frame.size.height = max(frame.height, 20)
