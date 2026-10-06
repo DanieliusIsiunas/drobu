@@ -103,3 +103,14 @@ needed four things, each a silent failure if missed:
   surface is rebuilt. `ImageEditSession` (@Observable, owned by `PanelView`) holds it.
   Block the move while a mouse button is held — an in-progress drag's draft lives in
   the outgoing NSView.
+
+## SwiftUI controls in a panel that isn't key need two clicks
+
+`NSHostingView.acceptsFirstMouse(for:)` returns **false** by default (probed: a
+hosting view with a tap gesture reports `false`). In a window that isn't key — e.g.
+the Shift large preview, which opens with `orderFront` and no focus — the first click
+only focuses the window and SwiftUI never sees it, so every tap gesture/button there
+needs two clicks. Hand-rolled `NSView` overlays that override `acceptsFirstMouse`
+(crop/markup overlays) work on the first click, which hides the problem. Fix: host the
+content in a subclass that returns `true` (`FirstClickHostingView` in
+`LargePreviewPanel.swift`).
