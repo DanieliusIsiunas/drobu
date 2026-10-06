@@ -71,7 +71,10 @@ final class ImageEditSession {
                 self.onDiscard()
                 return
             }
-            self.metrics = MarkupMetrics(densityScale: fileDensity ?? self.fallbackDensity())
+            self.metrics = MarkupMetrics(
+                densityScale: fileDensity ?? self.fallbackDensity(),
+                contentSize: CGSize(width: decoded.width, height: decoded.height)
+            )
             // Crop state from the TRUE pixel size (never NSImage.size, which is in
             // points and under-reports Retina media).
             self.cropGeometry = CropGeometry(contentWidth: decoded.width, contentHeight: decoded.height)

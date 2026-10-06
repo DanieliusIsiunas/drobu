@@ -26,6 +26,23 @@ struct ImageMarkupTests {
         #expect(MarkupMetrics(densityScale: 12).scale == 4)
     }
 
+    @Test func smallImagesCapLabelSize() {
+        // A 358×221 screenshot at Retina density: text capped near 8% of the short side.
+        let small = MarkupMetrics(densityScale: 2, contentSize: CGSize(width: 358, height: 221))
+        #expect(small.fontSize < MarkupMetrics(densityScale: 2).fontSize)
+        #expect(abs(small.fontSize - 221 * 0.08) < 0.5)
+    }
+
+    @Test func largeImagesKeepDensitySize() {
+        let large = MarkupMetrics(densityScale: 2, contentSize: CGSize(width: 2880, height: 1800))
+        #expect(large == MarkupMetrics(densityScale: 2))
+    }
+
+    @Test func tinyImagesKeepAReadableFloor() {
+        let tiny = MarkupMetrics(densityScale: 2, contentSize: CGSize(width: 90, height: 60))
+        #expect(tiny == MarkupMetrics(densityScale: 1))
+    }
+
     @Test func densityScaleReadsDPIAbove72() {
         #expect(ImageCrop.pixelDensityScale(of: Self.makePNG(dpi: 144)) == 2)
     }

@@ -100,12 +100,26 @@ struct MarkupAnnotation: Identifiable, Equatable, Sendable {
 struct MarkupMetrics: Equatable, Sendable {
     let scale: CGFloat
 
+    static let baseFontSize: CGFloat = 14
+    /// Label text never exceeds this share of the image's shorter side, so a small
+    /// screenshot isn't swamped by labels sized for Retina density.
+    static let maxFontShareOfShortSide: CGFloat = 0.08
+
     init(densityScale: CGFloat) {
         scale = min(max(densityScale, 1), 4)
     }
 
+    /// Density-based sizing, capped for small images (see `maxFontShareOfShortSide`)
+    /// but never below 1x. Uses the full image, not the crop, so sizes stay stable
+    /// while the crop is dragged.
+    init(densityScale: CGFloat, contentSize: CGSize) {
+        let shortSide = min(contentSize.width, contentSize.height)
+        let cap = shortSide * Self.maxFontShareOfShortSide / Self.baseFontSize
+        self.init(densityScale: min(densityScale, max(cap, 1)))
+    }
+
     var strokeWidth: CGFloat { 3 * scale }
-    var fontSize: CGFloat { 14 * scale }
+    var fontSize: CGFloat { Self.baseFontSize * scale }
     var pillPaddingX: CGFloat { 7 * scale }
     var pillPaddingY: CGFloat { 4 * scale }
     var pillCornerRadius: CGFloat { 5 * scale }
