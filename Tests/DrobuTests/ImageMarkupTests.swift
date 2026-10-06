@@ -34,6 +34,13 @@ struct ImageMarkupTests {
         #expect(ImageCrop.pixelDensityScale(of: Self.makePNG(dpi: 72)) == nil)
     }
 
+    @Test func labelWidthNeverExceedsVisibleWidth() {
+        let metrics = MarkupMetrics(densityScale: 2)
+        let smallCrop = CGRect(x: 0, y: 0, width: 90, height: 400)
+        #expect(metrics.maxLabelWidth(in: smallCrop) == 90)
+        #expect(metrics.maxLabelWidth(in: bounds) == 600) // 60% of a wide view
+    }
+
     // MARK: - Label placement
 
     @Test func labelSitsAboveBoxWhenThereIsRoom() {

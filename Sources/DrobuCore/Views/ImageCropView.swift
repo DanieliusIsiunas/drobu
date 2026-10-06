@@ -121,7 +121,7 @@ struct ImageCropView: View {
                                 .fill(candidate == tool ? Color.primary.opacity(0.18) : .clear)
                         )
                         .contentShape(Rectangle())
-                        .onTapGesture { tool = candidate; focus.restore() }
+                        .onTapGesture { focus.restore(); tool = candidate }
                         .help(candidate.accessibilityName)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(candidate.accessibilityName)
@@ -140,7 +140,10 @@ struct ImageCropView: View {
                         )
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
-                        .onTapGesture { pick(swatch); focus.restore() }
+                        // Restore focus FIRST: it commits an open label, which writes
+                        // the overlay's annotation snapshot back — recolouring before
+                        // that would be overwritten by the stale snapshot.
+                        .onTapGesture { focus.restore(); pick(swatch) }
                         .help("\(swatch.accessibilityName) (\(swatch.keyNumber))")
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("\(swatch.accessibilityName) colour")

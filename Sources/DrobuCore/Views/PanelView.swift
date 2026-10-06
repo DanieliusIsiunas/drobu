@@ -1168,6 +1168,10 @@ struct PanelView: View {
         isEditing = false
         editingItemId = nil
         isSearchFocused = true
+        // The copy's searchable text (its new dimensions) may not match an active
+        // query, which would leave the original selected — show the full list so
+        // the copy lands on top. (Clearing the query also resets the selection.)
+        if !searchText.isEmpty { searchText = "" }
         selection.reset()
 
         Task.detached {

@@ -109,9 +109,11 @@ struct MarkupMetrics: Equatable, Sendable {
     /// Box interior tint opacity — the graph underneath stays readable.
     static let boxFillAlpha: CGFloat = 0.22
 
-    /// Labels wrap at ~60% of the visible width (never narrower than a few words).
+    /// Labels wrap at ~60% of the visible width (never narrower than a few words),
+    /// but never wider than the visible region itself, so a small crop wraps the
+    /// label instead of clipping it.
     func maxLabelWidth(in bounds: CGRect) -> CGFloat {
-        max(bounds.width * 0.6, 120 * scale)
+        min(max(bounds.width * 0.6, 120 * scale), bounds.width)
     }
 }
 
