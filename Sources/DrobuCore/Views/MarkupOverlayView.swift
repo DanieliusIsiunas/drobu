@@ -202,6 +202,11 @@ final class MarkupOverlayNSView: NSView, NSTextFieldDelegate {
             isDragging = false
             guard let committed = draft else { return }
             draft = nil
+            // A drag that wandered past the threshold but ended back near its start
+            // draws nothing meaningful — drop it, or the invisible shape would turn
+            // a plain ⌘↩ crop save into a save-as-new-item.
+            let end = convert(event.locationInWindow, from: nil)
+            if ImageMarkup.isClick(from: start, to: end, threshold: clickThresholdPoints) { return }
             update(annotations + [committed])
             if case .box = committed.shape { beginEditing(committed.id, isNew: true) }
             return
