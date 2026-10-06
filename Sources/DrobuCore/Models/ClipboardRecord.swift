@@ -141,6 +141,25 @@ extension ClipboardRecord {
         try updateMediaData(id: id, newData: newData, kind: kindImage, in: db)
     }
 
+    /// Insert a marked-up image as a NEW history item at the top, leaving the
+    /// original row untouched (unlike crop, which rewrites in place). Copies the
+    /// original's source app so the copy reads as coming from the same place; if the
+    /// original was deleted while editing, the copy is still inserted.
+    @discardableResult
+    static func insertAnnotatedImage(_ data: Data, derivedFrom originalId: Int64, in db: Database) throws -> ClipboardRecord {
+        let original = try ClipboardRecord.fetchOne(db, key: originalId)
+        let record = ClipboardRecord(
+            kind: kindImage,
+            plainText: mediaDisplayText(from: data, kind: kindImage),
+            imageData: data,
+            sourceApp: original?.sourceApp,
+            sourceBundleId: original?.sourceBundleId,
+            contentHash: data.sha256String,
+            createdAt: Date()
+        )
+        return try upsert(record, in: db)
+    }
+
     /// Shared destructive media update: recalculate hash, dedup any other row with
     /// the same hash, and rewrite the row in place with a fresh `createdAt` (moves to
     /// top) and a refreshed `plainText` label. Both statements run inside the

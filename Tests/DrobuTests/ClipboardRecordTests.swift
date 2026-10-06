@@ -197,6 +197,83 @@ struct ClipboardRecordTests {
         }
     }
 
+    // MARK: - InsertAnnotatedImage
+
+    private func insertOriginalImage(in db: AppDatabase, createdAt: Date = Date(timeIntervalSinceNow: -3600)) throws -> ClipboardRecord {
+        let data = ImageCropTests.makePNG(width: 100, height: 80)
+        return try db.pool.write { conn in
+            try ClipboardRecord.upsert(
+                makeRecord(
+                    kind: ClipboardRecord.kindImage,
+                    plainText: "Image: 100×80",
+                    imageData: data,
+                    sourceApp: "Google Chrome",
+                    sourceBundleId: "com.google.Chrome",
+                    contentHash: data.sha256String,
+                    createdAt: createdAt
+                ),
+                in: conn
+            )
+        }
+    }
+
+    @Test func insertAnnotatedImageKeepsOriginalAndAddsNewTopRow() throws {
+        let db = try makeTestDatabase()
+        let original = try insertOriginalImage(in: db)
+        let annotated = ImageCropTests.makePNG(width: 90, height: 70)
+
+        let inserted = try db.pool.write { conn in
+            try ClipboardRecord.insertAnnotatedImage(annotated, derivedFrom: original.id!, in: conn)
+        }
+        let rows = try db.pool.read { conn in try ClipboardRecord.fetchRecent(in: conn) }
+
+        #expect(rows.count == 2)
+        #expect(rows[0].id == inserted.id)
+        #expect(rows[0].kind == ClipboardRecord.kindImage)
+        #expect(rows[0].imageData == annotated)
+        #expect(rows[0].contentHash == annotated.sha256String)
+        #expect(rows[0].plainText?.hasPrefix("Image:") == true)
+        #expect(rows[1].id == original.id)
+        #expect(rows[1].imageData == original.imageData)
+        #expect(rows[1].contentHash == original.contentHash)
+    }
+
+    @Test func insertAnnotatedImageCopiesProvenance() throws {
+        let db = try makeTestDatabase()
+        let original = try insertOriginalImage(in: db)
+        let inserted = try db.pool.write { conn in
+            try ClipboardRecord.insertAnnotatedImage(
+                ImageCropTests.makePNG(width: 90, height: 70), derivedFrom: original.id!, in: conn
+            )
+        }
+        #expect(inserted.sourceApp == "Google Chrome")
+        #expect(inserted.sourceBundleId == "com.google.Chrome")
+    }
+
+    @Test func insertAnnotatedImageSurvivesDeletedOriginal() throws {
+        let db = try makeTestDatabase()
+        let inserted = try db.pool.write { conn in
+            try ClipboardRecord.insertAnnotatedImage(
+                ImageCropTests.makePNG(width: 90, height: 70), derivedFrom: 999_999, in: conn
+            )
+        }
+        let rows = try db.pool.read { conn in try ClipboardRecord.fetchRecent(in: conn) }
+        #expect(rows.map(\.id) == [inserted.id])
+        #expect(inserted.sourceApp == nil)
+    }
+
+    @Test func insertAnnotatedImageTwiceDeduplicates() throws {
+        let db = try makeTestDatabase()
+        let original = try insertOriginalImage(in: db)
+        let annotated = ImageCropTests.makePNG(width: 90, height: 70)
+        try db.pool.write { conn in
+            try ClipboardRecord.insertAnnotatedImage(annotated, derivedFrom: original.id!, in: conn)
+            try ClipboardRecord.insertAnnotatedImage(annotated, derivedFrom: original.id!, in: conn)
+        }
+        let rows = try db.pool.read { conn in try ClipboardRecord.fetchRecent(in: conn) }
+        #expect(rows.count == 2)
+    }
+
     // MARK: - UpdateImageData
 
     @Test func updateImageDataRecalculatesHashAndRefreshesDisplayText() throws {
