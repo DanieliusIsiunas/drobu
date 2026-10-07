@@ -83,3 +83,34 @@ NSZombieEnabled=YES NSDeallocateZombies=NO MallocStackLogging=YES \
 NSZombie changes timing (objects never freed), so a genuine over-release that
 SIGSEGVs in release becomes a clean "message sent to deallocated instance" naming
 the class — for these window bugs, `NSWindow`/`NSPanel`.
+
+## Moving an editor between the panel and the Shift large preview (v1.12)
+
+The large preview (`LargePreviewPanel`) is a child `NSPanel` that intercepts Return /
+Esc / arrows in `sendEvent` to drive list navigation. Hosting the image editor there
+needed four things, each a silent failure if missed:
+
+- **Stop intercepting while an editor is hosted** (`isHostingEditor`), or Esc closes
+  the preview instead of discarding and Return never reaches the label field.
+- **Make it key when it takes the edit, and give the main panel key back when it
+  closes** (`closeLargePreview` → `panel.makeKey()`); otherwise the editor's key view
+  is first responder in a window that isn't key, and no keys arrive.
+- **Live Text (`ImageAnalysisOverlayView`) takes first responder on a click.** The
+  editor's own keys must be pulled back (`reclaimEditorFocusIfNeeded`, gated on
+  `ImageEditorKeyNSView.ownsKey`) — but only those, so ⌘C still copies selected text,
+  and never while the field editor (`NSText`) is active.
+- **Edit state can't live in view `@State`** if the editor moves windows: the
+  surface is rebuilt. `ImageEditSession` (@Observable, owned by `PanelView`) holds it.
+  Block the move while a mouse button is held — an in-progress drag's draft lives in
+  the outgoing NSView.
+
+## SwiftUI controls in a panel that isn't key need two clicks
+
+`NSHostingView.acceptsFirstMouse(for:)` returns **false** by default (probed: a
+hosting view with a tap gesture reports `false`). In a window that isn't key — e.g.
+the Shift large preview, which opens with `orderFront` and no focus — the first click
+only focuses the window and SwiftUI never sees it, so every tap gesture/button there
+needs two clicks. Hand-rolled `NSView` overlays that override `acceptsFirstMouse`
+(crop/markup overlays) work on the first click, which hides the problem. Fix: host the
+content in a subclass that returns `true` (`FirstClickHostingView` in
+`LargePreviewPanel.swift`).

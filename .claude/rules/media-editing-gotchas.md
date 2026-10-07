@@ -150,3 +150,31 @@ at once; any rectangle is reachable in at most two corner drags.
     the affordance.
 - The change is interaction + drawing only — the three editors (Image/GIF/Video)
   mount the same overlay and needed no edit.
+
+## Image markup (v1.12): flipped-context traps, DPI lies, and snapshot write-back
+
+Learned building the box/arrow/note markup layer (`MarkupRenderer`, `MarkupOverlayView`).
+
+- **Draw the bitmap BEFORE flipping to top-left.** In a `CGBitmapContext`,
+  `translateBy(0, h); scaleBy(1, -1)` then `draw(image, in:)` saves the screenshot
+  **upside down** (the image's top row lands at user-space max-y). Draw the image in
+  the native y-up space first, then flip and draw the markup.
+  `MarkupRendererTests.backgroundKeepsItsOrientation` (red-top/blue-bottom source)
+  pins it — a solid-colour source can't catch this.
+- **CoreText in a y-down space: flipping only the text matrix reverses wrapped line
+  order.** Glyphs come out upright but `CTFrameDraw` still stacks lines bottom-up.
+  Flip the whole space locally around the text rect (`translate(0, minY+maxY)`,
+  `scale(1,-1)`, identity text matrix). `wrappedLabelLinesKeepTheirOrder` pins it —
+  an "ink lies inside the pill" check passes even when the lines are reversed, so
+  assert the lower half is nearly empty.
+- **Pasteboard image DPI is not a density signal.** Every image in a real history DB
+  (Chrome, Mattermost, Cursor copies — many of them Retina 2x pixels) reported
+  **72 DPI**. Sizing markup from DPI alone draws tiny labels on Retina screenshots.
+  `ImageCrop.pixelDensityScale` returns nil at ≤72 ("unknown"), and the editor falls
+  back to the display's `backingScaleFactor`.
+- **An NSView that writes its whole local snapshot back through a binding clobbers
+  SwiftUI-side edits made earlier in the same event.** The inline label field commits
+  on `controlTextDidEndEditing` by writing the overlay's `annotations` copy back; if a
+  swatch tap recoloured `@State` first and *then* moved focus, the stale snapshot
+  overwrote the recolour (caught by review). Order info-bar handlers as
+  `focus.restore()` (commit the field) → then mutate state.

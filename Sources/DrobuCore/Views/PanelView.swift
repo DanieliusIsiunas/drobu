@@ -43,6 +43,12 @@ struct PanelView: View {
     @State private var selection = PanelSelection()
     @State private var observation: AnyDatabaseCancellable?
     @State private var isEditing = false
+    /// A row inserted by an edit (marked-up image copy) that the selection should
+    /// land on once the observation delivers it.
+    @State private var followItemId: Int64?
+    /// The active image edit (crop + markup). Lives here, not in a view, so the edit
+    /// can move between the inline pane and the Shift large preview intact.
+    @State private var imageSession: ImageEditSession?
     @State private var editingText = ""
     @State private var originalText = ""
     @State private var editingItemId: Int64?   // track edited item across list refreshes
@@ -263,7 +269,11 @@ struct PanelView: View {
                     closeLargePreview()
                     return
                 }
-                guard !isEditing, panelMode == .clipboard else { return }
+                // An image edit can move into the large preview; other edits (text,
+                // GIF, video) keep the large preview closed. Never mid-drag: moving
+                // the editor would destroy the surface holding the unfinished shape.
+                guard panelMode == .clipboard, !isEditing || imageSession != nil,
+                      NSEvent.pressedMouseButtons == 0 else { return }
                 toggleLargePreview()
             }
         }
@@ -275,6 +285,8 @@ struct PanelView: View {
             searchText = ""
             isEditing = false
             editingItemId = nil
+            followItemId = nil
+            imageSession = nil
             editingText = ""
             originalText = ""
             selection.reset()
@@ -285,6 +297,8 @@ struct PanelView: View {
         }
         .onChange(of: searchText) { _, newValue in
             if isEditing { discardEdit() }
+            // A pending follow only applies to the list it was saved into.
+            followItemId = nil
 
             if newValue.hasPrefix("/") {
                 if case .commandOptions = panelMode {
@@ -300,6 +314,12 @@ struct PanelView: View {
                 selection.reset()
                 startObservation()
             }
+        }
+        .onChange(of: isEditing) { _, editing in
+            // Every way out of edit mode (save, discard, panel close) ends the image
+            // edit; the large preview drops back to view mode for the current row.
+            if !editing { imageSession = nil }
+            refreshLargePreview()
         }
         .onChange(of: activeFilter) { _, _ in
             if panelMode == .clipboard {
@@ -367,7 +387,8 @@ struct PanelView: View {
                 onSave: { saveEdit() },
                 onDiscard: { discardEdit() },
                 onGifSave: { trimmedData in saveGifTrim(data: trimmedData) },
-                onImageSave: { croppedData in saveImageCrop(data: croppedData) },
+                imageSession: imageSession,
+                isImageEditInLargePreview: largePreviewPanel != nil && imageSession != nil,
                 onVideoSave: { trimmedURL in saveVideoTrim(url: trimmedURL) },
                 onCleanup: { cleanupText() }
             )
@@ -486,8 +507,7 @@ struct PanelView: View {
                     // so a cursor-keyed observer never fires and the large preview would
                     // keep showing the row the user just deselected.
                     .onChange(of: previewItem?.id) { _, _ in
-                        guard panelMode == .clipboard, let item = previewItem else { return }
-                        largePreviewPanel?.update(for: item)
+                        refreshLargePreview()
                     }
                 }
             }
@@ -999,6 +1019,10 @@ struct PanelView: View {
             if isEditing, let targetId = editingItemId,
                let newIndex = items.firstIndex(where: { $0.id == targetId }) {
                 selection.collapse(to: newIndex, ids: itemIDs)
+            } else if let followId = followItemId,
+                      let newIndex = items.firstIndex(where: { $0.id == followId }) {
+                selection.collapse(to: newIndex, ids: itemIDs)
+                followItemId = nil
             }
         })
     }
@@ -1018,8 +1042,8 @@ struct PanelView: View {
         // Update or close large preview after items change
         if items.isEmpty {
             closeLargePreview()
-        } else if let item = previewItem {
-            largePreviewPanel?.update(for: item)
+        } else {
+            refreshLargePreview()
         }
     }
 
@@ -1035,7 +1059,8 @@ struct PanelView: View {
             preview.onNavigationKey = { keyCode in
                 self.handleLargePreviewKey(keyCode)
             }
-            preview.show(for: item, on: screen)
+            preview.onBeginMarkup = { tool in self.beginMarkupFromLargePreview(tool) }
+            preview.show(for: item, session: largePreviewSession, on: screen)
             parentPanel.addChildWindow(preview, ordered: .above)
             largePreviewPanel = preview
         }
@@ -1070,8 +1095,34 @@ struct PanelView: View {
     }
 
     private func closeLargePreview() {
+        let wasHostingEditor = largePreviewPanel?.isHostingEditor == true
         largePreviewPanel?.close()
         largePreviewPanel = nil
+        // The inline editor has no Live Text: an edit coming back on Select text
+        // continues with Box.
+        if let imageSession, !imageSession.tool.draws { imageSession.tool = .box }
+        // The edit moves back inline: give the panel the keys again so the inline
+        // editor's key view and label field receive input.
+        if wasHostingEditor, let panel, panel.isVisible { panel.makeKey() }
+    }
+
+    /// The session the large preview should host: the active image edit, if any.
+    private var largePreviewSession: ImageEditSession? {
+        isEditing ? imageSession : nil
+    }
+
+    /// Refresh the large preview for the previewed row (and the edit it hosts).
+    private func refreshLargePreview() {
+        guard panelMode == .clipboard, let item = previewItem else { return }
+        largePreviewPanel?.update(for: item, session: largePreviewSession)
+    }
+
+    /// A drawing tool picked in the large preview starts editing the previewed image
+    /// right there (same entry as ⌘→, same save routing).
+    private func beginMarkupFromLargePreview(_ tool: MarkupTool) {
+        guard !isEditing, !hasMultiSelection else { return }
+        enterEditMode()
+        imageSession?.tool = tool
     }
 
     // MARK: - Edit Mode
@@ -1083,6 +1134,14 @@ struct PanelView: View {
         editingText = item.plainText ?? ""
         originalText = editingText
         editingItemId = item.id
+        if item.kind == ClipboardRecord.kindImage, let data = item.imageData, ImageCrop.isBitmapData(data) {
+            let session = ImageEditSession(data: data, contentHash: item.contentHash)
+            session.onSave = { saveImageCrop(data: $0) }
+            session.onSaveAsNew = { saveAnnotatedImage(data: $0) }
+            session.onDiscard = { discardEdit() }
+            session.load()
+            imageSession = session
+        }
         isEditing = true
     }
 
@@ -1146,6 +1205,43 @@ struct PanelView: View {
     private func saveImageCrop(data: Data) {
         commitMediaEdit(logTag: "saveImageCrop") { db, itemId in
             try ClipboardRecord.updateImageData(id: itemId, newData: data, in: db)
+        }
+    }
+
+    /// Marked-up image → a NEW history item; the original screenshot stays as it was.
+    /// Selection follows the new row once the observation delivers it, so Return
+    /// pastes the marked-up copy even when a search reorders the list by rank.
+    private func saveAnnotatedImage(data: Data) {
+        guard isEditing, let originalId = editingItemId else { return }
+        isEditing = false
+        editingItemId = nil
+        isSearchFocused = true
+        // The copy's searchable text (its new dimensions) may not match an active
+        // query, which would leave the original selected — show the full list so
+        // the copy lands on top. (Clearing the query also resets the selection.)
+        if !searchText.isEmpty { searchText = "" }
+        selection.reset()
+
+        Task.detached {
+            do {
+                let inserted = try await database.pool.write { db in
+                    try ClipboardRecord.insertAnnotatedImage(data, derivedFrom: originalId, in: db)
+                }
+                await MainActor.run { follow(insertedId: inserted.id) }
+            } catch {
+                Log.error("PanelView: saveAnnotatedImage failed: \(error)")
+            }
+        }
+    }
+
+    /// The observation can deliver the new row before or after the insert returns its
+    /// id: select it now if it's already listed, otherwise when it arrives.
+    private func follow(insertedId: Int64?) {
+        guard let insertedId else { return }
+        if let index = items.firstIndex(where: { $0.id == insertedId }) {
+            selection.collapse(to: index, ids: itemIDs)
+        } else {
+            followItemId = insertedId
         }
     }
 

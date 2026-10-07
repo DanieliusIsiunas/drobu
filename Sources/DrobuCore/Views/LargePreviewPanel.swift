@@ -50,10 +50,18 @@ final class LargePreviewPanel: NSPanel {
         }
     }
 
+    /// True while this panel hosts an image edit: keys then belong to the editor and
+    /// its label field (Esc discards, Return confirms a label, ⌘↩ saves) instead of
+    /// list navigation.
+    private(set) var isHostingEditor = false
+
     // Intercept navigation keys BEFORE the responder chain so ImageAnalysisOverlayView
     // can't consume them. Arrow keys always navigate items; text selection is mouse-only.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown {
+        if event.type == .keyDown, isHostingEditor {
+            reclaimEditorFocusIfNeeded(for: event)
+        }
+        if event.type == .keyDown, !isHostingEditor {
             switch Int(event.keyCode) {
             case kVK_Return, kVK_Escape, kVK_UpArrow, kVK_DownArrow,
                  kVK_LeftArrow, kVK_RightArrow, kVK_ForwardDelete:
@@ -66,12 +74,40 @@ final class LargePreviewPanel: NSPanel {
         super.sendEvent(event)
     }
 
-    private var hostingView: NSHostingView<LargePreviewContent>?
+    /// A click on the image with Select text gives Live Text the focus; the editor's
+    /// own keys (Esc, ⌘↩, 1–4, Delete, ⌘Z) must still reach it. Everything else —
+    /// notably ⌘C for selected text — stays with whoever has focus, and a label
+    /// being typed (field editor) is never interrupted.
+    private func reclaimEditorFocusIfNeeded(for event: NSEvent) {
+        guard ImageEditorKeyNSView.ownsKey(event),
+              !(firstResponder is NSText),
+              let keyView = contentView.flatMap(Self.editorKeyView(in:)),
+              firstResponder !== keyView else { return }
+        makeFirstResponder(keyView)
+    }
+
+    private static func editorKeyView(in view: NSView) -> ImageEditorKeyNSView? {
+        if let keyView = view as? ImageEditorKeyNSView { return keyView }
+        for subview in view.subviews {
+            if let found = editorKeyView(in: subview) { return found }
+        }
+        return nil
+    }
+
+    private var hostingView: FirstClickHostingView<LargePreviewContent>?
 
     // MARK: - Show / Update
 
-    func show(for item: ClipboardRecord, on screen: NSScreen) {
-        let hosting = NSHostingView(rootView: LargePreviewContent(item: item))
+    /// Picking a drawing tool on a still image asks the owner to start an edit.
+    var onBeginMarkup: ((MarkupTool) -> Void)?
+
+    private func content(for item: ClipboardRecord, session: ImageEditSession?) -> LargePreviewContent {
+        isHostingEditor = session != nil
+        return LargePreviewContent(item: item, session: session, onBeginMarkup: onBeginMarkup)
+    }
+
+    func show(for item: ClipboardRecord, session: ImageEditSession?, on screen: NSScreen) {
+        let hosting = FirstClickHostingView(rootView: content(for: item, session: session))
         hosting.rootView = hosting.rootView  // force initial layout
         contentView = hosting
         hostingView = hosting
@@ -85,12 +121,23 @@ final class LargePreviewPanel: NSPanel {
         let frameSize = frame.size
         setFrameOrigin(NSPoint(x: visibleFrame.midX - frameSize.width / 2, y: visibleFrame.midY - frameSize.height / 2))
 
-        orderFront(nil)
+        if isHostingEditor { makeKeyAndOrderFront(nil) } else { orderFront(nil) }
     }
 
-    func update(for item: ClipboardRecord) {
-        hostingView?.rootView = LargePreviewContent(item: item)
+    /// Refresh the content. Taking over an edit makes this panel key so the editor's
+    /// keys and label field receive input.
+    func update(for item: ClipboardRecord, session: ImageEditSession?) {
+        let wasHostingEditor = isHostingEditor
+        hostingView?.rootView = content(for: item, session: session)
+        if isHostingEditor, !wasHostingEditor { makeKey() }
     }
+}
+
+/// The large preview opens without keyboard focus, and `NSHostingView` declines a
+/// click that only focuses its window (`acceptsFirstMouse` is false by default) —
+/// so its tool bar needed two clicks. Accept the first one.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // MARK: - Live Text Image View
@@ -109,6 +156,17 @@ private final class FlexibleImageView: NSImageView {
 struct LiveTextImageView: NSViewRepresentable {
     let imageData: Data
     let contentHash: String
+    /// Shown instead of decoding `imageData` when set (the editor's raw bitmap for a
+    /// rotation-tagged file). Analysed under its own cache key.
+    var bitmap: CGImage? = nil
+    /// Off while a markup drawing tool is active, so drags draw instead of selecting.
+    var isInteractive: Bool = true
+
+    private static let interactionTypes: ImageAnalysisOverlayView.InteractionTypes = [.textSelection, .dataDetectors]
+
+    /// Distinct key for the bitmap path: its pixels (and Live Text layout) differ
+    /// from the rotated image the data path shows.
+    private var cacheKey: String { bitmap == nil ? contentHash : contentHash + "#bitmap" }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -119,20 +177,24 @@ struct LiveTextImageView: NSViewRepresentable {
         imageView.setAccessibilityRole(.image)
 
         let overlay = ImageAnalysisOverlayView()
-        overlay.preferredInteractionTypes = [.textSelection, .dataDetectors]
+        overlay.preferredInteractionTypes = isInteractive ? Self.interactionTypes : []
         overlay.trackingImageView = imageView
         overlay.autoresizingMask = [.width, .height]
         imageView.addSubview(overlay)
         context.coordinator.overlay = overlay
 
         context.coordinator.imageView = imageView
-        context.coordinator.setImage(from: imageData, hash: contentHash)
+        context.coordinator.setImage(from: imageData, bitmap: bitmap, hash: cacheKey)
         return imageView
     }
 
     func updateNSView(_ imageView: NSImageView, context: Context) {
-        guard context.coordinator.currentHash != contentHash else { return }
-        context.coordinator.setImage(from: imageData, hash: contentHash)
+        let types: ImageAnalysisOverlayView.InteractionTypes = isInteractive ? Self.interactionTypes : []
+        if context.coordinator.overlay?.preferredInteractionTypes != types {
+            context.coordinator.overlay?.preferredInteractionTypes = types
+        }
+        guard context.coordinator.currentHash != cacheKey else { return }
+        context.coordinator.setImage(from: imageData, bitmap: bitmap, hash: cacheKey)
     }
 
     @MainActor
@@ -153,12 +215,12 @@ struct LiveTextImageView: NSViewRepresentable {
             analysisTask?.cancel()
         }
 
-        func setImage(from data: Data, hash: String) {
+        func setImage(from data: Data, bitmap: CGImage?, hash: String) {
             currentHash = hash
             analysisTask?.cancel()
             overlay?.analysis = nil  // Clear stale overlay immediately — prevents ghost icon on navigate
 
-            guard let nsImage = NSImage(data: data) else { return }
+            guard let nsImage = bitmap.map({ NSImage(cgImage: $0, size: .zero) }) ?? NSImage(data: data) else { return }
             imageView?.image = nsImage
 
             if let cached = Self.cache.object(forKey: hash as NSString) {
@@ -186,6 +248,12 @@ struct LiveTextImageView: NSViewRepresentable {
 
 struct LargePreviewContent: View {
     let item: ClipboardRecord
+    /// The active image edit, when this preview hosts the editor.
+    var session: ImageEditSession?
+    /// Picking a drawing tool on a still image starts an edit of it (nil: no markup bar).
+    var onBeginMarkup: ((MarkupTool) -> Void)?
+
+    @State private var markupColor = MarkupDefaults.loadColor()
 
     var body: some View {
         ZStack {
@@ -194,13 +262,25 @@ struct LargePreviewContent: View {
                 .padding(16)
         }
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10))
+        // A colour picked inside the editor is saved to defaults; show it again
+        // when the preview drops back to view mode.
+        .onChange(of: session == nil) { _, isViewMode in
+            if isViewMode { markupColor = MarkupDefaults.loadColor() }
+        }
     }
 
     @ViewBuilder
     private var previewContent: some View {
         switch item.kind {
         case ClipboardRecord.kindImage:
-            imagePreview
+            if let session {
+                ImageCropView(session: session, presentation: .large)
+            } else {
+                VStack(spacing: 0) {
+                    imagePreview
+                    markupBar
+                }
+            }
         case ClipboardRecord.kindGif:
             gifPreview
         case ClipboardRecord.kindVideo:
@@ -228,6 +308,28 @@ struct LargePreviewContent: View {
             }
         } else {
             unavailable("photo", "Unable to load image")
+        }
+    }
+
+    /// View-mode bar: Select text (Live Text, as always) is active; picking a drawing
+    /// tool starts an edit of this image right here.
+    @ViewBuilder
+    private var markupBar: some View {
+        if let onBeginMarkup, let data = item.imageData, ImageCrop.isBitmapData(data) {
+            HStack {
+                MarkupToolbar(
+                    tools: ImageAnalyzer.isSupported ? MarkupTool.allCases : MarkupTool.drawingTools,
+                    selectedTool: .select,
+                    color: markupColor,
+                    onTool: { tool in if tool.draws { onBeginMarkup(tool) } },
+                    onColor: { swatch in
+                        markupColor = swatch
+                        MarkupDefaults.saveColor(swatch)
+                    }
+                )
+                Spacer()
+            }
+            .padding(.top, 10)
         }
     }
 

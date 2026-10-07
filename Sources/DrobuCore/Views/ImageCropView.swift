@@ -1,146 +1,171 @@
 import AppKit
 import SwiftUI
+@preconcurrency import VisionKit
 
-/// Crop-only inline editor for still images (Cmd+Right edit mode for `kindImage`).
+/// Editor for still images (Cmd+Right edit mode for `kindImage`): crop plus
+/// hand-drawn markup (highlight box with a comment, arrow, note).
 ///
-/// Mirrors `GIFTrimView`'s layout: the image fills the available space aspect-fit, a
-/// `CropOverlayView` draws the draggable crop edges on top, and an info bar at the
-/// bottom shows the save/discard hints (plus saving / error states). Esc and
-/// Cmd+Return are owned by an invisible first-responder NSView (the same pattern as
-/// `GIFTrimPlayerView`) so keyboard handling matches the trim editors.
+/// A presentation of an `ImageEditSession`, which owns all edit state — so the same
+/// edit can move between the inline preview pane and the Shift large preview.
+/// Layers, bottom to top: an invisible first-responder key view (Esc, Cmd+Return,
+/// 1–4, Delete, ⌘Z — the `GIFTrimPlayerView` pattern), the image, the markup layer,
+/// and the crop corners. The large presentation uses the Live Text image view as its
+/// base, interactive only while the Select text tool is active.
 struct ImageCropView: View {
-    let data: Data
-    let onSave: (Data) -> Void
-    let onDiscard: () -> Void
+    enum Presentation {
+        case inline, large
+    }
 
-    @State private var cgImage: CGImage?
-    @State private var cropGeometry = CropGeometry(contentWidth: 0, contentHeight: 0)
-    @State private var isSaving = false
-    @State private var errorMessage: String?
+    @Bindable var session: ImageEditSession
+    let presentation: Presentation
+
+    @State private var focus = EditorFocusHandle()
 
     var body: some View {
         VStack(spacing: 0) {
-            if let cgImage {
-                ZStack {
-                    // Invisible key handler in the background so it never blocks the overlay.
-                    ImageCropKeyView(
-                        onSave: { save() },
-                        onDiscard: { discard() }
+            ZStack {
+                // Invisible key handler in the background so it never blocks the overlay.
+                ImageCropKeyView(
+                    focus: focus,
+                    onSave: { session.save() },
+                    onDiscard: { session.discard() },
+                    onColorKey: { session.pick($0) },
+                    onDeleteSelected: { session.deleteSelected() },
+                    onUndo: { session.undoLast() }
+                )
+
+                baseImage
+
+                if session.cgImage != nil {
+                    MarkupOverlayView(
+                        annotations: $session.annotations,
+                        selectedID: $session.selectedID,
+                        tool: session.tool,
+                        color: session.color,
+                        metrics: session.metrics,
+                        geometry: session.cropGeometry,
+                        isInteractionEnabled: !session.isSaving,
+                        focus: focus
                     )
 
-                    Image(decorative: cgImage, scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    CropOverlayView(geometry: $cropGeometry, isInteractionEnabled: !isSaving)
+                    CropOverlayView(geometry: $session.cropGeometry, isInteractionEnabled: !session.isSaving)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-
-                cropInfoBar
-            } else {
-                ProgressView("Loading image...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, layout.imageInset)
+            .padding(.top, layout.imageInset)
+
+            infoBar
         }
-        .onAppear(perform: decodeIfNeeded)
+        .onAppear {
+            // Backstop for the panel's own clamp: without Live Text here, Select
+            // text would leave the image inert.
+            if !offersSelectText, !session.tool.draws { session.tool = .box }
+            session.load()
+        }
     }
 
-    private var cropInfoBar: some View {
+    /// Select text needs Live Text: only the large presentation has it, and only
+    /// where VisionKit supports image analysis.
+    private var offersSelectText: Bool {
+        presentation == .large && ImageAnalyzer.isSupported
+    }
+
+    /// Spacing per presentation. The large one matches the large preview's view
+    /// mode exactly (image edge to edge, bar 10pt below), so picking a drawing tool
+    /// doesn't shift the image or the tool bar.
+    private var layout: (imageInset: CGFloat, barTop: CGFloat, barSide: CGFloat, barBottom: CGFloat) {
+        presentation == .large ? (0, 10, 0, 0) : (12, 6, 12, 4)
+    }
+
+    /// For a rotation-tagged file, show the decoded bitmap the overlays, crop, and
+    /// export all use — `NSImage(data:)` would rotate it and misplace every shape.
+    /// Untagged images (nearly every screenshot) keep the data path, so Live Text
+    /// isn't analysed twice.
+    private var displayBitmap: CGImage? {
+        session.hasOrientationTag ? session.cgImage : nil
+    }
+
+    /// The image under the overlays. The large presentation's Live Text view reads
+    /// the data itself, so it shows immediately — no "Loading" flash between view
+    /// mode and edit mode; the inline one waits for the decoded bitmap.
+    @ViewBuilder
+    private var baseImage: some View {
+        if presentation == .large, ImageAnalyzer.isSupported {
+            LiveTextImageView(
+                imageData: session.data,
+                contentHash: session.contentHash,
+                bitmap: displayBitmap,
+                isInteractive: !session.tool.draws
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let cgImage = session.cgImage {
+            Image(decorative: cgImage, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView("Loading image...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var infoBar: some View {
         HStack {
-            if isSaving {
+            if session.isSaving {
                 ProgressView()
                     .controlSize(.small)
                 Text("Saving…")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-            } else if let errorMessage {
+                Spacer()
+            } else if let errorMessage = session.errorMessage {
                 Text(errorMessage)
                     .font(.caption2)
                     .foregroundStyle(.red)
+                Spacer()
             } else {
-                Text("\u{2318}\u{21A9} save  esc discard")
+                MarkupToolbar(
+                    tools: offersSelectText ? MarkupTool.allCases : MarkupTool.drawingTools,
+                    selectedTool: session.tool,
+                    color: session.color,
+                    // Restore focus FIRST: it commits an open label, which writes the
+                    // overlay's annotation snapshot back — mutating state before that
+                    // would be overwritten by the stale snapshot.
+                    onTool: { tool in focus.restore(); session.tool = tool },
+                    onColor: { swatch in focus.restore(); session.pick(swatch) }
+                )
+                Spacer(minLength: 8)
+                Text("\u{2318}\u{21A9} save  esc discard  \u{21E7} " + (presentation == .large ? "smaller" : "larger"))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
                     .accessibilityHidden(true)
             }
-
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-    }
-
-    private func decodeIfNeeded() {
-        guard cgImage == nil else { return }
-        let imageData = data
-        Task {
-            // Decode off the main actor — a large Retina screenshot can take hundreds
-            // of milliseconds to decode, and the gate (isBitmapData) is header-only.
-            let decoded = await Task.detached { ImageCrop.decodeBitmap(from: imageData) }.value
-
-            // Header-valid but undecodable (e.g., truncated PNG): exit edit mode
-            // instead of stranding the user on a spinner with no key handler.
-            guard let decoded else {
-                Log.error("ImageCropView: bitmap decode failed — exiting edit mode")
-                onDiscard()
-                return
-            }
-            cgImage = decoded
-            // Initialise crop state from the TRUE pixel size (never NSImage.size, which
-            // is in points and under-reports Retina media).
-            cropGeometry = CropGeometry(contentWidth: decoded.width, contentHeight: decoded.height)
-        }
-    }
-
-    private func discard() {
-        guard !isSaving else { return }
-        onDiscard()
-    }
-
-    private func save() {
-        guard !isSaving, let cgImage else { return }
-
-        // Untouched crop → behave exactly like Esc: close, record untouched, no message.
-        guard !cropGeometry.isFullFrame else {
-            onDiscard()
-            return
-        }
-
-        isSaving = true
-        errorMessage = nil
-        let rect = cropGeometry.cropRect
-
-        Task.detached {
-            let pngData = ImageCrop.cropAndEncodePNG(cgImage, to: rect)
-            await MainActor.run {
-                if let pngData {
-                    onSave(pngData)
-                } else {
-                    Log.error("ImageCropView: crop/PNG encode failed")
-                    isSaving = false
-                    errorMessage = "Save failed — try again"
-                }
-            }
-        }
+        .padding(.horizontal, layout.barSide)
+        .padding(.top, layout.barTop)
+        .padding(.bottom, layout.barBottom)
     }
 }
 
 // MARK: - Invisible key handler
 
-/// Transparent first-responder view hosting the shared `EditorKeyNSView` (Esc /
-/// Cmd+Return contract). Placed in the ZStack background so it never intercepts
-/// crop-edge clicks.
+/// Transparent first-responder view hosting the image editor's keys: the shared
+/// `EditorKeyNSView` contract (Esc / Cmd+Return) plus markup keys. Placed in the
+/// ZStack background so it never intercepts crop-edge or drawing clicks.
 struct ImageCropKeyView: NSViewRepresentable {
+    let focus: EditorFocusHandle
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onColorKey: ((MarkupColor) -> Void)?
+    var onDeleteSelected: (() -> Void)?
+    var onUndo: (() -> Void)?
 
-    func makeNSView(context: Context) -> EditorKeyNSView {
-        let view = EditorKeyNSView()
-        view.onSave = onSave
-        view.onDiscard = onDiscard
+    func makeNSView(context: Context) -> ImageEditorKeyNSView {
+        let view = ImageEditorKeyNSView()
+        apply(to: view)
+        focus.keyView = view
         // Invisible utility view — not an accessibility element.
         view.setAccessibilityElement(false)
 
@@ -152,8 +177,81 @@ struct ImageCropKeyView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: EditorKeyNSView, context: Context) {
-        nsView.onSave = onSave
-        nsView.onDiscard = onDiscard
+    func updateNSView(_ nsView: ImageEditorKeyNSView, context: Context) {
+        apply(to: nsView)
+    }
+
+    private func apply(to view: ImageEditorKeyNSView) {
+        view.onSave = onSave
+        view.onDiscard = onDiscard
+        view.onColorKey = onColorKey
+        view.onDeleteSelected = onDeleteSelected
+        view.onUndo = onUndo
+    }
+}
+
+/// `EditorKeyNSView` plus the markup keys: 1–4 pick a colour, Delete/Backspace
+/// removes the selected annotation, ⌘Z removes the last one.
+final class ImageEditorKeyNSView: EditorKeyNSView {
+    var onColorKey: ((MarkupColor) -> Void)?
+    var onDeleteSelected: (() -> Void)?
+    var onUndo: (() -> Void)?
+
+    // MARK: Key contract (single source of truth)
+
+    private static func flags(of event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection([.command, .option, .control, .shift])
+    }
+
+    /// The palette colour a bare digit key selects (1 = first swatch), if any.
+    static func paletteColor(for event: NSEvent) -> MarkupColor? {
+        let palette = MarkupColor.allCases
+        guard flags(of: event).isEmpty,
+              let digit = event.charactersIgnoringModifiers.flatMap(Int.init),
+              (1...palette.count).contains(digit) else { return nil }
+        return palette[digit - 1]
+    }
+
+    /// Bare Delete (backspace, 51) or Forward Delete (117).
+    static func isDeleteKey(_ event: NSEvent) -> Bool {
+        flags(of: event).isEmpty && (event.keyCode == 51 || event.keyCode == 117)
+    }
+
+    static func isUndoKey(_ event: NSEvent) -> Bool {
+        flags(of: event) == .command && event.charactersIgnoringModifiers?.lowercased() == "z"
+    }
+
+    /// Every key this editor handles, including the base save/discard contract.
+    /// The large preview uses it to hand these keys back to the editor when Live
+    /// Text has taken focus.
+    static func ownsKey(_ event: NSEvent) -> Bool {
+        isSaveKey(event)
+            || isDiscardKey(event)
+            || paletteColor(for: event) != nil
+            || isDeleteKey(event)
+            || isUndoKey(event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let color = Self.paletteColor(for: event) {
+            onColorKey?(color)
+            return
+        }
+        if Self.isDeleteKey(event) {
+            onDeleteSelected?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// ⌘Z is a menu key equivalent (Edit › Undo), so it can be consumed before
+    /// keyDown. Claim it only while this view has focus, so a label field keeps its
+    /// own text undo.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if Self.isUndoKey(event), window?.firstResponder === self {
+            onUndo?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

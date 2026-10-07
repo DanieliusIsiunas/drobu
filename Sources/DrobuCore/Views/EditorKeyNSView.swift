@@ -11,17 +11,22 @@ class EditorKeyNSView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    /// Cmd+Return (any other modifiers allowed).
+    static func isSaveKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+    }
 
-        // Cmd+Return → save
-        if event.keyCode == 36 && flags.contains(.command) {
+    static func isDiscardKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 53
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if Self.isSaveKey(event) {
             onSave?()
             return
         }
 
-        // Escape → discard
-        if event.keyCode == 53 {
+        if Self.isDiscardKey(event) {
             onDiscard?()
             return
         }

@@ -10,7 +10,10 @@ struct PreviewPanel: View {
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onGifSave: ((Data) -> Void)?
-    var onImageSave: ((Data) -> Void)?
+    /// The active image edit (crop + markup), owned by `PanelView`.
+    var imageSession: ImageEditSession?
+    /// True while the image edit is shown in the Shift large preview instead.
+    var isImageEditInLargePreview = false
     var onVideoSave: ((URL) -> Void)?
     var onCleanup: (() -> Void)?
 
@@ -93,12 +96,25 @@ struct PreviewPanel: View {
 
     @ViewBuilder
     private func imagePreview(for item: ClipboardRecord) -> some View {
-        if isEditing, let data = item.imageData {
-            ImageCropView(
-                data: data,
-                onSave: { croppedData in onImageSave?(croppedData) },
-                onDiscard: { onDiscard?() }
-            )
+        if isEditing, let imageSession {
+            if isImageEditInLargePreview {
+                VStack(spacing: 8) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.tertiary)
+                    Text("Editing in large preview")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("\u{21E7} to bring it back here")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Image is being edited in the large preview")
+            } else {
+                ImageCropView(session: imageSession, presentation: .inline)
+            }
         } else if let data = item.imageData, let nsImage = NSImage(data: data) {
             let w = Int(nsImage.size.width)
             let h = Int(nsImage.size.height)
