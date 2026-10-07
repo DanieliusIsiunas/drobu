@@ -9,10 +9,10 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/sitemap": "^3.7.4",
     "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/vite": "^4.2.1",
-    "astro": "^6.1.10",
+    "astro": "^7.3.6",
     "tailwindcss": "^4.2.1"
   },
   "overrides": {

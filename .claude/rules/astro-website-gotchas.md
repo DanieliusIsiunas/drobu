@@ -105,3 +105,25 @@ converting to MP4 collapsed the class. For any UI/product demo on the site:
   shipping that as the reduced-motion/no-JS still drew its own P2. Pick a frame
   where the app UI is on screen (`ffmpeg -ss <t> -i in -frames:v 1 poster.jpg`);
   `web-media.sh` now defaults to the midpoint.
+
+## Astro 7 upgrade traps (6 → 7, Oct 2026)
+
+Found by diffing the full `dist/` of an Astro 6 build against Astro 7 — the build
+itself was green and showed no warnings for any of these:
+
+- **`compressHTML` now defaults to `"jsx"`**, which drops a line break between a word
+  and a following inline element: `automatically,\n<a>continue</a>` renders as
+  "automatically,continue". It hit 32 places across 12 pages (incl. `/buy`).
+  `compressHTML: true` restores Astro 6's collapse-to-one-space behaviour
+  ([upgrade guide](https://docs.astro.build/en/guides/upgrade-to/v7/)).
+- **The CSS minifier drops vendor prefixes its default targets don't need**, incl.
+  `-webkit-backdrop-filter` (the frosted header on Safari < 18). Pin
+  `vite.build.cssTarget` to Tailwind v4's baseline (`safari16.4`, `chrome111`,
+  `firefox128`).
+- **Tailwind v4 scans every project file for class names — comments included.** A
+  config comment containing the word "blur" generated an unused `.blur` utility.
+
+How to verify an upgrade: build before and after, then compare file sets, the text of
+every page with scoped-style ids / asset hashes / dates normalised, the inline scripts,
+and the stylesheet's selector and property sets. Website PRs run no CI build, so this is
+the only proof before the post-merge deploy.
