@@ -24,8 +24,17 @@ export default defineConfig({
       serialize: (item) => ({ ...item, lastmod }),
     }),
   ],
+  // Astro 7 changed the default to "jsx" whitespace rules, which drop the line
+  // break between a word and a following inline element ("automatically,<a>" →
+  // "automatically,continue to checkout"). Keep Astro 6's collapse-to-one-space
+  // behaviour; every page's copy relies on it.
+  compressHTML: true,
   devToolbar: { enabled: false },
   vite: {
     plugins: [tailwindcss()],
+    // Astro 7's CSS minifier drops prefixes its default targets don't need,
+    // including -webkit-backdrop-filter (the frosted header on Safari < 18). Target
+    // Tailwind v4's own browser baseline so those prefixes survive.
+    build: { cssTarget: ["safari16.4", "chrome111", "firefox128"] },
   },
 });
