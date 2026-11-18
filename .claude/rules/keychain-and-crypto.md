@@ -164,3 +164,22 @@ purchase already trivially crackable (network block / binary patch) and fail-ope
 is the codebase's explicit philosophy (device-cap unreachable → fail open). A *locked* keychain
 returns items as `notFound` (→ gated), so this fix targets the ACL/securityd-corruption case,
 which is the observed bug. Surfaced by the ce-code-review adversarial pass on PR for v1.10.1.
+
+## `notarytool` HTTP 403 "A required agreement is missing or has expired" — an unsigned Apple agreement, NOT a credential problem
+
+Observed live on the v1.12.1 release (2026-11-18): `release.sh`'s notary preflight failed with
+
+```
+Error: HTTP status code: 403. A required agreement is missing or has expired.
+```
+
+The keychain profile is fine; that error points at the account. Apple periodically
+publishes an updated Program License Agreement, and notarization is refused for the
+whole team until the **Account Holder** accepts it (developer.apple.com/account banner;
+also check App Store Connect → Business/Agreements). Do NOT re-run
+`notarytool store-credentials` — the profile isn't the problem.
+
+The 403 can persist for several minutes after signing (propagation). Re-check with
+`xcrun notarytool history --keychain-profile "notary-profile"` before re-running the
+release. Like the locked-keychain case above, the preflight fails before any
+tag/build/publish, so nothing needs cleaning up.
