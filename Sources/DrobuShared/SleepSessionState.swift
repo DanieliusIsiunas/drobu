@@ -9,17 +9,19 @@ import Foundation
 public enum SleepLimits {
     /// The durations the `/sleep` UI offers (seconds). A request must match one
     /// of these within `durationSlackSeconds`.
-    public static let allowedDurationsSeconds: [Int] = [15 * 60, 30 * 60, 60 * 60, 2 * 60 * 60, 4 * 60 * 60]
+    public static let allowedDurationsSeconds: [Int] = [15 * 60, 30 * 60, 60 * 60, 2 * 60 * 60, 4 * 60 * 60, 8 * 60 * 60]
 
     /// Largest single session a caller may request.
-    public static let maxDurationSeconds: Int = 4 * 60 * 60
+    public static let maxDurationSeconds: Int = 8 * 60 * 60
 
     /// Slack on bounds checks (clock skew, rounding). Also bounds the
     /// trustworthy-deadline ceiling on the persisted state file.
     public static let durationSlackSeconds: Int = 60
 
     /// Cumulative active seconds permitted within `dutyCycleWindowSeconds`.
-    public static let dutyCycleCapSeconds: TimeInterval = 8 * 60 * 60
+    /// Twice `maxDurationSeconds`, so one overnight 8h session still leaves
+    /// room for daytime use instead of consuming the whole day's budget.
+    public static let dutyCycleCapSeconds: TimeInterval = 16 * 60 * 60
 
     /// Rolling window the duty-cycle cap applies over.
     public static let dutyCycleWindowSeconds: TimeInterval = 24 * 60 * 60
