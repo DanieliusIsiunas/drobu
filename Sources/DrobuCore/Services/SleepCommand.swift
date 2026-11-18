@@ -186,12 +186,16 @@ final class SleepCommand: SlashCommand {
         }
     }
 
-    private static let durations: [(id: String, label: String, seconds: TimeInterval)] = [
+    /// The durations offered in both sections. Closed Lid requests are checked
+    /// again by the daemon against `SleepLimits.allowedDurationsSeconds`, so
+    /// the two lists must stay in sync (pinned by `SleepCommandDurationTests`).
+    static let durations: [(id: String, label: String, seconds: TimeInterval)] = [
         ("15m", "15 minutes", 15 * 60),
         ("30m", "30 minutes", 30 * 60),
         ("1h", "1 hour", 60 * 60),
         ("2h", "2 hours", 2 * 60 * 60),
         ("4h", "4 hours", 4 * 60 * 60),
+        ("8h", "8 hours", 8 * 60 * 60),
     ]
 
     private static func parseDuration(id: String) -> TimeInterval? {
