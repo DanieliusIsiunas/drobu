@@ -31,7 +31,8 @@ struct RequestValidationTests {
         #expect(RequestValidation.isDurationAllowed(-300) == false)
         #expect(RequestValidation.isDurationAllowed(1000) == false)  // nearest 900, diff 100 > 60
         #expect(RequestValidation.isDurationAllowed(SleepLimits.maxDurationSeconds + SleepLimits.durationSlackSeconds + 1) == false)
-        #expect(RequestValidation.isDurationAllowed(10 * 3600) == false)
+        #expect(RequestValidation.isDurationAllowed(12 * 3600) == false)
+        #expect(RequestValidation.isDurationAllowed(8 * 3600) == false)    // retired 8h option, replaced by 10h
     }
 
     @Test("valid duration with no prior state is accepted")

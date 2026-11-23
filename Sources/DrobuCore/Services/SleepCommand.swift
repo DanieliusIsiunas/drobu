@@ -195,7 +195,7 @@ final class SleepCommand: SlashCommand {
         ("1h", "1 hour", 60 * 60),
         ("2h", "2 hours", 2 * 60 * 60),
         ("4h", "4 hours", 4 * 60 * 60),
-        ("8h", "8 hours", 8 * 60 * 60),
+        ("10h", "10 hours", 10 * 60 * 60),
     ]
 
     private static func parseDuration(id: String) -> TimeInterval? {

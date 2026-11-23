@@ -38,14 +38,14 @@ struct SleepSessionStateTests {
         #expect(state(deadlineOffset: 3600).isDeadlineTrustworthy(now: now) == true)
         #expect(state(deadlineOffset: ceiling).isDeadlineTrustworthy(now: now) == true)       // exactly at ceiling
         #expect(state(deadlineOffset: ceiling + 1).isDeadlineTrustworthy(now: now) == false)  // tampered future
-        #expect(state(deadlineOffset: 9 * 3600).isDeadlineTrustworthy(now: now) == false)
+        #expect(state(deadlineOffset: 11 * 3600).isDeadlineTrustworthy(now: now) == false)
     }
 
     @Test("duty-cycle accumulator decays by wall-clock at cap/window")
     func decay() {
-        // 1h accumulated, recorded 1h ago. Leak rate = 16h/24h = 2/3.
+        // 1h accumulated, recorded 1h ago. Leak rate = 20h/24h = 5/6.
         let decayed = state(accumulated: 3600, accumulatorAgo: 3600).decayedAccumulatedSeconds(now: now)
-        #expect(abs(decayed - 1200) < 0.001)   // 3600 - 3600*(2/3)
+        #expect(abs(decayed - 600) < 0.001)    // 3600 - 3600*(5/6)
         // Never goes negative.
         #expect(state(accumulated: 100, accumulatorAgo: 100_000).decayedAccumulatedSeconds(now: now) == 0)
         // No elapsed → no decay.
