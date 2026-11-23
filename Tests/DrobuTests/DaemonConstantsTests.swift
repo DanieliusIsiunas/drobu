@@ -71,11 +71,12 @@ struct DaemonConstantsTests {
     func protocolVersionPinned() {
         // Keep in lockstep with Sources/DrobuShared/ProtocolVersion.swift.
         // 3 = teardown added (root-state erase for in-app uninstall);
-        // 4 = 8h sessions (daemon limits raised). The
+        // 4 = 8h sessions (daemon limits raised);
+        // 5 = 10h sessions replace 8h. The
         // handshake refuses mismatched daemons, so an accidental revert would
         // silently change update behavior for every installed client — this pin
         // makes any change deliberate.
-        #expect(drobuDaemonProtocolVersion == 4)
+        #expect(drobuDaemonProtocolVersion == 5)
     }
 
     @Test("daemon identity is distinct from the app, and the client requirement pins the app (M3)")

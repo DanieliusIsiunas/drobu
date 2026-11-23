@@ -13,5 +13,7 @@ import Foundation
 /// 3 = + teardown (root-state erase for in-app uninstall); 4 = 8h sessions
 /// (max duration 4h → 8h, duty-cycle cap 8h → 16h per 24h). No wire change, but
 /// a pre-4 daemon still running after an update would refuse 8h as
-/// `durationNotAllowed` — the bump makes the client bounce it.
-public let drobuDaemonProtocolVersion: Int = 4
+/// `durationNotAllowed` — the bump makes the client bounce it; 5 = 10h sessions
+/// replace 8h (max duration 8h → 10h, duty-cycle cap 16h → 20h per 24h), bumped
+/// for the same reason: a pre-5 daemon would refuse 10h.
+public let drobuDaemonProtocolVersion: Int = 5

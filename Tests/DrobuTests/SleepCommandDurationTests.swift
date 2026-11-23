@@ -18,28 +18,28 @@ struct SleepCommandDurationTests {
         #expect(SleepCommand.durations.map { Int($0.seconds) } == SleepLimits.allowedDurationsSeconds)
     }
 
-    @Test("8 hours is offered as the longest option")
-    func eightHoursOffered() {
+    @Test("10 hours is offered as the longest option")
+    func tenHoursOffered() {
         let last = SleepCommand.durations.last
-        #expect(last?.id == "8h")
-        #expect(last?.label == "8 hours")
-        #expect(last?.seconds == TimeInterval(8 * 3600))
-        #expect(SleepLimits.maxDurationSeconds == 8 * 3600)
+        #expect(last?.id == "10h")
+        #expect(last?.label == "10 hours")
+        #expect(last?.seconds == TimeInterval(10 * 3600))
+        #expect(SleepLimits.maxDurationSeconds == 10 * 3600)
     }
 
-    @Test("an 8h Closed Lid session leaves duty-cycle room for more use the same day")
-    func eightHourSessionLeavesBudget() {
-        #expect(RequestValidation.validate(durationSeconds: 8 * 3600, now: now, priorState: nil) == nil)
-        // Right after a full 8h session (no decay yet), a 4h session still fits.
+    @Test("a 10h Closed Lid session leaves duty-cycle room for more use the same day")
+    func tenHourSessionLeavesBudget() {
+        #expect(RequestValidation.validate(durationSeconds: 10 * 3600, now: now, priorState: nil) == nil)
+        // Right after a full 10h session (no decay yet), a 4h session still fits.
         let afterOvernight = SleepSessionState(
-            deadline: now, startedAt: now.addingTimeInterval(-8 * 3600),
-            accumulatedActiveSeconds: 8 * 3600, accumulatorUpdatedAt: now
+            deadline: now, startedAt: now.addingTimeInterval(-10 * 3600),
+            accumulatedActiveSeconds: 10 * 3600, accumulatorUpdatedAt: now
         )
         #expect(RequestValidation.validate(durationSeconds: 4 * 3600, now: now, priorState: afterOvernight) == nil)
-        // Two back-to-back 8h sessions exhaust the 16h cap; a third is refused.
+        // Two back-to-back 10h sessions exhaust the 20h cap; a third is refused.
         let afterTwo = SleepSessionState(
             deadline: now, startedAt: now,
-            accumulatedActiveSeconds: 16 * 3600, accumulatorUpdatedAt: now
+            accumulatedActiveSeconds: 20 * 3600, accumulatorUpdatedAt: now
         )
         #expect(RequestValidation.validate(durationSeconds: 15 * 60, now: now, priorState: afterTwo) == .dutyCycleExceeded)
     }
